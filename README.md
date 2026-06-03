@@ -16,7 +16,7 @@ Build and expand your spaceship, mine asteroids, explore star systems, manage re
 
 ## Play Online
 
-
+https://eirikrson.github.io/Space-Industry/
 
 ## Development Status
 
