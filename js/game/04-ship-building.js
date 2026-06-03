@@ -68,6 +68,7 @@ function getModuleHealth(module) {
 
 function damageModule(module, amount) {
   if (!module || amount <= 0) return;
+  if (appState === "playing") tutorialEvent("damage");
   module.hp = Math.max(0, getModuleHealth(module) - amount);
   if (module.hp <= 0 && !module._destroyed) {
     module._destroyed = true;
@@ -353,7 +354,7 @@ function exportShipToClipboard() {
   navigator.clipboard.writeText(code)
     .then(() => flash("Ship code copied to clipboard"))
     .catch(() => {
-      window.prompt("Copy ship code:", code);
+      openInputDialog("Copy ship code", "Ship code", code, "text", () => {});
       flash("Copy ship code manually");
     });
 }
@@ -412,30 +413,31 @@ function validateImportedModulesForCurrentEditor(modules) {
 }
 
 function importShipFromCode() {
-  const code = window.prompt("Paste ship code:");
-  if (!code) return;
+  openInputDialog("Import ship", "Paste ship code", "", "text", code => {
+    if (!code) return;
 
-  try {
-    const modules = normalizeImportedShip(decodeShipData(code));
+    try {
+      const modules = normalizeImportedShip(decodeShipData(code));
 
-    if (modules.length === 0) {
-      flash("Ship code has no modules");
-      return;
-    }
+      if (modules.length === 0) {
+        flash("Ship code has no modules");
+        return;
+      }
 
-    if (!validateImportedModulesForCurrentEditor(modules)) {
+      if (!validateImportedModulesForCurrentEditor(modules)) {
+        importedShipGhost = null;
+        return;
+      }
+
+      importedShipGhost = { modules };
+      heldItem = AIR;
+      lastBlueprintKey = "";
+      flash("Ship ghost ready");
+    } catch (error) {
       importedShipGhost = null;
-      return;
+      flash("Invalid ship code");
     }
-
-    importedShipGhost = { modules };
-    heldItem = AIR;
-    lastBlueprintKey = "";
-    flash("Ship ghost ready");
-  } catch (error) {
-    importedShipGhost = null;
-    flash("Invalid ship code");
-  }
+  });
 }
 
 

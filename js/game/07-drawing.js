@@ -720,6 +720,19 @@ function formatWorldPlayTime(seconds) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+function getSeedDisplayText() {
+  if (!currentWorldIsEnd) return currentWorldSeedLabel || String(currentWorldSeed || 0);
+
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const now = Math.floor(performance.now() / 22);
+  let output = "";
+  for (let i = 0; i < 18; i++) {
+    const idx = (now + i * 17 + Math.floor(Math.sin(now * 0.37 + i) * 31)) % chars.length;
+    output += chars[(idx + chars.length) % chars.length];
+  }
+  return output;
+}
+
 function drawUI() {
   ctx.font = "15px Arial";
   ctx.textAlign = "right";
@@ -728,7 +741,8 @@ function drawUI() {
 
   const modeText = commitPending ? "Committing..." : "[B] Build mode";
 
-  ctx.fillText(modeText, VIEW.w - 15, VIEW.h - 18);
+  ctx.fillText(modeText, VIEW.w - 15, VIEW.h - 36);
+  ctx.fillText(`Seed: ${getSeedDisplayText()}`, VIEW.w - 15, VIEW.h - 18);
 
   function drawStatusBadge(text, y, active) {
     const width = 235;
@@ -768,12 +782,11 @@ function drawUI() {
     drawStatusBadge("[C] Recall drones", 109, recallSmallShips);
     drawStatusBadge("[X] Shields", 137, shieldsActive);
     drawStatusBadge("[V] Repair", 165, repairMode);
-    drawStatusBadge("[Z] Admin mode", 193, adminInstantBuild);
-    drawStatusBadge("[M] Map", 221, mapVisible);
-    drawStatusBadge("[H] Trajectory", 249, trajectoryVisible);
-    drawStatusBadge("[O] Orbit", 277, orbitModeActive);
-    drawStatusBadge("[L] Landing", 305, landingModeActive);
-    drawStatusBadge("[N] Automatic blueprint", 333, autoBlueprintRepair);
+    drawStatusBadge("[M] Map", 193, mapVisible);
+    drawStatusBadge("[H] Trajectory", 221, trajectoryVisible);
+    drawStatusBadge("[O] Orbit", 249, orbitModeActive);
+    drawStatusBadge("[L] Landing", 277, landingModeActive);
+    drawStatusBadge("[N] Automatic blueprint", 305, autoBlueprintRepair);
   }
   drawSmallShipConfigUI();
   drawResearchWindow();
@@ -1094,8 +1107,8 @@ function drawBtn(text, x, y, w, h, active) {
   ctx.lineWidth = 1;
   ctx.strokeRect(x, y, w, h);
   ctx.fillStyle = "white";
-  ctx.textAlign = "left";
-  ctx.fillText(text, x + 5, y + h / 2);
+  ctx.textAlign = "center";
+  ctx.fillText(text, x + w / 2, y + h / 2);
 }
 
 function getBuildMenuIconName(itemName) {

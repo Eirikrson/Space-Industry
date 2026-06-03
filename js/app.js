@@ -9,5 +9,6 @@ window.SPACE_INDUSTRY_SCRIPT_FILES = [
   "js/game/07-drawing.js",
   "js/game/08-simulation.js",
   "js/game/09-planet-landing.js",
+  "js/game/10-tutorial.js",
   "js/game/09-save-menu-loop.js"
 ];

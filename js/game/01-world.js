@@ -236,27 +236,27 @@ class Ship {
 }
 
 class Asteroid {
-  constructor(x, y, kind = Math.random() < 0.10 ? "ice" : "rock") {
+  constructor(x, y, kind = worldRand() < 0.10 ? "ice" : "rock") {
     this.x = x;
     this.y = y;
     this.kind = kind;
-    this.size = kind === "ice" ? 35 + Math.random() * 70 : 30 + Math.random() * 60;
-    this.angle = Math.random() * Math.PI * 2;
-    const driftAngle = Math.random() * Math.PI * 2;
-    const driftSpeed = 1.8 + Math.random() * (MAX_ASTEROID_DRIFT_SPEED - 1.8);
+    this.size = kind === "ice" ? 35 + worldRand() * 70 : 30 + worldRand() * 60;
+    this.angle = worldRand() * Math.PI * 2;
+    const driftAngle = worldRand() * Math.PI * 2;
+    const driftSpeed = 1.8 + worldRand() * (MAX_ASTEROID_DRIFT_SPEED - 1.8);
     this.vx = Math.cos(driftAngle) * driftSpeed;
     this.vy = Math.sin(driftAngle) * driftSpeed;
-    this.spin = (Math.random() - 0.5) * 0.01;
+    this.spin = (worldRand() - 0.5) * 0.01;
     this.contents = createAsteroidContents(this.kind);
     this.totalItems = getAsteroidTotal(this.contents);
     this.maxItems = this.totalItems;
     this.verts = [];
 
-    const n = 8 + Math.floor(Math.random() * 5);
+    const n = 8 + Math.floor(worldRand() * 5);
 
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
-      const r = this.size * (0.7 + Math.random() * 0.3);
+      const r = this.size * (0.7 + worldRand() * 0.3);
       this.verts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
     }
   }
@@ -434,6 +434,11 @@ function seededRand(seed) {
   };
 }
 
+let activeWorldRand = Math.random;
+function worldRand() {
+  return activeWorldRand();
+}
+
 // ── Planet type definitions ───────────────────────────────────────────────
 
 
@@ -455,10 +460,10 @@ class GalaxyPlanet {
     const dx = x - starRef.x, dy = y - starRef.y;
     this.orbitRadius = Math.sqrt(dx*dx + dy*dy);
     this.orbitAngle = Math.atan2(dy, dx);
-    this.orbitSpeed = (0.00004 + Math.random() * 0.00006) * (5000 / Math.max(this.orbitRadius, 1000));
-    this.orbitDir = Math.random() < 0.5 ? 1 : -1;
-    this.spinAngle = Math.random() * Math.PI * 2;
-    this.spinSpeed = 0.005 + Math.random() * 0.02;
+    this.orbitSpeed = (0.00004 + worldRand() * 0.00006) * (5000 / Math.max(this.orbitRadius, 1000));
+    this.orbitDir = worldRand() < 0.5 ? 1 : -1;
+    this.spinAngle = worldRand() * Math.PI * 2;
+    this.spinSpeed = 0.005 + worldRand() * 0.02;
     // Generate cloud bands (for visual)
     this.bands = [];
     const rng = seededRand(Math.floor(x + y * 7));
@@ -646,6 +651,73 @@ class BlackHole {
   }
 }
 
+class EndTwinPlanet {
+  constructor(centerX, centerY, radius, angle, colors) {
+    this.centerX = centerX;
+    this.centerY = centerY;
+    this.radius = radius;
+    this.angle = angle;
+    this.orbitRadius = radius * 0.56;
+    this.spinAngle = angle;
+    this.colors = colors;
+    this.type = "planet";
+    this.typeKey = "end";
+    this.def = { name: "Unknown Planet", colors, atmosphere: "rgba(120,180,255,0.18)", cloudColor: "#cceeff" };
+    this.x = centerX + Math.cos(angle) * this.orbitRadius;
+    this.y = centerY + Math.sin(angle) * this.orbitRadius;
+  }
+
+  update(dt) {
+    this.angle += dt * 0.006;
+    this.spinAngle += dt * 0.012;
+    this.x = this.centerX + Math.cos(this.angle) * this.orbitRadius;
+    this.y = this.centerY + Math.sin(this.angle) * this.orbitRadius;
+  }
+
+  get gravity() { return this.radius * 0.035; }
+
+  draw() {
+    const p = worldToScreen(this.x, this.y);
+    const r = this.radius * camera.scale;
+    if (p.x < -r * 2 || p.x > VIEW.w + r * 2 || p.y < -r * 2 || p.y > VIEW.h + r * 2) return;
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(this.spinAngle);
+
+    const glow = ctx.createRadialGradient(0, 0, r * 0.6, 0, 0, r * 1.45);
+    glow.addColorStop(0, "rgba(90,160,255,0.16)");
+    glow.addColorStop(1, "transparent");
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.45, 0, Math.PI * 2);
+    ctx.fillStyle = glow;
+    ctx.fill();
+
+    const grad = ctx.createRadialGradient(-r * 0.28, -r * 0.32, r * 0.05, 0, 0, r);
+    grad.addColorStop(0, this.colors[2]);
+    grad.addColorStop(0.48, this.colors[1]);
+    grad.addColorStop(1, this.colors[0]);
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    if (r > 12) {
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.clip();
+      for (let i = -3; i <= 3; i++) {
+        ctx.beginPath();
+        ctx.ellipse(0, i * r * 0.23, r * 0.95, r * 0.09, 0, 0, Math.PI * 2);
+        ctx.fillStyle = i % 2 === 0 ? "rgba(210,235,255,0.10)" : "rgba(40,70,150,0.16)";
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
+  }
+}
+
 // ── Asteroid Belt ─────────────────────────────────────────────────────────
 class AsteroidBelt {
   constructor(star, innerR, outerR, count, kind) {
@@ -653,7 +725,7 @@ class AsteroidBelt {
     this.innerR = innerR;
     this.outerR = outerR;
     this.kind = kind; // "inner" or "outer"
-    this.orbitSpeed = 0.000015 + Math.random() * 0.00001;
+    this.orbitSpeed = 0.000015 + worldRand() * 0.00001;
     this.orbitAngle = 0;
     this.rocks = [];
 
@@ -713,8 +785,8 @@ class GalaxyStar {
     this.orbitRadius = Math.sqrt(dx*dx + dy*dy);
     this.orbitAngle = Math.atan2(dy, dx);
     this.orbitSpeed = 0.000002 + 0.000003 * (1 - this.orbitRadius / CONFIG.GALAXY_RADIUS);
-    this.orbitDir = Math.random() < 0.5 ? 1 : -1;
-    this.pulseT = Math.random() * Math.PI * 2;
+    this.orbitDir = worldRand() < 0.5 ? 1 : -1;
+    this.pulseT = worldRand() * Math.PI * 2;
   }
 
   update(dt) {
@@ -762,13 +834,19 @@ class GalaxyStar {
 // ── Galaxy Generator ──────────────────────────────────────────────────────
 function generateGalaxy() {
   const CX = CONFIG.GALAXY_CENTER_X, CY = CONFIG.GALAXY_CENTER_Y;
+  const rng = seededRand(currentWorldSeed || 42);
+  activeWorldRand = rng;
+
+  if (currentWorldIsEnd) {
+    generateEndGalaxy(rng);
+    activeWorldRand = Math.random;
+    return;
+  }
 
   // Black hole at center
   blackHole = new BlackHole(CX, CY);
 
   // 10 solar systems evenly spread + some randomness
-  const rng = seededRand(42);
-
   for (let si = 0; si < CONFIG.SYSTEM_COUNT; si++) {
     const angleBase = (si / CONFIG.SYSTEM_COUNT) * Math.PI * 2;
     const angle = angleBase + (rng() - 0.5) * 0.22;
@@ -870,6 +948,98 @@ function generateGalaxy() {
   }
 
   // Nebula/dust particles for atmosphere
+  generateNebula(rng);
+  activeWorldRand = Math.random;
+}
+
+function generateEndGalaxy(rng) {
+  const CX = CONFIG.GALAXY_CENTER_X, CY = CONFIG.GALAXY_CENTER_Y;
+  blackHole = null;
+
+  const twinRadius = CONFIG.GRID_SIZE * 380;
+  planets.push(
+    new EndTwinPlanet(CX, CY, twinRadius, 0, ["#203a78", "#4d78d8", "#c7f2ff"]),
+    new EndTwinPlanet(CX, CY, twinRadius, Math.PI, ["#291d58", "#6b44bb", "#e1ccff"])
+  );
+
+  const endPlanetKeys = ["metal", "radioactive", "lava", "ice", "gas", "water", "desert"];
+
+  for (let si = 0; si < 4; si++) {
+    const angle = (si / 4) * Math.PI * 2 + (rng() - 0.5) * 0.16;
+    const dist = CONFIG.GALAXY_RADIUS * (0.62 + rng() * 0.13);
+    const sx = CX + Math.cos(angle) * dist;
+    const sy = CY + Math.sin(angle) * dist;
+    const starRadius = (1700 + rng() * 1000) * CELESTIAL_SIZE_FACTOR;
+    const starTypeIdx = Math.floor(rng() * STAR_TYPES.length);
+
+    const star = new GalaxyStar(sx, sy, starRadius, starTypeIdx);
+    star.orbitSpeed *= 1.8;
+    worldStars.push(star);
+
+    const systemPlanets = [];
+    let nextOrbit = starRadius + PLANET_ORBIT_GAP;
+    const planetCount = 7 + Math.floor(rng() * 3);
+
+    for (let pi = 0; pi < planetCount; pi++) {
+      const typeKey = pi < 3
+        ? ["metal", "radioactive", "lava"][Math.floor(rng() * 3)]
+        : endPlanetKeys[Math.floor(rng() * endPlanetKeys.length)];
+      const def = PLANET_TYPES[typeKey];
+      const radius = (def.radius[0] + rng() * (def.radius[1] - def.radius[0])) * CELESTIAL_SIZE_FACTOR * 1.12;
+      const orbitDist = nextOrbit + radius + rng() * CONFIG.GRID_SIZE * 90;
+      nextOrbit = orbitDist + radius + PLANET_ORBIT_GAP + rng() * CONFIG.GRID_SIZE * 90;
+      const planetAngle = rng() * Math.PI * 2;
+      const planet = new GalaxyPlanet(
+        sx + Math.cos(planetAngle) * orbitDist,
+        sy + Math.sin(planetAngle) * orbitDist,
+        typeKey,
+        radius,
+        star
+      );
+      planet.orbitSpeed *= 1.25;
+      systemPlanets.push(planet);
+      planets.push(planet);
+    }
+
+    const sortedPlanets = [...systemPlanets].sort((a, b) => a.orbitRadius - b.orbitRadius);
+    const beltA = sortedPlanets[Math.min(2, sortedPlanets.length - 1)];
+    const beltB = sortedPlanets[Math.min(5, sortedPlanets.length - 1)];
+    const innerBelt = new AsteroidBelt(
+      star,
+      beltA.orbitRadius + beltA.radius + CONFIG.GRID_SIZE * 55,
+      beltA.orbitRadius + beltA.radius + ASTEROID_BELT_WIDTH,
+      110,
+      "inner"
+    );
+    const outerBelt = new AsteroidBelt(
+      star,
+      beltB.orbitRadius + beltB.radius + CONFIG.GRID_SIZE * 65,
+      beltB.orbitRadius + beltB.radius + ASTEROID_BELT_WIDTH * 1.2,
+      90,
+      "outer"
+    );
+
+    solarSystems.push({ star, planets: systemPlanets, innerBelt, outerBelt });
+  }
+
+  const startStar = solarSystems[0].star;
+  STAR = startStar;
+  ship.x = startStar.x + startStar.radius * 4;
+  ship.y = startStar.y;
+  camera.x = ship.x; camera.y = ship.y;
+  buildCamera.x = ship.x; buildCamera.y = ship.y;
+
+  for (let i = 0; i < WORLD_OBJECTS.ASTEROID_COUNT * 1.4; i++) {
+    for (let tries = 0; tries < 40; tries++) {
+      const a = rng() * Math.PI * 2;
+      const d = startStar.radius * 4 + rng() * startStar.radius * 16;
+      const ast = new Asteroid(startStar.x + Math.cos(a) * d, startStar.y + Math.sin(a) * d);
+      if (isInsideCelestialBody(ast.x, ast.y, ast.size + CONFIG.GRID_SIZE * 2)) continue;
+      asteroids.push(ast);
+      break;
+    }
+  }
+
   generateNebula(rng);
 }
 

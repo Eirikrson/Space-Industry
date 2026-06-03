@@ -29,6 +29,7 @@ function takeAsteroidResource(asteroid) {
   const key = available[Math.floor(Math.random() * available.length)];
   asteroid.contents[key] -= 1;
   asteroid.totalItems = Math.max(0, asteroid.totalItems - 1);
+  if (asteroid.totalItems <= 0) notifyTutorialAsteroidMined();
 
   return key;
 }
@@ -276,6 +277,7 @@ function tryResearch(item) {
 
   unlockedResearch.add(item.name);
   newlyUnlockedResearch.add(item.name);
+  notifyTutorialResearch(item.name);
   flash(`${item.name} researched`);
   playSound("toggle", 120);
 }
@@ -325,12 +327,11 @@ function setAssemblerTarget(key) {
   if (!assemblerWindowModule) return;
 
   const targets = ensureAssemblerTargets(assemblerWindowModule);
-  const value = window.prompt(`Target ${formatResourceName(key)}:`, targets[key] || 0);
-  if (value === null) return;
-
-  targets[key] = Math.max(0, Math.floor(Number(value) || 0));
-  assemblerWindowModule.assemblerTargets = targets;
-  flash("Assembler target updated");
+  openInputDialog(`Target ${formatResourceName(key)}`, "Amount", targets[key] || 0, "number", value => {
+    targets[key] = Math.max(0, Math.floor(Number(value) || 0));
+    assemblerWindowModule.assemblerTargets = targets;
+    flash("Assembler target updated");
+  });
 }
 
 function getAssemblerProduct(module) {
@@ -425,4 +426,5 @@ function harvestAsteroid(asteroid) {
   if (collected > 0) playSound("items", 250);
   asteroid.contents = {};
   asteroid.totalItems = 0;
+  notifyTutorialAsteroidMined();
 }

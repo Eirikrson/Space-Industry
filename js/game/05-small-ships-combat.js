@@ -209,24 +209,22 @@ function setSmallShipLiquidLimit(smallShip, key) {
   if (!smallShip) return;
 
   const current = getSmallShipLiquidLimit(smallShip, key);
-  const value = window.prompt(`Load limit for ${formatResourceName(key)}:`, current);
-  if (value === null) return;
-
-  smallShip.liquidLimits = smallShip.liquidLimits || {};
-  smallShip.liquidLimits[key] = Math.max(0, Math.floor(Number(value) || 0));
-  flash("Load limit updated");
+  openInputDialog(`Load limit for ${formatResourceName(key)}`, "Amount", current, "number", value => {
+    smallShip.liquidLimits = smallShip.liquidLimits || {};
+    smallShip.liquidLimits[key] = Math.max(0, Math.floor(Number(value) || 0));
+    flash("Load limit updated");
+  });
 }
 
 function setSmallShipCargoLimit(smallShip, key) {
   if (!smallShip || key === "crew") return;
 
   const current = getSmallShipCargoLimit(smallShip, key);
-  const value = window.prompt(`Cargo limit for ${formatResourceName(key)}:`, current);
-  if (value === null) return;
-
-  smallShip.cargoLimits = smallShip.cargoLimits || {};
-  smallShip.cargoLimits[key] = Math.max(0, Math.floor(Number(value) || 0));
-  flash("Cargo limit updated");
+  openInputDialog(`Cargo limit for ${formatResourceName(key)}`, "Amount", current, "number", value => {
+    smallShip.cargoLimits = smallShip.cargoLimits || {};
+    smallShip.cargoLimits[key] = Math.max(0, Math.floor(Number(value) || 0));
+    flash("Cargo limit updated");
+  });
 }
 
 function getSmallShipFuelCap(smallShip) {
@@ -963,6 +961,9 @@ function getPlayerStrengthScore() {
 function chooseEnemyFleetDesign() {
   const strength = getPlayerStrengthScore();
   const available = ENEMY_FLEET_DESIGNS.filter(fleet => strength >= fleet.minStrength);
+  if (currentWorldIsEnd && available.length) {
+    return available[Math.max(0, available.length - 1)];
+  }
   return available[Math.floor(Math.random() * available.length)] || ENEMY_FLEET_DESIGNS[0];
 }
 
@@ -1012,13 +1013,18 @@ function spawnEnemyFleet(fleet = chooseEnemyFleetDesign()) {
 }
 
 function updateEnemySpawning() {
-  if (buildMode || enemyShips.length > Math.max(1, Math.floor(getPlayerStrengthScore() / 90))) return;
+  const enemyLimit = currentWorldIsEnd
+    ? Math.max(4, Math.floor(getPlayerStrengthScore() / 45))
+    : Math.max(1, Math.floor(getPlayerStrengthScore() / 90));
+  if (buildMode || enemyShips.length > enemyLimit) return;
 
   const now = performance.now();
   if (now < nextEnemySpawnAt) return;
 
   spawnEnemyFleet();
-  nextEnemySpawnAt = now + 45000 + Math.random() * 45000;
+  nextEnemySpawnAt = currentWorldIsEnd
+    ? now + 18000 + Math.random() * 22000
+    : now + 45000 + Math.random() * 45000;
 }
 function getNearestEnemyTargetForTurret(turretModule, rangeTiles = 12) {
   if (enemyShips.length === 0) return null;
@@ -1433,10 +1439,9 @@ function handleSmallShipConfigClick(action) {
   playSound("toggle", 120);
 
   if (action === "name") {
-    const name = window.prompt("Ship name:", smallShip.name);
-    if (name !== null) {
+    openInputDialog("Ship name", "Name", smallShip.name, "text", name => {
       smallShip.name = makeUniqueShipName(name);
-    }
+    });
   } else if (action === "mining") {
     smallShip.modeMining = !smallShip.modeMining;
     if (smallShip.modeMining) {

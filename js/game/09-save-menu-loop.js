@@ -33,6 +33,9 @@ function createSavePayload(name) {
     version: 2,
     name: name || currentSaveName || text("menu.unnamedSave"),
     savedAt: new Date().toISOString(),
+    seed: currentWorldSeed,
+    seedLabel: currentWorldSeedLabel,
+    seedMode: currentWorldIsEnd ? "End" : "normal",
     ship: stripRuntimeState({
       x: ship.x,
       y: ship.y,
@@ -71,6 +74,24 @@ function createSavePayload(name) {
   };
 }
 
+function normalizeWorldSeed(seed) {
+  const numeric = Number(seed);
+  if (Number.isFinite(numeric) && numeric >= 0) return Math.floor(numeric) >>> 0;
+  return Math.floor(Math.random() * 0xffffffff) >>> 0;
+}
+
+function setNormalWorldSeed(seed) {
+  currentWorldSeed = normalizeWorldSeed(seed);
+  currentWorldSeedLabel = String(currentWorldSeed);
+  currentWorldIsEnd = false;
+}
+
+function setEndWorldSeed() {
+  currentWorldSeed = hashSaveKey("End");
+  currentWorldSeedLabel = "End";
+  currentWorldIsEnd = true;
+}
+
 function resetGeneratedWorld() {
   worldStars.length = 0;
   solarSystems.length = 0;
@@ -78,6 +99,7 @@ function resetGeneratedWorld() {
   asteroids.length = 0;
   nebulaPatches.length = 0;
   blackHole = null;
+  mapFocusSystem = null;
   generateGalaxy();
 }
 
@@ -106,14 +128,21 @@ function resetGameRuntime() {
   motherShipModulesBackup = null;
   hangarFindShipId = null;
   highlightedHangarId = null;
+  seedDialogOpen = false;
+  pendingNewGameSlot = null;
+  pendingNewGameName = "";
+  pendingSeedInput = "";
+  uiDialog = null;
+  activeDialogField = 0;
   blueprints.length = 0;
   demolishSet.clear();
   combatBullets.length = 0;
   for (const key in keys) keys[key] = false;
 }
 
-function resetGameToNew(name) {
+function resetGameToNew(name, seed) {
   resetGameRuntime();
+  setNormalWorldSeed(seed);
 
   nextModuleId = 1;
   nextSmallShipId = 1;
@@ -168,10 +197,114 @@ function resetGameToNew(name) {
   lastAutosaveAt = performance.now();
 }
 
+function startPendingSeedGame() {
+  const seedText = pendingSeedInput.trim();
+  const seed = seedText === "" ? undefined : Number(seedText);
+  resetGameToNew(pendingNewGameName || text("menu.unnamedSave"), seed);
+  seedDialogOpen = false;
+  pendingNewGameSlot = null;
+  pendingNewGameName = "";
+  pendingSeedInput = "";
+}
+
+function openNewWorldDialog(slot) {
+  uiDialog = {
+    title: "New world",
+    fields: [
+      { id: "name", label: "World title", value: text("menu.newGameDefaultName", { slot }), placeholder: "World title", type: "text" },
+      { id: "seed", label: "Seed", value: "", placeholder: "Leer lassen fuer zufaelligen Seed", type: "number" }
+    ],
+    buttons: [
+      { id: "cancel", text: "Cancel" },
+      { id: "ok", text: "Ok", primary: true }
+    ],
+    onSubmit(values) {
+      resetGameToNew((values.name || "").trim() || text("menu.newGameDefaultName", { slot }), values.seed === "" ? undefined : Number(values.seed));
+      resetTutorialForNewWorld();
+    }
+  };
+  activeDialogField = 0;
+  canvas.focus();
+}
+
+function openInfoDialog(title, body) {
+  uiDialog = {
+    title,
+    body,
+    fields: [],
+    buttons: [{ id: "ok", text: "Ok", primary: true }]
+  };
+}
+
+function openConfirmDialog(title, body, onOk) {
+  uiDialog = {
+    title,
+    body,
+    fields: [],
+    buttons: [
+      { id: "cancel", text: "Cancel" },
+      { id: "ok", text: "Ok", primary: true }
+    ],
+    onSubmit: onOk
+  };
+}
+
+function openSaveNameDialog(slot, defaultName) {
+  uiDialog = {
+    title: text("save.namePrompt"),
+    fields: [{ id: "name", label: "Savegame name", value: defaultName, placeholder: "Savegame name", type: "text" }],
+    buttons: [
+      { id: "cancel", text: "Cancel" },
+      { id: "ok", text: "Ok", primary: true }
+    ],
+    onSubmit(values) {
+      saveGameToSlot(slot, (values.name || "").trim() || defaultName);
+    }
+  };
+  activeDialogField = 0;
+  canvas.focus();
+}
+
+function openInputDialog(title, label, defaultValue, type, onSubmit) {
+  uiDialog = {
+    title,
+    fields: [{ id: "value", label, value: String(defaultValue ?? ""), placeholder: label, type: type || "text" }],
+    buttons: [
+      { id: "cancel", text: "Cancel" },
+      { id: "ok", text: "Ok", primary: true }
+    ],
+    onSubmit(values) {
+      if (typeof onSubmit === "function") onSubmit(values.value || "");
+    }
+  };
+  activeDialogField = 0;
+  canvas.focus();
+}
+
+function startEndWorldFromBlackHole() {
+  setEndWorldSeed();
+  enemyShips.length = 0;
+  combatBullets.length = 0;
+  nextEnemySpawnAt = performance.now() + 12000;
+  ship.vx = 0;
+  ship.vy = 0;
+  ship.angularVelocity = 0;
+  resetGeneratedWorld();
+  appState = "playing";
+  buildMode = false;
+  flash("Unknown galaxy");
+  stopAllLoopSounds();
+}
+
 function loadSavePayload(payload) {
   if (!payload) return false;
 
   resetGameRuntime();
+  if (payload.seedMode === "End") {
+    setEndWorldSeed();
+  } else {
+    setNormalWorldSeed(payload.seed ?? payload.seedLabel ?? 42);
+  }
   resetGeneratedWorld();
 
   Object.keys(res).forEach(key => delete res[key]);
@@ -259,17 +392,14 @@ function requestSaveToSlot(slot) {
   const defaultName = pendingSaveName || currentSaveName || text("menu.unnamedSave");
 
   if (existing && pendingOverwriteSlot !== slot) {
-    const overwrite = window.confirm(text("save.overwriteConfirm", { name: existing.name || text("save.thisSavegame") }));
-    if (!overwrite) {
-      pendingOverwriteSlot = null;
-      return;
-    }
-    pendingOverwriteSlot = slot;
+    openConfirmDialog("Overwrite savegame", text("save.overwriteConfirm", { name: existing.name || text("save.thisSavegame") }), () => {
+      pendingOverwriteSlot = slot;
+      openSaveNameDialog(slot, defaultName);
+    });
+    return;
   }
 
-  const name = window.prompt(text("save.namePrompt"), defaultName);
-  if (name === null) return;
-  saveGameToSlot(slot, name.trim() || defaultName);
+  openSaveNameDialog(slot, defaultName);
 }
 
 function loadSaveSlot(slot) {
@@ -355,7 +485,7 @@ function makeSaveFileName(save, slot) {
 function exportSaveSlot(slot) {
   const save = readSaveSlot(slot);
   if (!save) {
-    window.alert(text("save.emptySlotAlert"));
+    openInfoDialog("Empty save slot", text("save.emptySlotAlert"));
     return true;
   }
 
@@ -398,7 +528,7 @@ function importSaveIntoSlot(slot) {
         selectedMenuSaveSlot = null;
         loadSavePayload(payload);
       } catch (error) {
-        window.alert(text("save.invalidImportAlert"));
+        openInfoDialog("Invalid savegame", text("save.invalidImportAlert"));
       }
     };
     reader.readAsText(file);
@@ -508,6 +638,23 @@ function drawMenuEnemyShip() {
   ctx.restore();
 }
 
+function drawLogoCentered(centerX, y, maxW, maxH) {
+  if (logoImage.complete && logoImage.naturalWidth > 0) {
+    const scale = Math.min(maxW / logoImage.naturalWidth, maxH / logoImage.naturalHeight);
+    const w = logoImage.naturalWidth * scale;
+    const h = logoImage.naturalHeight * scale;
+    ctx.drawImage(logoImage, centerX - w / 2, y, w, h);
+    return y + h;
+  }
+
+  ctx.fillStyle = "white";
+  ctx.font = "bold 34px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text("game.title"), centerX, y + maxH / 2);
+  return y + maxH;
+}
+
 function drawStarMenuBackground() {
   ctx.fillStyle = "#14162a";
   ctx.fillRect(0, 0, VIEW.w, VIEW.h);
@@ -549,10 +696,50 @@ function drawStarMenuBackground() {
   drawMenuEnemyShip();
 }
 
+function getStartMenuLayout() {
+  const panelW = 620;
+  const panelH = 360;
+  const x = VIEW.w / 2 - panelW / 2;
+  const y = VIEW.h / 2 - panelH / 2;
+  return {
+    x, y, panelW, panelH,
+    play: { x: VIEW.w / 2 - 135, y: y + 230, w: 270, h: 38 }
+  };
+}
+
+function drawStartMenu() {
+  drawStarMenuBackground();
+  const layout = getStartMenuLayout();
+
+  ctx.fillStyle = "rgba(4, 10, 30, 0.92)";
+  ctx.fillRect(layout.x, layout.y, layout.panelW, layout.panelH);
+  ctx.strokeStyle = "rgba(100,150,255,0.72)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(layout.x, layout.y, layout.panelW, layout.panelH);
+
+  drawLogoCentered(VIEW.w / 2, layout.y + 46, 420, 132);
+  drawBtn("Play", layout.play.x, layout.play.y, layout.play.w, layout.play.h, true);
+
+  ctx.fillStyle = "rgba(255,255,255,0.72)";
+  ctx.font = "12px Arial";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text("game.version"), VIEW.w - 16, VIEW.h - 36);
+  ctx.fillText(text("game.credits"), VIEW.w - 16, VIEW.h - 17);
+}
+
+function getStartButtonAt(mx, my) {
+  const { play } = getStartMenuLayout();
+  return mx >= play.x && mx <= play.x + play.w && my >= play.y && my <= play.y + play.h ? "play" : null;
+}
+
 function drawSaveSlot(rect, save, active = false) {
-  ctx.fillStyle = active ? "rgba(80, 190, 255, 0.72)" : "rgba(4, 10, 30, 0.86)";
+  const adminSave = !!save?.toggles?.adminInstantBuild;
+  ctx.fillStyle = adminSave
+    ? "rgba(150, 24, 34, 0.9)"
+    : active ? "rgba(80, 190, 255, 0.72)" : "rgba(4, 10, 30, 0.86)";
   ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-  ctx.strokeStyle = active ? "#ccf6ff" : "rgba(100,150,255,0.65)";
+  ctx.strokeStyle = adminSave ? "rgba(255,80,80,0.9)" : active ? "#ccf6ff" : "rgba(100,150,255,0.65)";
   ctx.lineWidth = 1;
   ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
 
@@ -565,7 +752,10 @@ function drawSaveSlot(rect, save, active = false) {
 
   ctx.fillStyle = "rgba(255,255,255,0.58)";
   ctx.font = "10px Arial";
-  ctx.fillText(save ? formatSaveDate(save.savedAt) : rect.slot === "auto" ? text("menu.lastAutomaticSave") : text("menu.clickToStart"), rect.x + 10, rect.y + 35);
+  const detail = save
+    ? `${formatSaveDate(save.savedAt)}${adminSave ? "  ADMIN" : ""}`
+    : rect.slot === "auto" ? text("menu.lastAutomaticSave") : text("menu.clickToStart");
+  ctx.fillText(detail, rect.x + 10, rect.y + 35);
 }
 
 function drawGameTitlePanel(subtitle) {
@@ -576,15 +766,13 @@ function drawGameTitlePanel(subtitle) {
   ctx.lineWidth = 1;
   ctx.strokeRect(layout.x, layout.y, layout.panelW, layout.panelH);
 
-  ctx.fillStyle = "white";
-  ctx.font = "bold 34px Arial";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(text("game.title"), VIEW.w / 2, layout.y + 58);
+  const logoBottom = drawLogoCentered(VIEW.w / 2, layout.y + 24, 330, 78);
 
   ctx.font = "13px Arial";
   ctx.fillStyle = "rgba(255,255,255,0.72)";
-  ctx.fillText(subtitle, VIEW.w / 2, layout.y + 94);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(subtitle, VIEW.w / 2, Math.max(layout.y + 108, logoBottom + 14));
   return layout;
 }
 
@@ -605,6 +793,328 @@ function drawMainMenu() {
   ctx.fillText(text("game.credits"), VIEW.w - 16, VIEW.h - 17);
 
   drawMenuSaveActionDialog();
+  drawSeedDialog();
+  drawUiDialog();
+}
+
+function getSeedDialogLayout() {
+  const w = 360;
+  const h = 190;
+  const x = VIEW.w / 2 - w / 2;
+  const y = VIEW.h / 2 - h / 2;
+  return {
+    x, y, w, h,
+    input: { x: x + 35, y: y + 74, w: w - 70, h: 34 },
+    play: { x: x + 35, y: y + 126, w: 135, h: 34 },
+    cancel: { x: x + w - 170, y: y + 126, w: 135, h: 34 }
+  };
+}
+
+function drawSeedDialog() {
+  if (!seedDialogOpen) return;
+  const layout = getSeedDialogLayout();
+
+  ctx.fillStyle = "rgba(0,0,0,0.48)";
+  ctx.fillRect(0, 0, VIEW.w, VIEW.h);
+  ctx.fillStyle = "rgba(4, 10, 30, 0.97)";
+  ctx.fillRect(layout.x, layout.y, layout.w, layout.h);
+  ctx.strokeStyle = "rgba(100,150,255,0.82)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(layout.x, layout.y, layout.w, layout.h);
+
+  ctx.fillStyle = "white";
+  ctx.font = "bold 15px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("World seed", VIEW.w / 2, layout.y + 28);
+
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.fillRect(layout.input.x, layout.input.y, layout.input.w, layout.input.h);
+  ctx.strokeStyle = "#66aaff";
+  ctx.strokeRect(layout.input.x, layout.input.y, layout.input.w, layout.input.h);
+
+  ctx.font = "13px Arial";
+  ctx.textAlign = "left";
+  ctx.fillStyle = pendingSeedInput ? "white" : "rgba(255,255,255,0.42)";
+  ctx.fillText(pendingSeedInput || "Leer lassen fuer zufaelligen Seed", layout.input.x + 10, layout.input.y + layout.input.h / 2);
+
+  drawBtn("Play", layout.play.x, layout.play.y, layout.play.w, layout.play.h, true);
+  drawBtn("Cancel", layout.cancel.x, layout.cancel.y, layout.cancel.w, layout.cancel.h, false);
+}
+
+function getSeedDialogButtonAt(mx, my) {
+  if (!seedDialogOpen) return null;
+  const layout = getSeedDialogLayout();
+  if (mx >= layout.play.x && mx <= layout.play.x + layout.play.w && my >= layout.play.y && my <= layout.play.y + layout.play.h) return "play";
+  if (mx >= layout.cancel.x && mx <= layout.cancel.x + layout.cancel.w && my >= layout.cancel.y && my <= layout.cancel.y + layout.cancel.h) return "cancel";
+  if (mx >= layout.x && mx <= layout.x + layout.w && my >= layout.y && my <= layout.y + layout.h) return "dialog";
+  return "outside";
+}
+
+function getUiDialogLayout() {
+  const w = Math.min(420, VIEW.w - 48);
+  const fieldCount = uiDialog?.fields?.length || 0;
+  const bodyLines = uiDialog?.body ? Math.ceil(String(uiDialog.body).length / 48) : 0;
+  const h = Math.max(180, 120 + fieldCount * 58 + bodyLines * 22);
+  const x = VIEW.w / 2 - w / 2;
+  const y = VIEW.h / 2 - h / 2;
+  const buttons = uiDialog?.buttons || [];
+  return {
+    x, y, w, h,
+    fields: (uiDialog?.fields || []).map((field, index) => ({ x: x + 35, y: y + 66 + index * 58, w: w - 70, h: 34 })),
+    buttons: buttons.map((button, index) => {
+      const bw = buttons.length === 1 ? 120 : 135;
+      const gap = 18;
+      const total = buttons.length * bw + (buttons.length - 1) * gap;
+      return { id: button.id, x: x + w / 2 - total / 2 + index * (bw + gap), y: y + h - 50, w: bw, h: 34 };
+    })
+  };
+}
+
+function drawWrappedDialogText(body, x, y, maxWidth) {
+  if (!body) return y;
+  ctx.font = "13px Arial";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "rgba(255,255,255,0.78)";
+  const words = String(body).split(/\s+/);
+  let line = "";
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width > maxWidth && line) {
+      ctx.fillText(line, x, y);
+      y += 20;
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) {
+    ctx.fillText(line, x, y);
+    y += 20;
+  }
+  return y;
+}
+
+function ensureDialogFieldState(field) {
+  field.value = String(field.value ?? "");
+  if (field.cursor === undefined) field.cursor = field.value.length;
+  field.cursor = Math.max(0, Math.min(field.value.length, field.cursor));
+  if (field.selectionStart === undefined) field.selectionStart = field.cursor;
+  if (field.selectionEnd === undefined) field.selectionEnd = field.cursor;
+  field.selectionStart = Math.max(0, Math.min(field.value.length, field.selectionStart));
+  field.selectionEnd = Math.max(0, Math.min(field.value.length, field.selectionEnd));
+  return field;
+}
+
+function getDialogFieldSelection(field) {
+  ensureDialogFieldState(field);
+  return {
+    start: Math.min(field.selectionStart, field.selectionEnd),
+    end: Math.max(field.selectionStart, field.selectionEnd)
+  };
+}
+
+function clearDialogFieldSelection(field) {
+  field.selectionStart = field.cursor;
+  field.selectionEnd = field.cursor;
+}
+
+function setDialogFieldCursor(field, cursor, selecting = false) {
+  ensureDialogFieldState(field);
+  const next = Math.max(0, Math.min(field.value.length, cursor));
+  if (selecting) {
+    field.selectionEnd = next;
+  } else {
+    field.selectionStart = next;
+    field.selectionEnd = next;
+  }
+  field.cursor = next;
+}
+
+function selectDialogFieldText(field) {
+  ensureDialogFieldState(field);
+  field.cursor = field.value.length;
+  field.selectionStart = 0;
+  field.selectionEnd = field.value.length;
+}
+
+function insertDialogFieldText(field, textValue) {
+  ensureDialogFieldState(field);
+  const selection = getDialogFieldSelection(field);
+  const before = field.value.slice(0, selection.start);
+  const after = field.value.slice(selection.end);
+  const nextText = String(textValue || "");
+  field.value = before + nextText + after;
+  setDialogFieldCursor(field, before.length + nextText.length);
+}
+
+function deleteDialogFieldBackward(field) {
+  ensureDialogFieldState(field);
+  const selection = getDialogFieldSelection(field);
+  if (selection.start !== selection.end) {
+    insertDialogFieldText(field, "");
+    return;
+  }
+  if (field.cursor <= 0) return;
+  field.value = field.value.slice(0, field.cursor - 1) + field.value.slice(field.cursor);
+  setDialogFieldCursor(field, field.cursor - 1);
+}
+
+function deleteDialogFieldForward(field) {
+  ensureDialogFieldState(field);
+  const selection = getDialogFieldSelection(field);
+  if (selection.start !== selection.end) {
+    insertDialogFieldText(field, "");
+    return;
+  }
+  if (field.cursor >= field.value.length) return;
+  field.value = field.value.slice(0, field.cursor) + field.value.slice(field.cursor + 1);
+  setDialogFieldCursor(field, field.cursor);
+}
+
+function getDialogCursorFromMouse(field, rect, mx) {
+  ensureDialogFieldState(field);
+  ctx.font = "13px Arial";
+  const textX = rect.x + 10;
+  const localX = Math.max(0, mx - textX);
+  let best = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i <= field.value.length; i++) {
+    const width = ctx.measureText(field.value.slice(0, i)).width;
+    const dist = Math.abs(width - localX);
+    if (dist < bestDist) {
+      best = i;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+function drawUiDialog() {
+  if (!uiDialog) return;
+  const layout = getUiDialogLayout();
+
+  ctx.fillStyle = "rgba(0,0,0,0.48)";
+  ctx.fillRect(0, 0, VIEW.w, VIEW.h);
+  ctx.fillStyle = "rgba(4, 10, 30, 0.97)";
+  ctx.fillRect(layout.x, layout.y, layout.w, layout.h);
+  ctx.strokeStyle = "rgba(100,150,255,0.82)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(layout.x, layout.y, layout.w, layout.h);
+
+  ctx.fillStyle = "white";
+  ctx.font = "bold 15px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(uiDialog.title || "", VIEW.w / 2, layout.y + 28);
+
+  let bodyY = layout.y + 58;
+  if (uiDialog.body) bodyY = drawWrappedDialogText(uiDialog.body, layout.x + 35, bodyY, layout.w - 70);
+
+  for (let i = 0; i < (uiDialog.fields || []).length; i++) {
+    const field = ensureDialogFieldState(uiDialog.fields[i]);
+    const rect = layout.fields[i];
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.strokeStyle = i === activeDialogField ? "#ccf6ff" : "#66aaff";
+    ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.font = "10px Arial";
+    ctx.textAlign = "left";
+    ctx.fillStyle = "rgba(255,255,255,0.62)";
+    ctx.fillText(field.label, rect.x, rect.y - 8);
+    ctx.font = "13px Arial";
+    const textX = rect.x + 10;
+    const textY = rect.y + rect.h / 2;
+    const displayText = field.value || field.placeholder || "";
+    const selection = getDialogFieldSelection(field);
+
+    if (field.value && selection.start !== selection.end) {
+      const selX = textX + ctx.measureText(field.value.slice(0, selection.start)).width;
+      const selW = ctx.measureText(field.value.slice(selection.start, selection.end)).width;
+      ctx.fillStyle = "rgba(80, 190, 255, 0.42)";
+      ctx.fillRect(selX, rect.y + 7, selW, rect.h - 14);
+    }
+
+    ctx.fillStyle = field.value ? "white" : "rgba(255,255,255,0.42)";
+    ctx.fillText(displayText, textX, textY);
+
+    if (i === activeDialogField && field.value) {
+      const caretX = textX + ctx.measureText(field.value.slice(0, field.cursor)).width;
+      const blink = Math.floor(performance.now() / 480) % 2 === 0;
+      if (blink || selection.start !== selection.end) {
+        ctx.strokeStyle = "#ccf6ff";
+        ctx.beginPath();
+        ctx.moveTo(caretX, rect.y + 7);
+        ctx.lineTo(caretX, rect.y + rect.h - 7);
+        ctx.stroke();
+      }
+    } else if (i === activeDialogField && !field.value) {
+      const blink = Math.floor(performance.now() / 480) % 2 === 0;
+      if (blink) {
+        ctx.strokeStyle = "#ccf6ff";
+        ctx.beginPath();
+        ctx.moveTo(textX, rect.y + 7);
+        ctx.lineTo(textX, rect.y + rect.h - 7);
+        ctx.stroke();
+      }
+    }
+  }
+
+  for (const button of layout.buttons) {
+    const config = uiDialog.buttons.find(item => item.id === button.id);
+    drawBtn(config.text, button.x, button.y, button.w, button.h, !!config.primary);
+  }
+}
+
+function submitUiDialog(buttonId = "ok") {
+  if (!uiDialog) return;
+  const dialog = uiDialog;
+  if (buttonId === "cancel") {
+    uiDialog = null;
+    return;
+  }
+  const values = Object.fromEntries((dialog.fields || []).map(field => [field.id, field.value || ""]));
+  uiDialog = null;
+  if (typeof dialog.onSubmit === "function") dialog.onSubmit(values);
+}
+
+function handleUiDialogClick(mx, my) {
+  if (!uiDialog) return false;
+  const layout = getUiDialogLayout();
+
+  for (let i = 0; i < layout.fields.length; i++) {
+    const rect = layout.fields[i];
+    if (mx >= rect.x && mx <= rect.x + rect.w && my >= rect.y && my <= rect.y + rect.h) {
+      activeDialogField = i;
+      setDialogFieldCursor(uiDialog.fields[i], getDialogCursorFromMouse(uiDialog.fields[i], rect, mx));
+      canvas.focus();
+      return true;
+    }
+  }
+
+  for (const button of layout.buttons) {
+    if (mx >= button.x && mx <= button.x + button.w && my >= button.y && my <= button.y + button.h) {
+      submitUiDialog(button.id);
+      return true;
+    }
+  }
+  return true;
+}
+
+function handleUiDialogDoubleClick(mx, my) {
+  if (!uiDialog) return false;
+  const layout = getUiDialogLayout();
+  for (let i = 0; i < layout.fields.length; i++) {
+    const rect = layout.fields[i];
+    if (mx >= rect.x && mx <= rect.x + rect.w && my >= rect.y && my <= rect.y + rect.h) {
+      activeDialogField = i;
+      selectDialogFieldText(uiDialog.fields[i]);
+      canvas.focus();
+      return true;
+    }
+  }
+  return false;
 }
 
 function getMenuSaveActionLayout() {
@@ -660,9 +1170,9 @@ function drawMenuSaveActionDialog() {
   ctx.fillRect(layout.del.x, layout.del.y, layout.del.w, layout.del.h);
   ctx.fillStyle = "white";
   ctx.font = "11px Arial";
-  ctx.textAlign = "left";
+  ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text("buttons.delete"), layout.del.x + 5, layout.del.y + layout.del.h / 2);
+  ctx.fillText(text("buttons.delete"), layout.del.x + layout.del.w / 2, layout.del.y + layout.del.h / 2);
   ctx.strokeStyle = "rgba(255,80,80,0.9)";
   ctx.strokeRect(layout.del.x, layout.del.y, layout.del.w, layout.del.h);
 }
@@ -726,8 +1236,48 @@ function getPauseButtonAt(mx, my) {
   return null;
 }
 
+let inactiveOverlayDrawn = false;
+
+function drawInactiveWindowOverlay() {
+  ctx.setTransform(VIEW.dpr, 0, 0, VIEW.dpr, 0, 0);
+  ctx.fillStyle = "rgba(0,0,0,0.38)";
+  ctx.fillRect(0, 0, VIEW.w, VIEW.h);
+  ctx.fillStyle = "rgba(255,255,255,0.82)";
+  ctx.font = "bold 16px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("PAUSED", VIEW.w / 2, VIEW.h / 2);
+}
+
 function handleGameInterfaceClick(mx, my) {
+  if (handleUiDialogClick(mx, my)) return true;
+
+  if (appState === "start") {
+    if (getStartButtonAt(mx, my) === "play") {
+      appState = "menu";
+      playSound("toggle", 120);
+      return true;
+    }
+    return false;
+  }
+
   if (appState === "menu") {
+    if (seedDialogOpen) {
+      const seedAction = getSeedDialogButtonAt(mx, my);
+      if (seedAction === "play") {
+        startPendingSeedGame();
+        return true;
+      }
+      if (seedAction === "cancel" || seedAction === "outside") {
+        seedDialogOpen = false;
+        pendingNewGameSlot = null;
+        pendingNewGameName = "";
+        pendingSeedInput = "";
+        return true;
+      }
+      return seedAction === "dialog";
+    }
+
     const action = getMenuSaveActionButtonAt(mx, my);
     if (action === "play") {
       const slot = selectedMenuSaveSlot;
@@ -736,10 +1286,7 @@ function handleGameInterfaceClick(mx, my) {
       if (save) return loadSaveSlot(slot);
 
       if (slot === "auto") return true;
-      const defaultName = text("menu.newGameDefaultName", { slot });
-      const name = window.prompt(text("menu.newGameNamePrompt"), defaultName);
-      if (name === null) return true;
-      resetGameToNew(name.trim() || defaultName);
+      openNewWorldDialog(slot);
       return true;
     }
     if (action === "export") {
@@ -755,14 +1302,13 @@ function handleGameInterfaceClick(mx, my) {
     if (action === "delete") {
       const save = readSaveSlot(selectedMenuSaveSlot);
       if (!save) {
-        window.alert(text("save.emptySlotAlert"));
+        openInfoDialog("Empty save slot", text("save.emptySlotAlert"));
         return true;
       }
-      const ok = window.confirm(text("save.deleteConfirm", { name: save.name || text("save.thisSavegame") }));
-      if (ok) {
+      openConfirmDialog("Delete savegame", text("save.deleteConfirm", { name: save.name || text("save.thisSavegame") }), () => {
         localStorage.removeItem(getSaveSlotKey(selectedMenuSaveSlot));
         selectedMenuSaveSlot = null;
-      }
+      });
       return true;
     }
     if (action === "dialog") return true;
@@ -810,12 +1356,33 @@ function handleGameInterfaceClick(mx, my) {
 function loop(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
-  const simulationActive = appState === "playing" && appWindowActive;
+
+  if (!appWindowActive) {
+    stopAllLoopSounds();
+    if (!inactiveOverlayDrawn) {
+      drawInactiveWindowOverlay();
+      inactiveOverlayDrawn = true;
+    }
+    requestAnimationFrame(loop);
+    return;
+  }
+
+  inactiveOverlayDrawn = false;
+
+  const simulationActive = appState === "playing" && appWindowActive && !shouldBlockSimulationForOverlay();
   const stepDt = simulationActive ? dt : 0;
   if (simulationActive) worldPlayTime += dt;
+  if (appState === "playing" && appWindowActive && !shouldBlockSimulationForOverlay()) updateTutorial(dt);
 
   ctx.setTransform(VIEW.dpr, 0, 0, VIEW.dpr, 0, 0);
   ctx.clearRect(0, 0, VIEW.w, VIEW.h);
+
+  if (appState === "start") {
+    updateMenuThrusterSound(true);
+    drawStartMenu();
+    requestAnimationFrame(loop);
+    return;
+  }
 
   if (appState === "menu") {
     updateMenuThrusterSound(true);
@@ -919,6 +1486,8 @@ function loop(now) {
   drawOrbitIndicator();
   drawMapOverlay();
   drawTooltip();
+  drawTutorialOverlay();
+  drawUiDialog();
 
   if (appState === "paused") {
     drawPauseMenu();

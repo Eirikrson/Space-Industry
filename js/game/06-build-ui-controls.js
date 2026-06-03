@@ -559,6 +559,7 @@ function openBuildMode() {
   camera.scale = Math.max(camera.scale, MIN_BUILD_CAMERA_SCALE);
   buildCamera.x = ship.x;
   buildCamera.y = ship.y;
+  notifyTutorialBuildOpened();
   flash("Build mode");
   playSound("toggle", 120);
 }
@@ -638,13 +639,130 @@ function adminJumpForward() {
   playSound("toggle", 120);
 }
 
+function getDigitFromKeyEvent(e, key) {
+  if (/^\d$/.test(key)) return key;
+  if (/^digit\d$/.test(e.code.toLowerCase()) || /^numpad\d$/.test(e.code.toLowerCase())) {
+    return e.code.slice(-1);
+  }
+  return "";
+}
+
+function handleAdminSecretKey(e, key) {
+  const startsSecret = key === "/" || (e.shiftKey && e.code === "Digit7");
+
+  if (startsSecret) {
+    adminSecretInput = "/";
+    e.preventDefault();
+    return true;
+  }
+
+  if (!adminSecretInput) return false;
+
+  const digit = getDigitFromKeyEvent(e, key);
+  if (digit) {
+    adminSecretInput += digit;
+    if (adminSecretInput.length > 7) adminSecretInput = "";
+    e.preventDefault();
+    return true;
+  }
+
+  if (key === "enter") {
+    if (adminSecretInput === "/528491") {
+      adminInstantBuild = !adminInstantBuild;
+      flash(adminInstantBuild ? "Admin mode on" : "Admin mode off");
+      playSound("toggle", 120);
+    }
+    adminSecretInput = "";
+    e.preventDefault();
+    return true;
+  }
+
+  if (key === "escape" || key === "backspace") {
+    adminSecretInput = "";
+    e.preventDefault();
+    return true;
+  }
+
+  adminSecretInput = "";
+  return false;
+}
+
 window.addEventListener("keydown", e => {
   unlockAudio();
 
   const key = e.key.toLowerCase();
   keys[key] = true;
 
+  if (uiDialog) {
+    const field = uiDialog.fields?.[activeDialogField];
+    if (key === "tab") {
+      activeDialogField = (activeDialogField + 1) % Math.max(1, uiDialog.fields.length);
+    } else if (key === "enter") {
+      submitUiDialog("ok");
+    } else if (key === "escape") {
+      submitUiDialog("cancel");
+    } else if (key === "backspace" && field) {
+      deleteDialogFieldBackward(field);
+    } else if (key === "delete" && field) {
+      deleteDialogFieldForward(field);
+    } else if (key === "arrowleft" && field) {
+      setDialogFieldCursor(field, field.cursor - 1, e.shiftKey);
+    } else if (key === "arrowright" && field) {
+      setDialogFieldCursor(field, field.cursor + 1, e.shiftKey);
+    } else if (key === "home" && field) {
+      setDialogFieldCursor(field, 0, e.shiftKey);
+    } else if (key === "end" && field) {
+      setDialogFieldCursor(field, field.value.length, e.shiftKey);
+    } else if ((e.ctrlKey || e.metaKey) && key === "a" && field) {
+      selectDialogFieldText(field);
+    } else if (field) {
+      const digit = getDigitFromKeyEvent(e, key);
+      if (field.type === "number") {
+        const selection = getDialogFieldSelection(field);
+        const nextLength = field.value.length - (selection.end - selection.start) + 1;
+        if (digit && nextLength <= 16) insertDialogFieldText(field, digit);
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+        insertDialogFieldText(field, e.key);
+      }
+    }
+    keys[key] = false;
+    e.preventDefault();
+    return;
+  }
+
+  if (seedDialogOpen) {
+    const digit = getDigitFromKeyEvent(e, key);
+    if (digit && pendingSeedInput.length < 16) {
+      pendingSeedInput += digit;
+    } else if (key === "backspace") {
+      pendingSeedInput = pendingSeedInput.slice(0, -1);
+    } else if (key === "enter") {
+      startPendingSeedGame();
+    } else if (key === "escape") {
+      seedDialogOpen = false;
+      pendingNewGameSlot = null;
+      pendingNewGameName = "";
+      pendingSeedInput = "";
+    }
+    keys[key] = false;
+    e.preventDefault();
+    return;
+  }
+
+  if (handleAdminSecretKey(e, key)) {
+    keys[key] = false;
+    return;
+  }
+
   if (appState !== "playing") {
+    if (key === "escape" && appState === "menu") {
+      appState = "start";
+      selectedMenuSaveSlot = null;
+      saveSelectionMode = null;
+      pendingSavePayload = null;
+      pendingOverwriteSlot = null;
+      playSound("toggle", 120);
+    }
     if (key === "escape" && appState === "paused") {
       appState = "playing";
       saveSelectionMode = null;
@@ -715,12 +833,6 @@ window.addEventListener("keydown", e => {
   if (key === "v" && !buildMode) {
     repairMode = !repairMode;
     flash(repairMode ? "Repair mode on" : "Repair mode off");
-    playSound("toggle", 120);
-  }
-
-  if (key === "z" && !buildMode) {
-    adminInstantBuild = !adminInstantBuild;
-    flash(adminInstantBuild ? "Admin mode on" : "Admin mode off");
     playSound("toggle", 120);
   }
 
@@ -839,7 +951,12 @@ window.addEventListener("keyup", e => {
 
 window.addEventListener("mousedown", e => {
   unlockAudio();
+  canvas.focus();
+  updateMouseFromEvent(e);
   playSound("mouse", 40);
+
+  if (handleTutorialClick(mouse.x, mouse.y)) return;
+  if (handleUiDialogClick(mouse.x, mouse.y)) return;
 
   if (appState !== "playing") {
     handleGameInterfaceClick(mouse.x, mouse.y);
@@ -1025,19 +1142,31 @@ function updateMouseFromEvent(e) {
 window.addEventListener("mousemove", updateMouseFromEvent);
 window.addEventListener("pointermove", updateMouseFromEvent);
 
-document.addEventListener("visibilitychange", () => {
-  appWindowActive = !document.hidden;
+function updateAppWindowActive() {
+  appWindowActive = !document.hidden && appWindowFocused;
   lastTime = performance.now();
+  if (!appWindowActive) stopAllLoopSounds();
+}
+
+document.addEventListener("visibilitychange", () => {
+  updateAppWindowActive();
+});
+
+window.addEventListener("dblclick", e => {
+  updateMouseFromEvent(e);
+  if (handleUiDialogDoubleClick(mouse.x, mouse.y)) {
+    e.preventDefault();
+  }
 });
 
 window.addEventListener("blur", () => {
-  appWindowActive = false;
-  lastTime = performance.now();
+  appWindowFocused = false;
+  updateAppWindowActive();
 });
 
 window.addEventListener("focus", () => {
-  appWindowActive = true;
-  lastTime = performance.now();
+  appWindowFocused = true;
+  updateAppWindowActive();
 });
 
 window.addEventListener("wheel", e => {

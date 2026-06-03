@@ -121,7 +121,9 @@ function processCommit() {
             stillPending.push(bp);
             continue;
           }
-          next.push({ id: nextModuleId++, x: bp.x, y: bp.y, type: bp.type, w: bp.w, h: bp.h, rot: bp.rot || 0, tankContent: bp.tankContent, tankCap: bp.tankCap, buildCostPaid: false });
+          const builtModule = { id: nextModuleId++, x: bp.x, y: bp.y, type: bp.type, w: bp.w, h: bp.h, rot: bp.rot || 0, tankContent: bp.tankContent, tankCap: bp.tankCap, buildCostPaid: false };
+          next.push(builtModule);
+          notifyTutorialModuleBuilt(builtModule.type);
           placedAny = true;
         } else {
           stillPending.push(bp);
@@ -254,7 +256,9 @@ function processCommit() {
     for (let i = 0; i < placeable.length; i++) {
       const bp = placeable[i];
       if (payCost(BUILD_COSTS[bp.type])) {
-        current.push({ id: nextModuleId++, x: bp.x, y: bp.y, type: bp.type, w: bp.w, h: bp.h, rot: bp.rot || 0, tankContent: bp.tankContent, tankCap: bp.tankCap, buildCostPaid: true });
+        const builtModule = { id: nextModuleId++, x: bp.x, y: bp.y, type: bp.type, w: bp.w, h: bp.h, rot: bp.rot || 0, tankContent: bp.tankContent, tankCap: bp.tankCap, buildCostPaid: true };
+        current.push(builtModule);
+        notifyTutorialModuleBuilt(builtModule.type);
         // Find and remove this bp from bps array
         const idx = bps.indexOf(bp);
         if (idx !== -1) bps.splice(idx, 1);
@@ -280,6 +284,7 @@ function processCommit() {
         if (payCost(BUILD_COSTS[bp.type])) {
           const toPlace = { id: nextModuleId++, x: bp.x, y: bp.y, type: bp.type, w: bp.w, h: bp.h, rot: bp.rot || 0, tankContent: bp.tankContent, tankCap: bp.tankCap, buildCostPaid: true };
           placedModules.push(toPlace);
+          notifyTutorialModuleBuilt(toPlace.type);
           const idx = bps.indexOf(bp);
           if (idx !== -1) bps.splice(idx, 1);
           processedOne = true;
@@ -592,6 +597,11 @@ function updateResources(dt) {
 }
 
 function destroyShip(message, source) {
+  if (source?.type === "blackhole" && appState === "playing") {
+    startEndWorldFromBlackHole();
+    return;
+  }
+
   ship.vx = 0;
   ship.vy = 0;
   ship.angularVelocity = 0;
