@@ -1,0 +1,277 @@
+{
+  "IMAGE_SPRITES": {
+    "Energy": {
+      "src": "Graphics/ItemIcons/Energy.png",
+      "frames": 1
+    },
+    "Ammo": {
+      "src": "Graphics/ItemIcons/Ammo.png",
+      "frames": 1
+    },
+    "Cables": {
+      "src": "Graphics/ItemIcons/Cables.png",
+      "frames": 1
+    },
+    "Carbon": {
+      "src": "Graphics/ItemIcons/Carbon.png",
+      "frames": 1
+    },
+    "Circuits": {
+      "src": "Graphics/ItemIcons/Circuits.png",
+      "frames": 1
+    },
+    "Copper": {
+      "src": "Graphics/ItemIcons/Copper.png",
+      "frames": 1
+    },
+    "CopperPlate": {
+      "src": "Graphics/ItemIcons/CopperPlate.png",
+      "frames": 1
+    },
+    "Crew": {
+      "src": "Graphics/ItemIcons/Crew.png",
+      "frames": 1
+    },
+    "Deuterium": {
+      "src": "Graphics/ItemIcons/Deuterium.png",
+      "frames": 1
+    },
+    "Helium3": {
+      "src": "Graphics/ItemIcons/Helium3.png",
+      "frames": 1
+    },
+    "Food": {
+      "src": "Graphics/ItemIcons/FoodServings.png",
+      "frames": 1
+    },
+    "Fuel": {
+      "src": "Graphics/ItemIcons/Fuel.png",
+      "frames": 1
+    },
+    "Gears": {
+      "src": "Graphics/ItemIcons/Gears.png",
+      "frames": 1
+    },
+    "Hydrogen": {
+      "src": "Graphics/ItemIcons/Hydrogen.png",
+      "frames": 1
+    },
+    "Iron": {
+      "src": "Graphics/ItemIcons/Iron.png",
+      "frames": 1
+    },
+    "IronPlate": {
+      "src": "Graphics/ItemIcons/IronPlate.png",
+      "frames": 1
+    },
+    "Nickel": {
+      "src": "Graphics/ItemIcons/Nickel.png",
+      "frames": 1
+    },
+    "Oxygen": {
+      "src": "Graphics/ItemIcons/Oxygen.png",
+      "frames": 1
+    },
+    "Silicon": {
+      "src": "Graphics/ItemIcons/Silicon.png",
+      "frames": 1
+    },
+    "Steam": {
+      "src": "Graphics/ItemIcons/Steam.png",
+      "frames": 1
+    },
+    "Tritium": {
+      "src": "Graphics/ItemIcons/Tritium.png",
+      "frames": 1
+    },
+    "Uranium": {
+      "src": "Graphics/ItemIcons/Uranium.png",
+      "frames": 1
+    },
+    "Water": {
+      "src": "Graphics/ItemIcons/Water.png",
+      "frames": 1
+    },
+    "Battery": {
+      "src": "Graphics/Machines/Battery.png",
+      "frames": 1
+    },
+    "Asteroid Collector": {
+      "src": "Graphics/Machines/AsteroidCollector.png",
+      "frames": 1
+    },
+    "Drill": {
+      "src": "Graphics/Machines/Drill.png",
+      "frames": 3,
+      "speed": 50
+    },
+    "Scooper": {
+      "src": "Graphics/Machines/Scooper.png",
+      "frames": 1
+    },
+    "Solar Wind Collector": {
+      "src": "Graphics/Machines/SolarWindCollector.png",
+      "frames": 16,
+      "speed": 80
+    },
+    "Reactor": {
+      "src": "Graphics/Machines/Reactor.png",
+      "frames": 4,
+      "speed": 300
+    },
+    "Fusion Reactor": {
+      "src": "Graphics/Machines/FusionReactor.png",
+      "frames": 6,
+      "speed": 200
+    },
+    "Solar Panel": {
+      "src": "Graphics/Machines/SolarPanel.png",
+      "frames": 1
+    },
+    "Turbine": {
+      "src": "Graphics/Machines/Turbine.png",
+      "frames": 5,
+      "speed": 100
+    },
+    "Condenserturbine": {
+      "src": "Graphics/Machines/Condenserturbine.png",
+      "frames": 1
+    },
+    "Tank MK1": {
+      "src": "Graphics/Machines/TankMK1.png",
+      "frames": 1
+    },
+    "Tank MK2": {
+      "src": "Graphics/Machines/TankMK2.png",
+      "frames": 1
+    },
+    "Fuel Processor": {
+      "src": "Graphics/Machines/FuelProcessor.png",
+      "frames": 4,
+      "speed": 200
+    },
+    "Computer": {
+      "src": "Graphics/Machines/Computer.png",
+      "frames": 2,
+      "speed": 1000
+    },
+    "Electrolyser": {
+      "src": "Graphics/Machines/Electrolyser.png",
+      "frames": 4,
+      "speed": 200
+    },
+    "Smelter": {
+      "src": "Graphics/Machines/Smelter.png",
+      "frames": 4,
+      "speed": 500
+    },
+    "Assembler": {
+      "src": "Graphics/Machines/Assembler.png",
+      "frames": 6,
+      "speed": 500
+    },
+    "Laboratory": {
+      "src": "Graphics/Machines/Laboratory.png",
+      "frames": 16,
+      "speed": 50
+    },
+    "Warehouse MK1": {
+      "src": "Graphics/Machines/WarehouseMK1.png",
+      "frames": 1
+    },
+    "Warehouse MK2": {
+      "src": "Graphics/Machines/WarehouseMK2.png",
+      "frames": 1
+    },
+    "Shield Generator": {
+      "src": "Graphics/Machines/ShieldGenerator.png",
+      "frames": 1
+    },
+    "Hangar MK1": {
+      "src": "Graphics/Machines/HangarMK1.png",
+      "frames": 1
+    },
+    "Hangar MK2": {
+      "src": "Graphics/Machines/HangarMK2.png",
+      "frames": 1
+    },
+    "Hangar MK3": {
+      "src": "Graphics/Machines/HangarMK3.png",
+      "frames": 1
+    },
+    "Main Thruster Off": {
+      "src": "Graphics/Machines/MainThrusterOff.png",
+      "frames": 1
+    },
+    "Main Thruster On": {
+      "src": "Graphics/Machines/MainThrusterOn.png",
+      "frames": 2,
+      "speed": 50
+    },
+    "RCS Thruster Off": {
+      "src": "Graphics/Machines/RCSThrusterOff.png",
+      "frames": 1
+    },
+    "RCS Thruster On": {
+      "src": "Graphics/Machines/RCSThrusterOn.png",
+      "frames": 2,
+      "speed": 50
+    },
+    "TurretBase": {
+      "src": "Graphics/Machines/TurretBase.png",
+      "frames": 1
+    },
+    "TurretGunStraight": {
+      "src": "Graphics/Machines/TurretGunStraight.png",
+      "frames": 1
+    },
+    "Life Support": {
+      "src": "Graphics/Machines/LifeSupport.png",
+      "frames": 7,
+      "speed": 100
+    },
+    "Farm Module": {
+      "src": "Graphics/Machines/FarmModule.png",
+      "frames": 1
+    },
+    "Quarters": {
+      "src": "Graphics/Machines/Quarters.png",
+      "frames": 1
+    }
+  },
+  "MASTER_SOUND_VOLUME": 0.34,
+  "SOUND_VOLUMES": {
+    "thruster": 2,
+    "building": 1,
+    "mouse": 2,
+    "toggle": 0.4,
+    "items": 1,
+    "background": 1,
+    "enemyDetected": 1,
+    "assembler": 1,
+    "turbine": 1,
+    "smelter": 1,
+    "powerOff": 1,
+    "turretTurn": 1,
+    "turretShot": 1,
+    "explosion": 1,
+    "drill": 1
+  },
+  "SOUND_FILES": {
+    "thruster": "Sounds/Thruster.mp3",
+    "building": "Sounds/Building.mp3",
+    "mouse": "Sounds/Mouse.mp3",
+    "toggle": "Sounds/Toggle.mp3",
+    "items": "Sounds/Items.mp3",
+    "background": "Sounds/Background.mp3",
+    "enemyDetected": "Sounds/EnemyDetected.mp3",
+    "assembler": "Sounds/Assembler.mp3",
+    "turbine": "Sounds/Turbine.mp3",
+    "smelter": "Sounds/Smelter.mp3",
+    "powerOff": "Sounds/PowerOff.mp3",
+    "turretTurn": "Sounds/TurretTurn.mp3",
+    "turretShot": "Sounds/TurretShot.mp3",
+    "explosion": "Sounds/Explosion.mp3",
+    "drill": "Sounds/Drill.mp3"
+  }
+}

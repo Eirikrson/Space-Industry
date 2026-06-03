@@ -1,0 +1,64 @@
+{
+  "ENEMY_FLEET_DESIGNS": [
+    {
+      "id": 1,
+      "minStrength": 0,
+      "ships": [
+        1
+      ]
+    },
+    {
+      "id": 2,
+      "minStrength": 55,
+      "ships": [
+        2
+      ]
+    },
+    {
+      "id": 3,
+      "minStrength": 80,
+      "ships": [
+        3
+      ]
+    },
+    {
+      "id": 4,
+      "minStrength": 115,
+      "ships": [
+        4
+      ]
+    },
+    {
+      "id": 5,
+      "minStrength": 150,
+      "ships": [
+        5
+      ]
+    },
+    {
+      "id": 6,
+      "minStrength": 190,
+      "ships": [
+        6,
+        2
+      ]
+    },
+    {
+      "id": 7,
+      "minStrength": 235,
+      "ships": [
+        6,
+        3
+      ]
+    },
+    {
+      "id": 8,
+      "minStrength": 280,
+      "ships": [
+        5,
+        5,
+        5
+      ]
+    }
+  ]
+}

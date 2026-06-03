@@ -1,0 +1,190 @@
+{
+  "PLANET_TYPES": {
+    "water": {
+      "name": "Water Planet",
+      "colors": [
+        "#1a6abf",
+        "#2a8ad4",
+        "#4aafe8",
+        "#80d0ff"
+      ],
+      "atmosphere": "#44aaff44",
+      "cloudColor": "#cceeff",
+      "resources": {
+        "water": 1,
+        "hydrogen": 0.3
+      },
+      "radius": [
+        800,
+        1400
+      ]
+    },
+    "lava": {
+      "name": "Lava Planet",
+      "colors": [
+        "#8b1a00",
+        "#cc3300",
+        "#ff6622",
+        "#ff9900"
+      ],
+      "atmosphere": "#ff330022",
+      "cloudColor": "#ff8844",
+      "resources": {
+        "uranium": 0.8,
+        "ironOre": 0.4
+      },
+      "radius": [
+        600,
+        1200
+      ]
+    },
+    "ice": {
+      "name": "Ice Planet",
+      "colors": [
+        "#9ee8ff",
+        "#c8f4ff",
+        "#7ecbee",
+        "#d0eeff"
+      ],
+      "atmosphere": "#aaeeff22",
+      "cloudColor": "#eefaff",
+      "resources": {
+        "water": 0.5,
+        "deuterium": 0.6,
+        "tritium": 0.4
+      },
+      "radius": [
+        700,
+        1200
+      ]
+    },
+    "desert": {
+      "name": "Desert Planet",
+      "colors": [
+        "#c8772a",
+        "#dda040",
+        "#f0c060",
+        "#e8b050"
+      ],
+      "atmosphere": "#ffcc4411",
+      "cloudColor": "#ffdd88",
+      "resources": {
+        "silicon": 0.8,
+        "copperOre": 0.6
+      },
+      "radius": [
+        600,
+        1100
+      ]
+    },
+    "gas": {
+      "name": "Gas Giant",
+      "colors": [
+        "#d4aa44",
+        "#e8c866",
+        "#cc9922",
+        "#f0d880"
+      ],
+      "atmosphere": "#ffdd4433",
+      "cloudColor": "#ffe8aa",
+      "resources": {
+        "hydrogen": 1,
+        "deuterium": 0.2
+      },
+      "radius": [
+        2000,
+        3500
+      ]
+    },
+    "metal": {
+      "name": "Metal Planet",
+      "colors": [
+        "#888888",
+        "#aaaaaa",
+        "#666666",
+        "#cccccc"
+      ],
+      "atmosphere": "#88888811",
+      "cloudColor": "#bbbbbb",
+      "resources": {
+        "ironOre": 0.9,
+        "nickel": 0.7,
+        "copperOre": 0.3
+      },
+      "radius": [
+        600,
+        1100
+      ]
+    },
+    "jungle": {
+      "name": "Jungle Planet",
+      "colors": [
+        "#1a6b1a",
+        "#2a8b2a",
+        "#4aaf4a",
+        "#80cc80"
+      ],
+      "atmosphere": "#44ff4433",
+      "cloudColor": "#aaffaa",
+      "resources": {
+        "food": 1,
+        "carbon": 0.5
+      },
+      "radius": [
+        700,
+        1300
+      ]
+    },
+    "radioactive": {
+      "name": "Radioactive Planet",
+      "colors": [
+        "#3a6b00",
+        "#5aa000",
+        "#8adf00",
+        "#aaff44"
+      ],
+      "atmosphere": "#88ff0044",
+      "cloudColor": "#ccff66",
+      "resources": {
+        "uranium": 1.2,
+        "silicon": 0.3
+      },
+      "radius": [
+        600,
+        1000
+      ]
+    }
+  },
+  "STAR_TYPES": [
+    {
+      "color0": "#ffffc8",
+      "color1": "#ffcc44",
+      "color2": "#ff8800",
+      "name": "Yellow Star"
+    },
+    {
+      "color0": "#ffccaa",
+      "color1": "#ff8844",
+      "color2": "#cc3300",
+      "name": "Red Dwarf"
+    },
+    {
+      "color0": "#c8d8ff",
+      "color1": "#8899ff",
+      "color2": "#4455cc",
+      "name": "Blue Giant"
+    },
+    {
+      "color0": "#ffffff",
+      "color1": "#ddddff",
+      "color2": "#8888cc",
+      "name": "White Star"
+    },
+    {
+      "color0": "#ffeecc",
+      "color1": "#ffbb66",
+      "color2": "#ff6600",
+      "name": "Orange Star"
+    }
+  ]
+}

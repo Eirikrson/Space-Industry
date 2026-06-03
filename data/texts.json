@@ -1,0 +1,63 @@
+{
+  "game": {
+    "title": "Space Industry",
+    "version": "Version 0.1",
+    "credits": "Game by Eirikrson"
+  },
+  "loader": {
+    "dataLoadError": "Space Industry konnte die JSON-Daten nicht laden. Bitte starte das Spiel mit Start-Game.bat."
+  },
+  "menu": {
+    "selectSaveSlot": "Select a save slot",
+    "emptySlot": "Empty slot",
+    "autosaveEmpty": "Autosave empty",
+    "lastAutomaticSave": "last automatic save",
+    "clickToStart": "click to start",
+    "emptySaveSlot": "Empty save slot",
+    "unnamedSave": "Unnamed save",
+    "importOrStart": "Import a savegame or start a new game",
+    "newGameNamePrompt": "Savegame name:",
+    "newGameDefaultName": "Game {slot}"
+  },
+  "buttons": {
+    "play": "Play",
+    "exportSavegame": "Export savegame",
+    "importSavegame": "Import savegame",
+    "exit": "Exit",
+    "delete": "Delete",
+    "saveGame": "Save game",
+    "selectSaveSlot": "Select save slot",
+    "closeGame": "Close game"
+  },
+  "pause": {
+    "title": "Paused",
+    "resumeHint": "Press ESC to resume"
+  },
+  "save": {
+    "emptySlotAlert": "This savegame slot is empty.",
+    "invalidImportAlert": "This file is not a valid Space Industry savegame.",
+    "thisSavegame": "this savegame",
+    "deleteConfirm": "Delete {name}?",
+    "overwriteConfirm": "Do you really want to overwrite {name}?",
+    "namePrompt": "Savegame name:",
+    "loadedSaveFallback": "Loaded save",
+    "loadedFlash": "Loaded {name}",
+    "autosavedFlash": "Autosaved",
+    "savedFlash": "Saved {name}"
+  },
+  "tutorial": {
+    "enabled": false,
+    "steps": [
+      {
+        "id": "welcome",
+        "title": "Welcome to Space Industry",
+        "body": "Build, research, mine, and keep your ship alive."
+      },
+      {
+        "id": "build-mode",
+        "title": "Build Mode",
+        "body": "Press B to enter build mode and place new modules."
+      }
+    ]
+  }
+}

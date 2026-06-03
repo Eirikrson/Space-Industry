@@ -1,0 +1,27 @@
+{
+  "AIR": "AIR",
+  "CONFIG": {
+    "WORLD_WIDTH": 2400000,
+    "WORLD_HEIGHT": 2400000,
+    "GRID_SIZE": 40,
+    "GALAXY_CENTER_X": 1200000,
+    "GALAXY_CENTER_Y": 1200000,
+    "GALAXY_RADIUS": 1050000,
+    "SYSTEM_COUNT": 10,
+    "BLACK_HOLE_RADIUS": 2200
+  },
+  "WORLD_OBJECTS": {
+    "ASTEROID_COUNT": 60,
+    "WATER_PLANET_COUNT": 0,
+    "EXTRA_STAR_COUNT": 0
+  },
+  "MAX_ASTEROID_DRIFT_SPEED": 4.6,
+  "SHIP_NOSE_OFFSET": -0.08726646259971647,
+  "MIN_CAMERA_SCALE": 0.04,
+  "MAX_CAMERA_SCALE": 3,
+  "SAVE_SLOT_COUNT": 10,
+  "SAVE_KEY_PREFIX": "spaceIndustry.save.",
+  "AUTOSAVE_KEY": "spaceIndustry.autosave",
+  "SAVE_EXPORT_FORMAT": "SIENC1",
+  "SAVE_EXPORT_KEY": "SpaceIndustry-Eirikrson-1.0-local-save-key"
+}

@@ -1,0 +1,423 @@
+{
+  "TANK_COLORS": {
+    "water": "#44aaff",
+    "steam": "#d8f3ff",
+    "hydrogen": "#88ff88",
+    "oxygen": "#ff8888",
+    "fuel": "#ff8800",
+    "deuterium": "#cc88ff",
+    "tritium": "#ff88cc",
+    "helium3": "#66ffee"
+  },
+  "TANK_OPTIONS": {
+    "Tank MK1": [
+      {
+        "label": "Water",
+        "key": "water",
+        "cap": 100
+      },
+      {
+        "label": "Steam",
+        "key": "steam",
+        "cap": 100
+      },
+      {
+        "label": "Hydrogen",
+        "key": "hydrogen",
+        "cap": 100
+      },
+      {
+        "label": "Oxygen",
+        "key": "oxygen",
+        "cap": 100
+      },
+      {
+        "label": "Fuel",
+        "key": "fuel",
+        "cap": 100
+      },
+      {
+        "label": "Deuterium",
+        "key": "deuterium",
+        "cap": 100
+      },
+      {
+        "label": "Tritium",
+        "key": "tritium",
+        "cap": 100
+      },
+      {
+        "label": "Helium-3",
+        "key": "helium3",
+        "cap": 100
+      }
+    ],
+    "Tank MK2": [
+      {
+        "label": "Water",
+        "key": "water",
+        "cap": 600
+      },
+      {
+        "label": "Steam",
+        "key": "steam",
+        "cap": 600
+      },
+      {
+        "label": "Hydrogen",
+        "key": "hydrogen",
+        "cap": 600
+      },
+      {
+        "label": "Oxygen",
+        "key": "oxygen",
+        "cap": 600
+      },
+      {
+        "label": "Fuel",
+        "key": "fuel",
+        "cap": 600
+      },
+      {
+        "label": "Deuterium",
+        "key": "deuterium",
+        "cap": 600
+      },
+      {
+        "label": "Tritium",
+        "key": "tritium",
+        "cap": 600
+      },
+      {
+        "label": "Helium-3",
+        "key": "helium3",
+        "cap": 600
+      }
+    ],
+    "Tank": [
+      {
+        "label": "Water",
+        "key": "water",
+        "cap": 600
+      },
+      {
+        "label": "Steam",
+        "key": "steam",
+        "cap": 600
+      },
+      {
+        "label": "Hydrogen",
+        "key": "hydrogen",
+        "cap": 600
+      },
+      {
+        "label": "Oxygen",
+        "key": "oxygen",
+        "cap": 600
+      },
+      {
+        "label": "Fuel",
+        "key": "fuel",
+        "cap": 600
+      },
+      {
+        "label": "Deuterium",
+        "key": "deuterium",
+        "cap": 600
+      },
+      {
+        "label": "Tritium",
+        "key": "tritium",
+        "cap": 600
+      },
+      {
+        "label": "Helium-3",
+        "key": "helium3",
+        "cap": 600
+      }
+    ]
+  },
+  "INITIAL_RESOURCES": {
+    "energy": 50,
+    "energyCap": 0,
+    "energyNet": 0,
+    "steam": 0,
+    "steamCap": 0,
+    "water": 50,
+    "waterCap": 0,
+    "hydrogen": 0,
+    "hydrogenCap": 0,
+    "oxygen": 0,
+    "oxygenCap": 0,
+    "fuel": 100,
+    "fuelCap": 0,
+    "ironOre": 0,
+    "copperOre": 0,
+    "siliconOre": 0,
+    "silicon": 0,
+    "nickel": 0,
+    "carbon": 0,
+    "deuterium": 0,
+    "deuteriumCap": 0,
+    "tritium": 0,
+    "tritiumCap": 0,
+    "helium3": 0,
+    "helium3Cap": 0,
+    "uranium": 0,
+    "ammo": 0,
+    "gears": 0,
+    "circuits": 0,
+    "cables": 0,
+    "food": 20,
+    "foodCap": 200,
+    "crew": 2,
+    "crewCap": 0,
+    "itemCap": 0,
+    "itemUsed": 0,
+    "ironPlate": 20,
+    "copperPlate": 20
+  },
+  "LIQUID_RESOURCES": [
+    "water",
+    "steam",
+    "hydrogen",
+    "oxygen",
+    "fuel",
+    "deuterium",
+    "tritium",
+    "helium3"
+  ],
+  "SOLID_RESOURCES": [
+    "ironOre",
+    "copperOre",
+    "siliconOre",
+    "ironPlate",
+    "copperPlate",
+    "silicon",
+    "nickel",
+    "carbon",
+    "uranium",
+    "ammo",
+    "food",
+    "gears",
+    "circuits",
+    "cables"
+  ],
+  "RESOURCE_RATE_KEYS": [
+    "energy",
+    "steam",
+    "water",
+    "hydrogen",
+    "oxygen",
+    "fuel",
+    "deuterium",
+    "tritium",
+    "helium3",
+    "ironOre",
+    "copperOre",
+    "siliconOre",
+    "ironPlate",
+    "copperPlate",
+    "silicon",
+    "nickel",
+    "carbon",
+    "uranium",
+    "ammo",
+    "food",
+    "gears",
+    "circuits",
+    "cables",
+    "itemUsed"
+  ],
+  "STARTER_SHIP_MODULES": [
+    {
+      "x": 0,
+      "y": -2,
+      "type": "RCS Thruster",
+      "w": 1,
+      "h": 2,
+      "rot": 2
+    },
+    {
+      "x": -1,
+      "y": -2,
+      "type": "Asteroid Collector",
+      "w": 1,
+      "h": 1,
+      "rot": 0
+    },
+    {
+      "x": 1,
+      "y": -2,
+      "type": "Asteroid Collector",
+      "w": 1,
+      "h": 1,
+      "rot": 0
+    },
+    {
+      "x": 1,
+      "y": 0,
+      "type": "Quarters",
+      "w": 2,
+      "h": 2,
+      "rot": 0
+    },
+    {
+      "x": -1,
+      "y": -1,
+      "type": "Farm Module",
+      "w": 1,
+      "h": 3,
+      "rot": 0
+    },
+    {
+      "x": -1,
+      "y": 2,
+      "type": "Solar Panel",
+      "w": 1,
+      "h": 1,
+      "rot": 0
+    },
+    {
+      "x": 1,
+      "y": 2,
+      "type": "Solar Panel",
+      "w": 1,
+      "h": 1,
+      "rot": 0
+    },
+    {
+      "x": -3,
+      "y": 0,
+      "type": "Life Support",
+      "w": 2,
+      "h": 2,
+      "rot": 0
+    },
+    {
+      "x": 0,
+      "y": 2,
+      "type": "RCS Thruster",
+      "w": 1,
+      "h": 2,
+      "rot": 0
+    },
+    {
+      "x": 0,
+      "y": 1,
+      "type": "Warehouse MK1",
+      "w": 1,
+      "h": 1,
+      "rot": 0
+    },
+    {
+      "x": 1,
+      "y": -1,
+      "type": "Tank MK1",
+      "w": 1,
+      "h": 1,
+      "rot": 2,
+      "tankContent": "fuel",
+      "tankCap": 100
+    },
+    {
+      "x": -2,
+      "y": -1,
+      "type": "Tank MK1",
+      "w": 1,
+      "h": 1,
+      "rot": 2,
+      "tankContent": "water",
+      "tankCap": 100
+    },
+    {
+      "x": 2,
+      "y": -1,
+      "type": "Solar Panel",
+      "w": 1,
+      "h": 1,
+      "rot": 0
+    },
+    {
+      "x": 3,
+      "y": -1,
+      "type": "Solar Panel",
+      "w": 1,
+      "h": 1,
+      "rot": 0
+    },
+    {
+      "x": -3,
+      "y": -1,
+      "type": "Solar Panel",
+      "w": 1,
+      "h": 1,
+      "rot": 0
+    },
+    {
+      "x": 3,
+      "y": 0,
+      "type": "Battery",
+      "w": 1,
+      "h": 2,
+      "rot": 0
+    }
+  ],
+  "COLLECTOR_SOLID_POOL": [
+    "ironOre",
+    "ironOre",
+    "copperOre",
+    "copperOre",
+    "siliconOre",
+    "nickel",
+    "carbon",
+    "uranium"
+  ],
+  "ASTEROID_RESOURCE_TABLE": [
+    {
+      "key": "ironOre",
+      "min": 8,
+      "max": 12
+    },
+    {
+      "key": "copperOre",
+      "min": 5,
+      "max": 8
+    },
+    {
+      "key": "siliconOre",
+      "min": 4,
+      "max": 7
+    },
+    {
+      "key": "nickel",
+      "min": 4,
+      "max": 7
+    },
+    {
+      "key": "carbon",
+      "min": 5,
+      "max": 8
+    },
+    {
+      "key": "uranium",
+      "min": 1,
+      "max": 3
+    },
+    {
+      "key": "water",
+      "min": 2,
+      "max": 5
+    },
+    {
+      "key": "deuterium",
+      "min": 0,
+      "max": 2
+    },
+    {
+      "key": "tritium",
+      "min": 0,
+      "max": 1
+    }
+  ]
+}
