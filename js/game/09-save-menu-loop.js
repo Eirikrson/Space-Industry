@@ -12,7 +12,37 @@ function readSaveSlot(slot) {
 }
 
 function writeSaveSlot(slot, payload) {
-  localStorage.setItem(getSaveSlotKey(slot), JSON.stringify(payload));
+  const key = getSaveSlotKey(slot);
+  const serialized = JSON.stringify(payload);
+  const previous = localStorage.getItem(key);
+
+  try {
+    localStorage.setItem(key, serialized);
+    return true;
+  } catch (error) {
+    try {
+      localStorage.removeItem(key);
+      localStorage.setItem(key, serialized);
+      return true;
+    } catch (retryError) {
+      if (slot !== "auto") {
+        try {
+          localStorage.removeItem(getSaveSlotKey("auto"));
+          localStorage.setItem(key, serialized);
+          return true;
+        } catch (autoRetryError) {
+          console.warn("Could not write save slot after clearing autosave", autoRetryError);
+        }
+      }
+      try {
+        if (previous !== null) localStorage.setItem(key, previous);
+      } catch (restoreError) {
+        console.warn("Could not restore previous save slot", restoreError);
+      }
+      console.warn("Could not write save slot", retryError);
+      return false;
+    }
+  }
 }
 
 function stripRuntimeState(value) {
@@ -20,8 +50,18 @@ function stripRuntimeState(value) {
   if (!value || typeof value !== "object") return value;
 
   const output = {};
+  const skippedKeys = new Set([
+    "targetAsteroid",
+    "targetPlanet",
+    "targetStar",
+    "targetEnemy",
+    "targetModule",
+    "target",
+    "parent"
+  ]);
   for (const key in value) {
     if (key.startsWith("_")) continue;
+    if (skippedKeys.has(key)) continue;
     if (typeof value[key] === "function") continue;
     output[key] = stripRuntimeState(value[key]);
   }
@@ -50,7 +90,7 @@ function createSavePayload(name) {
     placedModules: stripRuntimeState(placedModules),
     smallShips: stripRuntimeState(smallShips),
     enemyShips: stripRuntimeState(enemyShips),
-    combatBullets: stripRuntimeState(combatBullets),
+    combatBullets: [],
     research: Array.from(unlockedResearch),
     nextIds: {
       module: nextModuleId,
@@ -118,6 +158,9 @@ function resetGameRuntime() {
   selectedFlightTarget = null;
   lockedApproachTarget = null;
   velocityAssistActive = false;
+  matchRotateNose = true;
+  repairMode = true;
+  autoBlueprintRepair = true;
   importedShipGhost = null;
   commitPending = false;
   commitSnapshot = null;
@@ -281,6 +324,80 @@ function openInputDialog(title, label, defaultValue, type, onSubmit) {
   canvas.focus();
 }
 
+function normalizeCommandItemName(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function getAdminGiveResourceKey(name) {
+  const normalized = normalizeCommandItemName(name);
+  if (!normalized) return null;
+
+  const aliases = {
+    cannonball: "cannonBalls",
+    cannonballs: "cannonBalls",
+    railgunrod: "railgunRods",
+    railgunrods: "railgunRods",
+    rocketammo: "rocketAmmunition",
+    rocketammunition: "rocketAmmunition",
+    rocket: "rocketAmmunition",
+    rockets: "rocketAmmunition"
+  };
+
+  if (aliases[normalized]) return aliases[normalized];
+
+  const keys = Object.keys(INITIAL_RESOURCES).filter(key =>
+    !key.endsWith("Cap") &&
+    key !== "energyNet" &&
+    key !== "itemUsed"
+  );
+
+  return keys.find(key => normalizeCommandItemName(key) === normalized) || null;
+}
+
+function runAdminCommand(command) {
+  const textValue = String(command || "").trim();
+  const giveMatch = textValue.match(/^\/give\s+(.+?)\s+(-?\d+(?:\.\d+)?)$/i);
+
+  if (!giveMatch) {
+    flash("Unknown admin command");
+    return;
+  }
+
+  const key = getAdminGiveResourceKey(giveMatch[1]);
+  const amount = Math.floor(Number(giveMatch[2]));
+
+  if (!key || !Number.isFinite(amount) || amount <= 0) {
+    flash("Usage: /give item amount");
+    return;
+  }
+
+  if (res[key] === undefined) res[key] = 0;
+  res[key] += amount;
+  flash(`Gave ${amount} ${formatResourceName(key)}`);
+}
+
+function openAdminCommandDialog() {
+  if (!adminInstantBuild) return;
+
+  uiDialog = {
+    title: "Admin command",
+    fields: [{ id: "command", label: "Command", value: "/", placeholder: "/give cannonballs 30", type: "text" }],
+    buttons: [
+      { id: "cancel", text: "Cancel" },
+      { id: "ok", text: "Enter", primary: true }
+    ],
+    onSubmit(values) {
+      runAdminCommand(values.command || "");
+    }
+  };
+  activeDialogField = 0;
+  const field = ensureDialogFieldState(uiDialog.fields[0]);
+  field.cursor = field.value.length;
+  field.selectionStart = field.cursor;
+  field.selectionEnd = field.cursor;
+  canvas.focus();
+}
+
 function startEndWorldFromBlackHole() {
   setEndWorldSeed();
   enemyShips.length = 0;
@@ -318,7 +435,7 @@ function loadSavePayload(payload) {
     delete res.copper;
   }
 
-  const normalizeSavedModule = module => ({ ...module, type: normalizeModuleType(module.type) });
+  const normalizeSavedModule = module => normalizeModuleShape({ ...module, type: normalizeModuleType(module.type) });
   placedModules.length = 0;
   placedModules.push(...(payload.placedModules || []).map(normalizeSavedModule));
   smallShips.length = 0;
@@ -354,12 +471,12 @@ function loadSavePayload(payload) {
   if (payload.toggles) {
     turretsActive = !!payload.toggles.turretsActive;
     precisionThrust = !!payload.toggles.precisionThrust;
-    matchRotateNose = !!payload.toggles.matchRotateNose;
+    matchRotateNose = true;
     recallSmallShips = !!payload.toggles.recallSmallShips;
     shieldsActive = payload.toggles.shieldsActive !== false;
-    repairMode = !!payload.toggles.repairMode;
+    repairMode = payload.toggles.repairMode !== false;
     adminInstantBuild = (payload.version || 1) >= 2 ? !!payload.toggles.adminInstantBuild : false;
-    autoBlueprintRepair = !!payload.toggles.autoBlueprintRepair;
+    autoBlueprintRepair = payload.toggles.autoBlueprintRepair !== false;
   }
 
   currentSaveName = payload.name || text("save.loadedSaveFallback");
@@ -373,7 +490,10 @@ function saveGameToSlot(slot, name) {
   const payload = pendingSavePayload || createSavePayload(name || currentSaveName);
   payload.name = name || payload.name || currentSaveName || text("menu.unnamedSave");
   payload.savedAt = new Date().toISOString();
-  writeSaveSlot(slot, payload);
+  if (!writeSaveSlot(slot, payload)) {
+    flash("Savegame could not be saved");
+    return false;
+  }
   currentSaveName = payload.name;
   pendingSavePayload = null;
   pendingSaveName = "";
@@ -627,9 +747,10 @@ function drawMenuEnemyShip() {
       ctx.strokeRect(-drawW / 2, -drawH / 2, drawW, drawH);
     }
 
-    if (module.type === "Turret") {
-      drawImageSprite("TurretBase", -drawW / 2, -drawH / 2, drawW, drawH);
-      drawImageSprite("TurretGunStraight", -drawW / 2, -drawH / 2, drawW, drawH);
+    if (isTurretType(module.type)) {
+      drawImageSprite(getTurretBaseSpriteName(module.type), -drawW / 2, -drawH / 2, drawW, drawH);
+      const topSprite = getTurretTopSpriteName(module.type);
+      if (topSprite) drawImageSprite(topSprite, -drawW / 2, -drawH / 2, drawW, drawH);
     }
 
     ctx.restore();
@@ -1464,6 +1585,7 @@ function loop(now) {
   if (simulationActive) {
     updateTurretGuns(dt);
     updatePlayerTurrets(dt);
+    updateLaserTurretBeams(dt);
     updateEnemyShips(dt);
     updateCombatBullets(dt);
     cleanupPlayerShipDamage();
@@ -1486,6 +1608,7 @@ function loop(now) {
   drawOrbitIndicator();
   drawMapOverlay();
   drawTooltip();
+  drawPlanetResourceTooltip();
   drawTutorialOverlay();
   drawUiDialog();
 

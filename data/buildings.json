@@ -177,8 +177,8 @@
           ]
         },
         {
-          "id": "turret",
-          "name": "Turret",
+          "id": "gun_turret",
+          "name": "Gun Turret",
           "size": [
             2,
             2
@@ -206,6 +206,38 @@
           "size": [
             4,
             5
+          ]
+        },
+        {
+          "id": "cannon_tower",
+          "name": "Cannon tower",
+          "size": [
+            3,
+            3
+          ]
+        },
+        {
+          "id": "railgun_turret",
+          "name": "Railgun turret",
+          "size": [
+            2,
+            4
+          ]
+        },
+        {
+          "id": "missile_turret",
+          "name": "Missile turret",
+          "size": [
+            3,
+            3
+          ]
+        },
+        {
+          "id": "laser_turret",
+          "name": "Laser turret",
+          "size": [
+            3,
+            2
           ]
         }
       ]
@@ -289,10 +321,14 @@
         "Shield Generator",
         "Main Thruster",
         "RCS Thruster",
-        "Turret",
+        "Gun Turret",
         "Hangar MK1",
         "Hangar MK2",
-        "Hangar MK3"
+        "Hangar MK3",
+        "Cannon tower",
+        "Railgun turret",
+        "Missile turret",
+        "Laser turret"
       ]
     },
     {
@@ -427,6 +463,33 @@
           "outputs": {
             "ammo": 2
           }
+        },
+        "cannonBalls": {
+          "inputs": {
+            "ironPlate": 1
+          },
+          "outputs": {
+            "cannonBalls": 5
+          }
+        },
+        "railgunRods": {
+          "inputs": {
+            "ironPlate": 2,
+            "nickel": 1
+          },
+          "outputs": {
+            "railgunRods": 1
+          }
+        },
+        "rocketAmmunition": {
+          "inputs": {
+            "ironPlate": 2,
+            "fuel": 2,
+            "circuits": 1
+          },
+          "outputs": {
+            "rocketAmmunition": 1
+          }
         }
       }
     },
@@ -438,11 +501,6 @@
     },
     "Warehouse MK2": {
       "itemCap": 600
-    },
-    "Turret": {
-      "ammoUse": 1,
-      "energyUse": 1,
-      "fireRate": 1
     },
     "Shield Generator": {
       "energyUse": 2,
@@ -478,6 +536,40 @@
     },
     "Hangar MK3": {
       "hangarCapacityTiles": 55
+    },
+    "Gun Turret": {
+      "ammoUse": 1,
+      "energyUse": 1,
+      "fireRate": 1
+    },
+    "Cannon tower": {
+      "cannonBallsUse": 1,
+      "energyUse": 2,
+      "fireRate": 0.3333333333333333,
+      "damage": 1,
+      "rangeTiles": 34
+    },
+    "Railgun turret": {
+      "railgunRodsUse": 0.2,
+      "energyUse": 8,
+      "fireRate": 0.1,
+      "damage": 1,
+      "rangeTiles": 150
+    },
+    "Missile turret": {
+      "rocketAmmunitionUse": 1,
+      "energyUse": 6,
+      "fireRate": 0.05,
+      "damage": 1,
+      "rangeTiles": 80
+    },
+    "Laser turret": {
+      "energyUse": 30,
+      "fireRate": 0.14285714285714285,
+      "beamDuration": 2,
+      "damagePerSec": 0.1,
+      "shieldDamagePerSec": 0.1,
+      "rangeTiles": 24
     }
   },
   "COST_RESOURCE_ORDER": [
@@ -493,7 +585,10 @@
     "cables",
     "circuits",
     "ammo",
-    "food"
+    "food",
+    "cannonBalls",
+    "railgunRods",
+    "rocketAmmunition"
   ],
   "BASE_UNLOCKED_BUILDINGS": [
     "RCS Thruster",
@@ -501,7 +596,6 @@
     "Asteroid Collector",
     "Solar Panel",
     "Laboratory",
-    "Smelter",
     "Life Support",
     "Farm Module",
     "Quarters"
@@ -599,13 +693,6 @@
       "nickel": 8,
       "silicon": 8
     },
-    "Turret": {
-      "ironPlate": 30,
-      "circuits": 8,
-      "cables": 8,
-      "gears": 8,
-      "nickel": 10
-    },
     "Shield Generator": {
       "ironPlate": 45,
       "circuits": 20,
@@ -660,6 +747,40 @@
       "uranium": 20,
       "nickel": 50,
       "silicon": 40
+    },
+    "Gun Turret": {
+      "ironPlate": 30,
+      "circuits": 8,
+      "cables": 8,
+      "gears": 8,
+      "nickel": 10
+    },
+    "Cannon tower": {
+      "ironPlate": 45,
+      "gears": 12,
+      "circuits": 6,
+      "nickel": 8
+    },
+    "Railgun turret": {
+      "ironPlate": 70,
+      "circuits": 25,
+      "cables": 20,
+      "nickel": 25,
+      "silicon": 10
+    },
+    "Missile turret": {
+      "ironPlate": 80,
+      "circuits": 30,
+      "cables": 20,
+      "fuel": 20,
+      "gears": 15
+    },
+    "Laser turret": {
+      "ironPlate": 90,
+      "circuits": 40,
+      "cables": 35,
+      "silicon": 30,
+      "nickel": 20
     }
   },
   "RESEARCH_TIERS": [
@@ -667,28 +788,11 @@
       "title": "TIER 1 - First Industry",
       "items": [
         {
-          "name": "RCS Thruster",
-          "cost": null
-        },
-        {
-          "name": "Warehouse MK1",
-          "cost": null
-        },
-        {
-          "name": "Asteroid Collector",
-          "cost": null
-        },
-        {
-          "name": "Solar Panel",
-          "cost": null
-        },
-        {
-          "name": "Laboratory",
-          "cost": null
-        },
-        {
           "name": "Smelter",
-          "cost": null
+          "cost": {
+            "ironPlate": 10,
+            "copperPlate": 5
+          }
         },
         {
           "name": "Drill",
@@ -715,6 +819,13 @@
     {
       "title": "TIER 2 - Energy & Fuel",
       "items": [
+        {
+          "name": "Assembler",
+          "cost": {
+            "ironPlate": 40,
+            "copperPlate": 20
+          }
+        },
         {
           "name": "Fuel Processor",
           "cost": {
@@ -756,13 +867,6 @@
     {
       "title": "TIER 3 - Automation",
       "items": [
-        {
-          "name": "Assembler",
-          "cost": {
-            "ironPlate": 60,
-            "copperPlate": 30
-          }
-        },
         {
           "name": "Hangar MK1",
           "cost": {
@@ -808,7 +912,7 @@
           }
         },
         {
-          "name": "Turret",
+          "name": "Gun Turret",
           "cost": {
             "ironPlate": 40,
             "cables": 15,
@@ -841,6 +945,41 @@
             "circuits": 10,
             "cables": 10,
             "gears": 10
+          }
+        },
+        {
+          "name": "Cannon tower",
+          "cost": {
+            "ironPlate": 60,
+            "gears": 15,
+            "circuits": 10
+          }
+        },
+        {
+          "name": "Railgun turret",
+          "cost": {
+            "ironPlate": 90,
+            "circuits": 30,
+            "nickel": 20,
+            "silicon": 10
+          }
+        },
+        {
+          "name": "Missile turret",
+          "cost": {
+            "ironPlate": 100,
+            "circuits": 35,
+            "fuel": 20,
+            "gears": 20
+          }
+        },
+        {
+          "name": "Laser turret",
+          "cost": {
+            "circuits": 45,
+            "cables": 35,
+            "silicon": 30,
+            "nickel": 20
           }
         }
       ]
@@ -989,12 +1128,6 @@
     "Warehouse MK2": [
       "Storage Capacity: 600 items"
     ],
-    "Turret": [
-      "INPUT Ammo          -1/shot",
-      "INPUT Energy        -1/sec while armed",
-      "",
-      "Fire Rate: 1 shot/sec"
-    ],
     "Shield Generator": [
       "PASSIVE:",
       "INPUT Energy        -2/sec",
@@ -1054,6 +1187,32 @@
       "Stores electrical energy.",
       "",
       "Capacity Energy 200"
+    ],
+    "Gun Turret": [
+      "INPUT Ammo          -1/shot",
+      "INPUT Energy        -1/sec",
+      "",
+      "Basic automatic defense turret."
+    ],
+    "Cannon tower": [
+      "INPUT Cannon balls  -1/shot",
+      "",
+      "Slow cannon. Shorter range, double impact damage."
+    ],
+    "Railgun turret": [
+      "INPUT Railgun rods  -0.2/shot",
+      "",
+      "Very long range. Fires once every 10 seconds."
+    ],
+    "Missile turret": [
+      "INPUT Rocket ammunition -1/shot",
+      "",
+      "Homes directly toward the enemy computer."
+    ],
+    "Laser turret": [
+      "INPUT Energy        very high",
+      "",
+      "Fires a 2 second beam, then recharges for 5 seconds."
     ]
   }
 }

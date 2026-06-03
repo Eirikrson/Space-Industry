@@ -39,12 +39,36 @@ function drawStar(star = STAR) {
   ctx.fill();
 }
 
-function drawTurretRangeAt(x, y, active = true) {
+function drawTurretRangeAt(x, y, active = true, type = "Gun Turret", forwardAngle = -Math.PI / 2) {
+  const rangeTiles = getTurretConfig(type).rangeTiles || 12;
+  const range = rangeTiles * CONFIG.GRID_SIZE * camera.scale;
+
   ctx.beginPath();
-  ctx.arc(x, y, 12 * CONFIG.GRID_SIZE * camera.scale, 0, Math.PI * 2);
+  if (type === "Laser turret") {
+    ctx.moveTo(x, y);
+    ctx.arc(x, y, range, forwardAngle - Math.PI / 2, forwardAngle + Math.PI / 2);
+    ctx.closePath();
+    ctx.fillStyle = active ? "rgba(255,60,60,0.08)" : "rgba(255,60,60,0.045)";
+    ctx.fill();
+  } else {
+    ctx.arc(x, y, range, 0, Math.PI * 2);
+    ctx.fillStyle = active ? "rgba(255,60,60,0.055)" : "rgba(255,60,60,0.03)";
+    ctx.fill();
+  }
   ctx.strokeStyle = active ? "rgba(255,80,80,0.75)" : "rgba(255,80,80,0.45)";
   ctx.lineWidth = active ? 2 : 1.5;
   ctx.stroke();
+}
+
+function drawTurretModuleSprite(type, sw, sh, gunAngle = 0, module = null) {
+  drawImageSprite(getTurretBaseSpriteName(type, module), -sw / 2, -sh / 2, sw, sh);
+  const topSprite = getTurretTopSpriteName(type);
+  if (topSprite) {
+    ctx.save();
+    ctx.rotate(getTurretTopDrawAngle(type, gunAngle || 0));
+    drawImageSprite(topSprite, -sw / 2, -sh / 2, sw, sh);
+    ctx.restore();
+  }
 }
 
 function drawShieldArcAt(x, y, outDir, active = true) {
@@ -57,7 +81,7 @@ function drawShieldArcAt(x, y, outDir, active = true) {
   ctx.strokeStyle = active ? "rgba(80,160,255,0.85)" : "rgba(80,160,255,0.5)";
   ctx.lineWidth = active ? 2.5 : 2;
   ctx.stroke();
-  ctx.fillStyle = "rgba(80,160,255,0.06)";
+  ctx.fillStyle = active ? "rgba(80,160,255,0.12)" : "rgba(80,160,255,0.07)";
   ctx.fill();
 }
 
@@ -74,8 +98,8 @@ function drawModules() {
       drawShieldArcAt(p.x, p.y, outDir, buildMode);
     }
 
-    if (m.type === "Turret" && (buildMode || turretsActive)) {
-      drawTurretRangeAt(p.x, p.y, buildMode);
+    if (isTurretType(m.type) && (buildMode || !mapVisible)) {
+      drawTurretRangeAt(p.x, p.y, true, m.type, ship.angle + (m.rot || 0) * Math.PI / 2 - Math.PI / 2);
     }
   }
 
@@ -109,13 +133,9 @@ function drawModules() {
       ctx.fillRect(-sw / 2, -sh / 2, sw, sh);
     }
 
-    if (m.type === "Turret") {
-      drawImageSprite("TurretBase", -sw / 2, -sh / 2, sw, sh);
+    if (isTurretType(m.type)) {
+      drawTurretModuleSprite(m.type, sw, sh, m._gunAngle || 0, m);
       drawModuleHealthOverlay(m, sw, sh);
-      ctx.save();
-      ctx.rotate(m._gunAngle || 0);
-      drawImageSprite("TurretGunStraight", -sw / 2, -sh / 2, sw, sh);
-      ctx.restore();
     } else if (!drawImageSprite(spriteName, -sw / 2, -sh / 2, sw, sh)) {
       ctx.fillStyle = m.type === "Computer" ? "cyan" : "rgba(40,50,70,0.85)";
       ctx.fillRect(-sw / 2, -sh / 2, sw, sh);
@@ -128,7 +148,7 @@ function drawModules() {
       ctx.fillText(m.type, 0, 0);
     }
 
-    if (m.type !== "Turret") drawModuleHealthOverlay(m, sw, sh);
+    if (!isTurretType(m.type)) drawModuleHealthOverlay(m, sw, sh);
     ctx.restore();
 
     if (isDemolish) {
@@ -196,10 +216,9 @@ function drawSmallShipModule(smallShip, module, com) {
     ctx.fillRect(-sw / 2, -sh / 2, sw, sh);
   }
 
-  if (module.type === "Turret") {
-    drawImageSprite("TurretBase", -sw / 2, -sh / 2, sw, sh);
+  if (isTurretType(module.type)) {
+    drawTurretModuleSprite(module.type, sw, sh, module._gunAngle || 0, module);
     drawModuleHealthOverlay(module, sw, sh);
-    drawImageSprite("TurretGunStraight", -sw / 2, -sh / 2, sw, sh);
   } else if (!drawImageSprite(spriteName, -sw / 2, -sh / 2, sw, sh)) {
     ctx.fillStyle = module.type === "Computer" ? "cyan" : "rgba(40,50,70,0.9)";
     ctx.fillRect(-sw / 2, -sh / 2, sw, sh);
@@ -208,7 +227,7 @@ function drawSmallShipModule(smallShip, module, com) {
     ctx.strokeRect(-sw / 2, -sh / 2, sw, sh);
   }
 
-  if (module.type !== "Turret") drawModuleHealthOverlay(module, sw, sh);
+  if (!isTurretType(module.type)) drawModuleHealthOverlay(module, sw, sh);
   ctx.restore();
 }
 
@@ -271,8 +290,8 @@ function drawBlueprints() {
       drawShieldArcAt(p.x, p.y, outDir, true);
     }
 
-    if (bp.type === "Turret") {
-      drawTurretRangeAt(p.x, p.y, true);
+    if (isTurretType(bp.type)) {
+      drawTurretRangeAt(p.x, p.y, true, bp.type, ship.angle + (bp.rot || 0) * Math.PI / 2 - Math.PI / 2);
     }
 
     ctx.save();
@@ -284,9 +303,8 @@ function drawBlueprints() {
       ? bp.type + " On"
       : bp.type;
 
-    if (bp.type === "Turret") {
-      drawImageSprite("TurretBase", -sw / 2, -sh / 2, sw, sh);
-      drawImageSprite("TurretGunStraight", -sw / 2, -sh / 2, sw, sh);
+    if (isTurretType(bp.type)) {
+      drawTurretModuleSprite(bp.type, sw, sh, 0);
     } else if (!drawImageSprite(spriteName, -sw / 2, -sh / 2, sw, sh)) {
       ctx.fillStyle = "rgba(0,150,255,0.35)";
       ctx.fillRect(-sw / 2, -sh / 2, sw, sh);
@@ -329,8 +347,8 @@ function drawImportedShipGhost() {
       drawShieldArcAt(p.x, p.y, outDir, canPlace);
     }
 
-    if (module.type === "Turret") {
-      drawTurretRangeAt(p.x, p.y, canPlace);
+    if (isTurretType(module.type)) {
+      drawTurretRangeAt(p.x, p.y, canPlace, module.type, ship.angle + (module.rot || 0) * Math.PI / 2 - Math.PI / 2);
     }
 
     ctx.save();
@@ -342,9 +360,8 @@ function drawImportedShipGhost() {
       ? module.type + " On"
       : module.type;
 
-    if (module.type === "Turret") {
-      drawImageSprite("TurretBase", -sw / 2, -sh / 2, sw, sh);
-      drawImageSprite("TurretGunStraight", -sw / 2, -sh / 2, sw, sh);
+    if (isTurretType(module.type)) {
+      drawTurretModuleSprite(module.type, sw, sh, 0);
     } else if (!drawImageSprite(spriteName, -sw / 2, -sh / 2, sw, sh)) {
       ctx.fillStyle = canPlace ? "rgba(0,150,255,0.45)" : "rgba(255,80,80,0.45)";
       ctx.fillRect(-sw / 2, -sh / 2, sw, sh);
@@ -389,10 +406,8 @@ function drawGhost() {
     ? heldItem.name + " On"
     : heldItem.name;
 
-  if (heldItem.name === "Turret") {
-    // Turret ghost: base + gun layered
-    drawImageSprite("TurretBase", -sw / 2, -sh / 2, sw, sh);
-    drawImageSprite("TurretGunStraight", -sw / 2, -sh / 2, sw, sh);
+  if (isTurretType(heldItem.name)) {
+    drawTurretModuleSprite(heldItem.name, sw, sh, 0);
   } else if (!drawImageSprite(spriteName, -sw / 2, -sh / 2, sw, sh)) {
     ctx.fillStyle = canPlace ? "rgba(255,255,255,0.4)" : "rgba(255,80,80,0.4)";
     ctx.fillRect(-sw / 2, -sh / 2, sw, sh);
@@ -401,8 +416,8 @@ function drawGhost() {
   ctx.globalAlpha = 1;
   ctx.restore();
 
-  if (heldItem.name === "Turret") {
-    drawTurretRangeAt(p.x, p.y, true);
+  if (isTurretType(heldItem.name)) {
+    drawTurretRangeAt(p.x, p.y, true, heldItem.name, ship.angle + rotation * Math.PI / 2 - Math.PI / 2);
   }
 
   if (heldItem.name === "Shield Generator") {
@@ -541,13 +556,8 @@ function drawGalaxySystemOnMap(map, system) {
     drawMapCircle(map, star.x, star.y, planet.orbitRadius, "rgba(120,170,255,0.14)", 1, 1);
   }
 
-  if (system.innerBelt) {
-    drawMapCircle(map, star.x, star.y, (system.innerBelt.innerR + system.innerBelt.outerR) / 2, "rgba(150,150,150,0.22)", 1, Math.max(1, Math.min(10, (system.innerBelt.outerR - system.innerBelt.innerR) * map.scale)));
-  }
-
-  if (system.outerBelt) {
-    drawMapCircle(map, star.x, star.y, (system.outerBelt.innerR + system.outerBelt.outerR) / 2, "rgba(120,200,255,0.18)", 1, Math.max(1, Math.min(10, (system.outerBelt.outerR - system.outerBelt.innerR) * map.scale)));
-  }
+  drawMapBelt(system.innerBelt, map, "rgba(150,150,150,0.22)");
+  drawMapBelt(system.outerBelt, map, "rgba(120,200,255,0.18)");
 
   for (let i = 0; i < system.planets.length; i++) {
     const planet = system.planets[i];
@@ -585,6 +595,12 @@ function drawMapCircle(map, worldX, worldY, worldRadius, color, alpha = 1, width
   ctx.globalAlpha = 1;
 }
 
+function drawMapBelt(belt, map, fillColor) {
+  if (!belt) return;
+
+  drawMapCircle(map, belt.star.x, belt.star.y, (belt.innerR + belt.outerR) / 2, fillColor, 1, Math.min(18, Math.max(1, (belt.outerR - belt.innerR) * map.scale)));
+}
+
 function getMapBodyAt(mx, my) {
   if (!mapVisible || buildMode) return null;
 
@@ -599,8 +615,19 @@ function getMapBodyAt(mx, my) {
   for (const star of stars) {
     const p = worldToMap(map, star.x, star.y);
     const d = Math.hypot(mx - p.x, my - p.y);
-    if (d < Math.max(10, star.radius * map.scale + 6) && d < bestDist) {
-      best = { star, system: getSystemForBody(star) };
+    const system = getSystemForBody(star);
+    const systemRadius = !map.focused && system
+      ? Math.max(
+          system.outerBelt?.outerR || 0,
+          system.innerBelt?.outerR || 0,
+          ...system.planets.map(planet => planet.orbitRadius + planet.radius)
+        ) * map.scale
+      : 0;
+    const hitRadius = map.focused
+      ? Math.max(18, star.radius * map.scale + 6)
+      : Math.max(36, systemRadius);
+    if (d < hitRadius && d < bestDist) {
+      best = { star, system };
       bestDist = d;
     }
   }
@@ -608,7 +635,7 @@ function getMapBodyAt(mx, my) {
   for (const planet of systemPlanets) {
     const p = worldToMap(map, planet.x, planet.y);
     const d = Math.hypot(mx - p.x, my - p.y);
-    if (d < Math.max(8, planet.radius * map.scale + 5) && d < bestDist) {
+    if (d < Math.max(12, planet.radius * map.scale + 8) && d < bestDist) {
       best = { planet, system: getSystemForBody(planet) };
       bestDist = d;
     }
@@ -669,13 +696,8 @@ function drawMapOverlay() {
         drawMapCircle(map, system.star.x, system.star.y, planet.orbitRadius, "rgba(120,170,255,0.18)", 1, 1);
       }
 
-      if (system.innerBelt) {
-        drawMapCircle(map, system.star.x, system.star.y, (system.innerBelt.innerR + system.innerBelt.outerR) / 2, "rgba(150,150,150,0.32)", 1, Math.min(18, Math.max(1, (system.innerBelt.outerR - system.innerBelt.innerR) * map.scale)));
-      }
-
-      if (system.outerBelt) {
-        drawMapCircle(map, system.star.x, system.star.y, (system.outerBelt.innerR + system.outerBelt.outerR) / 2, "rgba(120,200,255,0.28)", 1, Math.min(18, Math.max(1, (system.outerBelt.outerR - system.outerBelt.innerR) * map.scale)));
-      }
+      drawMapBelt(system.innerBelt, map, "rgba(150,150,150,0.32)");
+      drawMapBelt(system.outerBelt, map, "rgba(120,200,255,0.28)");
     }
   }
 
@@ -733,7 +755,62 @@ function getSeedDisplayText() {
   return output;
 }
 
+function toggleStatusBadgeAction(action) {
+  if (buildMode) return false;
+
+  if (action === "precision") {
+    precisionThrust = !precisionThrust;
+    flash(precisionThrust ? "Precision thrust: 20%" : "Full thrust");
+  } else if (action === "recall") {
+    recallSmallShips = !recallSmallShips;
+    flash(recallSmallShips ? "Drones recall" : "Drones resume");
+  } else if (action === "shields") {
+    shieldsActive = !shieldsActive;
+    flash(shieldsActive ? "Shields on" : "Shields off");
+  } else if (action === "repair") {
+    repairMode = !repairMode;
+    flash(repairMode ? "Repair mode on" : "Repair mode off");
+  } else if (action === "map") {
+    mapVisible = !mapVisible;
+    flash(mapVisible ? "Map open" : "Map closed");
+  } else if (action === "trajectory") {
+    trajectoryVisible = !trajectoryVisible;
+    flash(trajectoryVisible ? "Trajectory on" : "Trajectory off");
+  } else if (action === "orbit") {
+    orbitModeActive = !orbitModeActive;
+    orbitTarget = orbitModeActive ? getBestOrbitTarget() : null;
+    orbitDesiredRadius = 0;
+    flash(orbitModeActive ? "Orbit Mode ON" : "Orbit Mode OFF");
+  } else if (action === "landing") {
+    landingModeActive = !landingModeActive;
+    landingTarget = landingModeActive ? getBestLandingTarget() : null;
+    if (landingModeActive) {
+      orbitModeActive = false;
+      orbitTarget = null;
+    }
+    flash(landingModeActive ? "Landing mode ON" : "Landing mode OFF");
+  } else if (action === "autoBlueprint") {
+    autoBlueprintRepair = !autoBlueprintRepair;
+    flash(autoBlueprintRepair ? "Auto blueprint repair on" : "Auto blueprint repair off");
+  } else {
+    return false;
+  }
+
+  playSound("toggle", 120);
+  return true;
+}
+
+function handleStatusBadgeClick(mx, my) {
+  for (const rect of statusBadgeRects) {
+    if (mx >= rect.x && mx <= rect.x + rect.w && my >= rect.y && my <= rect.y + rect.h) {
+      return toggleStatusBadgeAction(rect.action);
+    }
+  }
+  return false;
+}
+
 function drawUI() {
+  statusBadgeRects.length = 0;
   ctx.font = "15px Arial";
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
@@ -744,7 +821,7 @@ function drawUI() {
   ctx.fillText(modeText, VIEW.w - 15, VIEW.h - 36);
   ctx.fillText(`Seed: ${getSeedDisplayText()}`, VIEW.w - 15, VIEW.h - 18);
 
-  function drawStatusBadge(text, y, active) {
+  function drawStatusBadge(text, y, active, action) {
     const width = 235;
     const height = 24;
     const x = VIEW.w - width - 15;
@@ -758,6 +835,7 @@ function drawUI() {
     ctx.font = "13px Arial";
     ctx.textAlign = "left";
     ctx.fillText(text, x + 8, y);
+    if (action) statusBadgeRects.push({ x, y: y - height / 2, w: width, h: height, action });
   }
 
   function drawInfoBadge(text, x, y, width) {
@@ -776,17 +854,15 @@ function drawUI() {
   drawInfoBadge(`Time ${formatWorldPlayTime(worldPlayTime)}`, 15, VIEW.h - 18, 132);
 
   if (!buildMode) {
-    drawStatusBadge("[T] Turrets", 25, turretsActive);
-    drawStatusBadge("[G] Precision thrust", 53, precisionThrust);
-    drawStatusBadge("[R] Nose align", 81, matchRotateNose);
-    drawStatusBadge("[C] Recall drones", 109, recallSmallShips);
-    drawStatusBadge("[X] Shields", 137, shieldsActive);
-    drawStatusBadge("[V] Repair", 165, repairMode);
-    drawStatusBadge("[M] Map", 193, mapVisible);
-    drawStatusBadge("[H] Trajectory", 221, trajectoryVisible);
-    drawStatusBadge("[O] Orbit", 249, orbitModeActive);
-    drawStatusBadge("[L] Landing", 277, landingModeActive);
-    drawStatusBadge("[N] Automatic blueprint", 305, autoBlueprintRepair);
+    drawStatusBadge("[G] Precision thrust", 25, precisionThrust, "precision");
+    drawStatusBadge("[C] Recall drones", 53, recallSmallShips, "recall");
+    drawStatusBadge("[X] Shields", 81, shieldsActive, "shields");
+    drawStatusBadge("[V] Repair", 109, repairMode, "repair");
+    drawStatusBadge("[M] Map", 137, mapVisible, "map");
+    drawStatusBadge("[H] Trajectory", 165, trajectoryVisible, "trajectory");
+    drawStatusBadge("[O] Orbit", 193, orbitModeActive, "orbit");
+    drawStatusBadge("[L] Landing", 221, landingModeActive, "landing");
+    drawStatusBadge("[N] Automatic blueprint", 249, autoBlueprintRepair, "autoBlueprint");
   }
   drawSmallShipConfigUI();
   drawResearchWindow();
@@ -899,16 +975,13 @@ function drawSmallShipConfigUI() {
   if (!activeSmallShipEdit) return;
 
   const smallShip = activeSmallShipEdit.ship;
-  const width = 235;
-  const x = 10;
-  const y = Math.max(70, Math.min(VIEW.h - 278, 640));
-  const rowH = 26;
+  const { x, y, width, rowH, height } = getSmallShipConfigLayout();
 
   ctx.fillStyle = "rgba(4, 10, 30, 0.92)";
-  ctx.fillRect(x, y, width, 258);
+  ctx.fillRect(x, y, width, height);
   ctx.strokeStyle = "rgba(100,150,255,0.65)";
   ctx.lineWidth = 1;
-  ctx.strokeRect(x, y, width, 258);
+  ctx.strokeRect(x, y, width, height);
 
   ctx.fillStyle = "#88aaff";
   ctx.font = "bold 12px Arial";
@@ -982,7 +1055,7 @@ function drawResearchWindow() {
       ctx.strokeStyle = hovered ? "#ccf6ff" : "rgba(100,150,255,0.5)";
       ctx.strokeRect(row.x, row.y, row.w, row.h);
 
-      const iconName = item.name === "Turret" ? "TurretBase" : item.name;
+      const iconName = isTurretType(item.name) ? getTurretBaseSpriteName(item.name) : item.name;
       if (!drawImageSprite(iconName, row.x + 6, row.y + 5, 18, 18)) {
         drawResourceIcon("energy", row.x + 8, row.y + row.h / 2, 14);
       }
@@ -1112,7 +1185,7 @@ function drawBtn(text, x, y, w, h, active) {
 }
 
 function getBuildMenuIconName(itemName) {
-  if (itemName === "Turret") return "TurretBase";
+  if (isTurretType(itemName)) return getTurretBaseSpriteName(itemName);
   if (itemName === "Main Thruster" || itemName === "RCS Thruster") return itemName + " On";
   return itemName;
 }
@@ -1123,6 +1196,7 @@ function getResourceIconName(resource) {
 
   const map = {
     ammo: "Ammo",
+    cannonballs: "CannonBalls",
     cables: "Cables",
     carbon: "Carbon",
     circuits: "Circuits",
@@ -1143,6 +1217,8 @@ function getResourceIconName(resource) {
     ironore: "Iron",
     nickel: "Nickel",
     oxygen: "Oxygen",
+    railgunrods: "RailgunRods",
+    rocketammunition: "RocketAmmunition",
     silicon: "Silicon",
     siliconore: "Silicon",
     steam: "Steam",
@@ -1151,7 +1227,7 @@ function getResourceIconName(resource) {
     water: "Water"
   };
 
-  return map[key] || "Energy";
+  return map[key] || null;
 }
 
 function drawResourceIcon(resourceOrX, xOrY, yOrSize, maybeSize) {
@@ -1161,16 +1237,13 @@ function drawResourceIcon(resourceOrX, xOrY, yOrSize, maybeSize) {
   const y = legacyCall ? xOrY : yOrSize;
   const size = legacyCall ? (yOrSize || 12) : (maybeSize || 12);
   const iconName = getResourceIconName(resource);
+  if (!iconName) return false;
 
   ctx.save();
   ctx.globalAlpha = 0.95;
-  if (!drawImageSprite(iconName, x, y - size / 2, size, size)) {
-    ctx.fillStyle = "rgba(80,180,255,0.85)";
-    ctx.fillRect(x, y - size / 2, size, size);
-    ctx.strokeStyle = "rgba(220,245,255,0.75)";
-    ctx.strokeRect(x, y - size / 2, size, size);
-  }
+  const drawn = drawImageSprite(iconName, x, y - size / 2, size, size);
   ctx.restore();
+  return drawn;
 }
 
 function drawInventoryBox(x, y, w, h, title) {
@@ -1236,12 +1309,15 @@ function drawInventoryAmountRow(label, value, net, x, y, w) {
 }
 function formatResourceName(key) {
   const names = {
+    cannonBalls: "Cannon balls",
     ironOre: "Iron ore",
     copperOre: "Copper ore",
     siliconOre: "Silicon ore",
     ironPlate: "Iron plate",
     copperPlate: "Copper plate",
     helium3: "Helium-3",
+    railgunRods: "Railgun rods",
+    rocketAmmunition: "Rocket ammunition",
     food: "Food"
   };
 
@@ -1262,7 +1338,22 @@ function drawSmallShipResourceUI() {
   const panelX = 10;
   const panelY = 10;
   const panelW = 280;
-  const panelH = 620;
+  const fluidRows = [
+    ["Steam m3", "steam", "#aaddff"],
+    ["Water m3", "water", "#44aaff"],
+    ["Hydrogen m3", "hydrogen", "#88ff88"],
+    ["Oxygen m3", "oxygen", "#ff8888"],
+    ["Fuel m3", "fuel", "#ff8800"],
+    ["Deuterium m3", "deuterium", "#cc88ff"],
+    ["Tritium m3", "tritium", "#ff88cc"],
+    ["Helium-3 m3", "helium3", "#66ffee"]
+  ];
+  const cargoKeys = Array.from(SOLID_RESOURCES);
+  const rowH = 16;
+  const panelH = Math.min(
+    VIEW.h - panelY - 16,
+    Math.max(634, 346 + fluidRows.length * 18 + cargoKeys.length * rowH)
+  );
 
   ctx.fillStyle = "rgba(0,5,20,0.82)";
   ctx.fillRect(panelX, panelY, panelW, panelH);
@@ -1302,17 +1393,6 @@ function drawSmallShipResourceUI() {
   drawInventoryBarRow("Energy", smallShip.energy || 0, energyCap, "#ffff44", null, boxX, y + 34, boxW);
   y += 58;
 
-  const fluidRows = [
-    ["Steam m3", "steam", "#aaddff"],
-    ["Water m3", "water", "#44aaff"],
-    ["Hydrogen m3", "hydrogen", "#88ff88"],
-    ["Oxygen m3", "oxygen", "#ff8888"],
-    ["Fuel m3", "fuel", "#ff8800"],
-    ["Deuterium m3", "deuterium", "#cc88ff"],
-    ["Tritium m3", "tritium", "#ff88cc"],
-    ["Helium-3 m3", "helium3", "#66ffee"]
-  ];
-
   drawInventoryBox(boxX, y, boxW, 32 + fluidRows.length * 18, "LIQUIDS & GASES");
   let rowY = y + 34;
   for (const row of fluidRows) {
@@ -1336,8 +1416,6 @@ function drawSmallShipResourceUI() {
   }
   y += 40 + fluidRows.length * 18;
 
-  const cargoKeys = Array.from(SOLID_RESOURCES);
-  const rowH = 16;
   const cargoBoxH = 32 + cargoKeys.length * rowH;
   drawInventoryBox(boxX, y, boxW, cargoBoxH, "CARGO");
   ctx.fillStyle = "white";
@@ -1370,6 +1448,7 @@ function drawResourceUI() {
       drawSmallShipResourceUI();
     } else {
       drawMotherShipResourceUI(10, 10);
+      drawSalvagePanel();
     }
     return;
   }
@@ -1377,10 +1456,59 @@ function drawResourceUI() {
   drawMotherShipResourceUI(10, 10);
 }
 
+function drawSalvagePanel() {
+  if (!buildMode || activeSmallShipEdit || salvageModules.length === 0) return;
+
+  const layout = getSalvagePanelLayout();
+  const visible = getGroupedSalvageItems().slice(0, 8);
+
+  ctx.fillStyle = "rgba(4, 10, 30, 0.92)";
+  ctx.fillRect(layout.x, layout.y, layout.width, layout.height);
+  ctx.strokeStyle = "rgba(100,150,255,0.72)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(layout.x, layout.y, layout.width, layout.height);
+
+  ctx.fillStyle = "#88aaff";
+  ctx.font = "bold 12px Arial";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText("SALVAGE", layout.x + 10, layout.y + 17);
+
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.font = "10px Arial";
+  ctx.textAlign = "right";
+  ctx.fillText("click or drag", layout.x + layout.width - 10, layout.y + 17);
+
+  for (let i = 0; i < visible.length; i++) {
+    const item = visible[i];
+    const rowY = layout.y + 34 + i * layout.rowH;
+
+    ctx.fillStyle = "rgba(255,255,255,0.07)";
+    ctx.fillRect(layout.x + 8, rowY, layout.width - 16, layout.rowH - 6);
+    ctx.strokeStyle = "rgba(100,150,255,0.5)";
+    ctx.strokeRect(layout.x + 8, rowY, layout.width - 16, layout.rowH - 6);
+
+    const iconName = isTurretType(item.type) ? getTurretBaseSpriteName(item.type) : item.type;
+    if (!drawImageSprite(iconName, layout.x + 16, rowY + 5, 28, 28)) {
+      ctx.fillStyle = "rgba(80,120,190,0.42)";
+      ctx.fillRect(layout.x + 16, rowY + 5, 28, 28);
+    }
+
+    ctx.fillStyle = "white";
+    ctx.font = "bold 12px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText(`[${item.count}x] ${item.type}`, layout.x + 52, rowY + 13);
+
+    ctx.fillStyle = "rgba(255,255,255,0.58)";
+    ctx.font = "10px Arial";
+    ctx.fillText(`${item.w}x${item.h}`, layout.x + 52, rowY + 29);
+  }
+}
+
 function drawMotherShipResourceUI(panelX, panelY) {
   const panelW = 280;
   const cargoRows = Array.from(SOLID_RESOURCES).length;
-  const panelH = Math.max(610, 318 + cargoRows * 16);
+  const panelH = Math.min(VIEW.h - panelY - 16, Math.max(634, 382 + cargoRows * 16));
 
   ctx.fillStyle = "rgba(0,5,20,0.82)";
   ctx.fillRect(panelX, panelY, panelW, panelH);
@@ -1454,20 +1582,23 @@ function drawTooltip() {
 
   const item = researchHover ? getInventoryItemByName(hoveredResearchItem.name) : hoveredInventoryItem;
   const lines = getBuildingDescription(item.name);
+  const cost = researchHover ? hoveredResearchItem.cost : BUILD_COSTS[item.name];
+  const costTitle = researchHover ? "RESEARCH COST" : "BUILD COST";
 
   if (researchHover && hoveredResearchItem.cost) {
     lines.push("");
-    lines.push(`RESEARCH COST ${formatCost(hoveredResearchItem.cost)}`);
+    lines.push(costTitle);
   } else if (!researchHover && BUILD_COSTS[item.name]) {
     lines.push("");
-    lines.push(`BUILD COST ${formatCost(BUILD_COSTS[item.name])}`);
+    lines.push(costTitle);
   }
 
   const tw = 280;
   const padding = 12;
   const lineH = 17;
   const imageBox = 72;
-  const th = 95 + lines.length * lineH;
+  const costEntries = cost ? getOrderedCostEntries(cost) : [];
+  const th = 95 + lines.length * lineH + costEntries.length * 18;
 
   let tx = mouse.x + 18;
   let ty = mouse.y - th / 2;
@@ -1491,7 +1622,7 @@ function drawTooltip() {
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#44aaff";
   ctx.fillText(
-    `${item.name.toUpperCase()}  ${item.size[0]}x${item.size[1]}`,
+    `${item.name}  ${item.size[0]}x${item.size[1]}`,
     tx + padding,
     ty + padding + 10
   );
@@ -1528,10 +1659,10 @@ function drawTooltip() {
     return true;
   }
 
-  if (item.name === "Turret") {
-    // Draw base then gun on top
-    drawPreviewSprite("TurretBase");
-    drawPreviewSprite("TurretGunStraight");
+  if (isTurretType(item.name)) {
+    drawPreviewSprite(getTurretBaseSpriteName(item.name));
+    const topSprite = getTurretTopSpriteName(item.name);
+    if (topSprite) drawPreviewSprite(topSprite);
   } else {
     drawPreviewSprite(previewName);
   }
@@ -1545,9 +1676,99 @@ function drawTooltip() {
   const descX = tx + padding;
   const descY = ty + 45;
   const maxTextWidth = tw - padding * 2 - imageBox - 12;
+  let y = descY;
 
   for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i], descX, descY + i * lineH, maxTextWidth);
+    const isCostTitle = lines[i] === costTitle;
+    ctx.fillStyle = isCostTitle ? "#88aaff" : "white";
+    ctx.font = isCostTitle ? "bold 11px Arial" : "11px Arial";
+    ctx.fillText(lines[i], descX, y, maxTextWidth);
+    y += lineH;
+  }
+
+  if (costEntries.length > 0) {
+    ctx.font = "11px Arial";
+    ctx.textBaseline = "middle";
+    for (const [key, amount] of costEntries) {
+      const iconY = y + 7;
+      ctx.fillStyle = "rgba(255,255,255,0.78)";
+      ctx.textAlign = "left";
+      ctx.fillText(String(amount), descX, iconY);
+      const labelW = ctx.measureText(String(amount)).width;
+      const iconX = descX + labelW + 4;
+      drawResourceIcon(key, iconX, iconY, 12);
+      ctx.fillStyle = "rgba(255,255,255,0.72)";
+      ctx.fillText(formatResourceName(key), iconX + 15, iconY);
+      y += 18;
+    }
+  }
+}
+
+function getHoveredPlanetForTooltip() {
+  if (buildMode || uiDialog || tutorialOverlay) return null;
+
+  if (mapVisible) {
+    const hit = getMapBodyAt(mouse.x, mouse.y);
+    return hit?.planet || null;
+  }
+
+  let best = null;
+  let bestDist = Infinity;
+  for (const planet of planets) {
+    const p = worldToScreen(planet.x, planet.y);
+    const r = Math.max(24, planet.radius * camera.scale);
+    const d = Math.hypot(mouse.x - p.x, mouse.y - p.y);
+    if (d <= r + 14 && d < bestDist) {
+      best = planet;
+      bestDist = d;
+    }
+  }
+
+  return best;
+}
+
+function drawPlanetResourceTooltip() {
+  const planet = getHoveredPlanetForTooltip();
+  if (!planet) return;
+
+  const rates = getPlanetMiningRates(planet);
+  const entries = Object.entries(rates).filter(([, amount]) => amount > 0);
+  if (entries.length === 0) return;
+
+  const title = planet.def?.name || planet.typeKey || "Planet";
+  const tw = 250;
+  const padding = 12;
+  const rowH = 20;
+  const th = 48 + entries.length * rowH;
+  let tx = mouse.x + 18;
+  let ty = mouse.y - th / 2;
+
+  if (tx + tw > VIEW.w - 8) tx = mouse.x - tw - 14;
+  if (ty < 8) ty = 8;
+  if (ty + th > VIEW.h - 8) ty = VIEW.h - th - 8;
+
+  ctx.fillStyle = "rgba(4, 10, 30, 0.96)";
+  roundRect(tx, ty, tw, th, 8);
+  ctx.fill();
+
+  ctx.strokeStyle = "#2255aa";
+  ctx.lineWidth = 2;
+  roundRect(tx, ty, tw, th, 8);
+  ctx.stroke();
+
+  ctx.fillStyle = "#44aaff";
+  ctx.font = "bold 13px Arial";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(title, tx + padding, ty + 18);
+
+  let y = ty + 44;
+  for (const [key] of entries) {
+    drawResourceIcon(key, tx + padding, y, 14);
+    ctx.fillStyle = "rgba(255,255,255,0.78)";
+    ctx.font = "12px Arial";
+    ctx.fillText(formatResourceName(key), tx + padding + 22, y);
+    y += rowH;
   }
 }
 

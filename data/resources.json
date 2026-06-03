@@ -175,7 +175,10 @@
     "itemCap": 0,
     "itemUsed": 0,
     "ironPlate": 20,
-    "copperPlate": 20
+    "copperPlate": 20,
+    "cannonBalls": 0,
+    "railgunRods": 0,
+    "rocketAmmunition": 0
   },
   "LIQUID_RESOURCES": [
     "water",
@@ -201,7 +204,10 @@
     "food",
     "gears",
     "circuits",
-    "cables"
+    "cables",
+    "cannonBalls",
+    "railgunRods",
+    "rocketAmmunition"
   ],
   "RESOURCE_RATE_KEYS": [
     "energy",
@@ -227,7 +233,10 @@
     "gears",
     "circuits",
     "cables",
-    "itemUsed"
+    "itemUsed",
+    "cannonBalls",
+    "railgunRods",
+    "rocketAmmunition"
   ],
   "STARTER_SHIP_MODULES": [
     {

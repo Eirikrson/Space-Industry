@@ -52,10 +52,19 @@ function updateBuildMode() {
       type: heldItem.name,
       w,
       h,
-      rot: rotation
+      rot: rotation,
+      tankContent: heldItem.tankContent,
+      tankCap: heldItem.tankCap,
+      freeBuild: !!heldItem.freeBuild
     });
 
     lastBlueprintKey = key;
+    if (heldItem.freeBuild) {
+      if (!takeMatchingSalvageModule(heldItem)) {
+        heldItem = AIR;
+        lastBlueprintKey = "";
+      }
+    }
   }
 }
 
@@ -116,12 +125,12 @@ function processCommit() {
         if (!canPlaceModule(bp.x, bp.y, bp.w, bp.h, next)) continue;
         const testModule = { id: -1, x: bp.x, y: bp.y, type: bp.type, w: bp.w, h: bp.h, rot: bp.rot || 0 };
         if (isConnected(next.concat(testModule))) {
-          if (!payCost(BUILD_COSTS[bp.type])) {
+          if (!bp.freeBuild && !payCost(BUILD_COSTS[bp.type])) {
             flash(`Build needs ${getMissingCostText(BUILD_COSTS[bp.type])}`);
             stillPending.push(bp);
             continue;
           }
-          const builtModule = { id: nextModuleId++, x: bp.x, y: bp.y, type: bp.type, w: bp.w, h: bp.h, rot: bp.rot || 0, tankContent: bp.tankContent, tankCap: bp.tankCap, buildCostPaid: false };
+          const builtModule = { id: nextModuleId++, x: bp.x, y: bp.y, type: bp.type, w: bp.w, h: bp.h, rot: bp.rot || 0, tankContent: bp.tankContent, tankCap: bp.tankCap, buildCostPaid: !bp.freeBuild };
           next.push(builtModule);
           notifyTutorialModuleBuilt(builtModule.type);
           placedAny = true;
@@ -255,8 +264,8 @@ function processCommit() {
     let builtIndex = -1;
     for (let i = 0; i < placeable.length; i++) {
       const bp = placeable[i];
-      if (payCost(BUILD_COSTS[bp.type])) {
-        const builtModule = { id: nextModuleId++, x: bp.x, y: bp.y, type: bp.type, w: bp.w, h: bp.h, rot: bp.rot || 0, tankContent: bp.tankContent, tankCap: bp.tankCap, buildCostPaid: true };
+      if (bp.freeBuild || payCost(BUILD_COSTS[bp.type])) {
+        const builtModule = { id: nextModuleId++, x: bp.x, y: bp.y, type: bp.type, w: bp.w, h: bp.h, rot: bp.rot || 0, tankContent: bp.tankContent, tankCap: bp.tankCap, buildCostPaid: !bp.freeBuild };
         current.push(builtModule);
         notifyTutorialModuleBuilt(builtModule.type);
         // Find and remove this bp from bps array
@@ -281,8 +290,8 @@ function processCommit() {
       for (let i = 1; i < placeable.length; i++) {
         const bp = placeable[i];
         if (!touchesAny(bp, placedModules)) continue;
-        if (payCost(BUILD_COSTS[bp.type])) {
-          const toPlace = { id: nextModuleId++, x: bp.x, y: bp.y, type: bp.type, w: bp.w, h: bp.h, rot: bp.rot || 0, tankContent: bp.tankContent, tankCap: bp.tankCap, buildCostPaid: true };
+        if (bp.freeBuild || payCost(BUILD_COSTS[bp.type])) {
+          const toPlace = { id: nextModuleId++, x: bp.x, y: bp.y, type: bp.type, w: bp.w, h: bp.h, rot: bp.rot || 0, tankContent: bp.tankContent, tankCap: bp.tankCap, buildCostPaid: !bp.freeBuild };
           placedModules.push(toPlace);
           notifyTutorialModuleBuilt(toPlace.type);
           const idx = bps.indexOf(bp);
@@ -548,7 +557,7 @@ function updateResources(dt) {
       }
     }
 
-    if (m.type === "Turret" && turretsActive && hasPower()) {
+    if (isTurretType(m.type) && hasPower()) {
       eUse += stats.energyUse;
     }
   }
@@ -568,7 +577,7 @@ function updateResources(dt) {
     playSound("powerOff", 900);
   }
 
-  for (const key of ["water", "steam", "hydrogen", "oxygen", "fuel", "ironOre", "copperOre", "siliconOre", "ironPlate", "copperPlate", "silicon", "nickel", "carbon", "deuterium", "tritium", "helium3", "uranium", "food", "ammo"]) {
+  for (const key of ["water", "steam", "hydrogen", "oxygen", "fuel", "ironOre", "copperOre", "siliconOre", "ironPlate", "copperPlate", "silicon", "nickel", "carbon", "deuterium", "tritium", "helium3", "uranium", "food", "ammo", "cannonBalls", "railgunRods", "rocketAmmunition"]) {
     res[key] = Math.max(0, res[key]);
   }
 
@@ -879,7 +888,8 @@ function updateSpaceHazards(dt) {
 
 function updateTurretGuns(dt) {
   for (const m of placedModules) {
-    if (m.type !== "Turret") continue;
+    if (!isTurretType(m.type)) continue;
+    if (m.type === "Railgun turret") continue;
 
     if (m._gunAngle === undefined) m._gunAngle = Math.random() * Math.PI * 2;
     if (m._gunTargetAngle === undefined) m._gunTargetAngle = m._gunAngle;
@@ -935,5 +945,5 @@ function updateGameSounds() {
   updateLoopSound("turbine", placedModules.some(module => module._machineActive === "turbine"));
   updateLoopSound("smelter", placedModules.some(module => module._machineActive === "smelter"));
   updateLoopSound("drill", false);
-  updateLoopSound("turretTurn", placedModules.some(module => module.type === "Turret" && module._turning));
+  updateLoopSound("turretTurn", placedModules.some(module => isTurretType(module.type) && module._turning));
 }

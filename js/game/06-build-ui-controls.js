@@ -42,6 +42,7 @@ function placeImportedShipGhost(grid) {
   if (!importedShipGhost) return false;
 
   const modules = importedShipGhost.modules;
+  const droneSettings = importedShipGhost.droneSettings;
   if (!validateImportedModulesForCurrentEditor(modules)) {
     importedShipGhost = null;
     return false;
@@ -65,6 +66,17 @@ function placeImportedShipGhost(grid) {
       rot: module.rot || 0,
       tankContent: module.tankContent,
       tankCap: module.tankCap
+    });
+  }
+
+  if (activeSmallShipEdit?.ship && droneSettings) {
+    Object.assign(activeSmallShipEdit.ship, {
+      modeMining: !!droneSettings.modeMining,
+      modeBattle: !!droneSettings.modeBattle,
+      modeGas: !!droneSettings.modeGas,
+      modeSolarWind: !!droneSettings.modeSolarWind,
+      cargoLimits: JSON.parse(JSON.stringify(droneSettings.cargoLimits || {})),
+      liquidLimits: JSON.parse(JSON.stringify(droneSettings.liquidLimits || {}))
     });
   }
 
@@ -264,6 +276,7 @@ function cleanupEnemyShipDamage(enemy) {
   const result = cleanupModuleDamage(enemy.modules || []);
 
   if (result.computerDestroyed || result.modules.length === 0) {
+    addEnemySalvage(enemy, enemy.modules || []);
     enemy._dead = true;
     return;
   }
@@ -351,7 +364,12 @@ function getInventoryButtonAt(mx, my) {
 }
 
 function isMouseOverInventory() {
-  return buildMode && (getInventoryButtonAt(mouse.x, mouse.y) !== null || getBuildTabAt(mouse.x, mouse.y) !== null || isMouseOverBuildTools());
+  return buildMode && (
+    getInventoryButtonAt(mouse.x, mouse.y) !== null ||
+    getBuildTabAt(mouse.x, mouse.y) !== null ||
+    isMouseOverBuildTools() ||
+    isMouseOverSalvagePanel(mouse.x, mouse.y)
+  );
 }
 
 function removeBlueprintAt(grid) {
@@ -587,6 +605,11 @@ function handlePlayingEscapeKey() {
     return true;
   }
 
+  if (returnHeldSalvageModule()) {
+    playSound("toggle", 120);
+    return true;
+  }
+
   if (heldItem !== AIR) {
     heldItem = AIR;
     lastBlueprintKey = "";
@@ -648,7 +671,11 @@ function getDigitFromKeyEvent(e, key) {
 }
 
 function handleAdminSecretKey(e, key) {
-  const startsSecret = key === "/" || (e.shiftKey && e.code === "Digit7");
+  const code = (e.code || "").toLowerCase();
+  const startsSecret = key === "/"
+    || code === "slash"
+    || code === "numpaddivide"
+    || ((e.shiftKey || keys.shift) && code === "digit7");
 
   if (startsSecret) {
     adminSecretInput = "/";
@@ -657,6 +684,11 @@ function handleAdminSecretKey(e, key) {
   }
 
   if (!adminSecretInput) return false;
+
+  if (key === "shift" || key === "control" || key === "alt" || key === "meta") {
+    e.preventDefault();
+    return true;
+  }
 
   const digit = getDigitFromKeyEvent(e, key);
   if (digit) {
@@ -793,6 +825,13 @@ window.addEventListener("keydown", e => {
     return;
   }
 
+  if (adminInstantBuild && key === "t") {
+    openAdminCommandDialog();
+    keys[key] = false;
+    e.preventDefault();
+    return;
+  }
+
   if (key === "b") {
     if (activeSmallShipEdit && buildMode) {
       commitSmallShipEditor();
@@ -825,77 +864,45 @@ window.addEventListener("keydown", e => {
   }
 
   if (key === "x" && !buildMode) {
-    shieldsActive = !shieldsActive;
-    flash(shieldsActive ? "Shields on" : "Shields off");
-    playSound("toggle", 120);
+    toggleStatusBadgeAction("shields");
   }
 
   if (key === "v" && !buildMode) {
-    repairMode = !repairMode;
-    flash(repairMode ? "Repair mode on" : "Repair mode off");
-    playSound("toggle", 120);
+    toggleStatusBadgeAction("repair");
   }
 
   if (key === "c" && !buildMode) {
-    recallSmallShips = !recallSmallShips;
-    flash(recallSmallShips ? "Drones recall" : "Drones resume");
-    playSound("toggle", 120);
-    e.preventDefault();
-  }
-
-  if (key === "t" && !buildMode) {
-    turretsActive = !turretsActive;
-    flash(turretsActive ? "Turrets armed" : "Turrets safe");
-    playSound("toggle", 120);
+    toggleStatusBadgeAction("recall");
     e.preventDefault();
   }
 
   if (key === "g" && !buildMode) {
-    precisionThrust = !precisionThrust;
-    flash(precisionThrust ? "Precision thrust: 20%" : "Full thrust");
-    playSound("toggle", 120);
+    toggleStatusBadgeAction("precision");
     e.preventDefault();
   }
 
   if (key === "o" && !buildMode) {
-    orbitModeActive = !orbitModeActive;
-    orbitTarget = orbitModeActive ? getBestOrbitTarget() : null;
-    orbitDesiredRadius = 0;
-    flash(orbitModeActive ? "Orbit Mode ON" : "Orbit Mode OFF");
-    playSound("toggle", 120);
+    toggleStatusBadgeAction("orbit");
     e.preventDefault();
   }
 
   if (key === "m" && !buildMode) {
-    mapVisible = !mapVisible;
-    flash(mapVisible ? "Map open" : "Map closed");
-    playSound("toggle", 120);
+    toggleStatusBadgeAction("map");
     e.preventDefault();
   }
 
   if (key === "l" && !buildMode) {
-    landingModeActive = !landingModeActive;
-    landingTarget = landingModeActive ? getBestLandingTarget() : null;
-    if (landingModeActive) {
-      orbitModeActive = false;
-      orbitTarget = null;
-    }
-    flash(landingModeActive ? "Landing mode ON" : "Landing mode OFF");
-    playSound("toggle", 120);
+    toggleStatusBadgeAction("landing");
     e.preventDefault();
   }
 
   if (key === "h" && !buildMode) {
-    trajectoryVisible = !trajectoryVisible;
-    flash(trajectoryVisible ? "Trajectory on" : "Trajectory off");
-    playSound("toggle", 120);
+    toggleStatusBadgeAction("trajectory");
     e.preventDefault();
   }
 
   if (key === "n" && !buildMode) {
-    autoBlueprintRepair = !autoBlueprintRepair;
-    flash(autoBlueprintRepair ? "Auto blueprint repair on" : "Auto blueprint repair off");
-    playSound("toggle", 120);
+    toggleStatusBadgeAction("autoBlueprint");
     e.preventDefault();
   }
 
@@ -910,16 +917,15 @@ window.addEventListener("keydown", e => {
       } else {
         rotation = (rotation + 1) % 4;
       }
-    } else {
-      matchRotateNose = !matchRotateNose;
-      flash(matchRotateNose ? "Match nose alignment on" : "Match nose alignment off");
-      playSound("toggle", 120);
     }
 
     e.preventDefault();
-  }if (key === "q" && buildMode) {
+  }
+
+  if (key === "q" && buildMode) {
     e.preventDefault();
 
+    if (returnHeldSalvageModule()) return;
     if (!hoveredGrid) return;
 
     const bp = blueprints.find(bp =>
@@ -966,10 +972,19 @@ window.addEventListener("mousedown", e => {
   if (e.button === 0) {
     mouseDown = true;
 
+    if (!buildMode && handleStatusBadgeClick(mouse.x, mouse.y)) {
+      return;
+    }
+
     if (mapVisible && !buildMode && handleMapClick(mouse.x, mouse.y)) {
       return;
     }
     if (mapVisible && !buildMode) return;
+
+    const salvageItem = getSalvageItemAt(mouse.x, mouse.y);
+    if (salvageItem && selectSalvageModule(salvageItem)) {
+      return;
+    }
 
     const assemblerTarget = getAssemblerTargetButtonAt(mouse.x, mouse.y);
     if (assemblerTarget) {

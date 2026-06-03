@@ -81,7 +81,7 @@ const TUTORIAL_EVENT_STEPS = {
   },
   turret: {
     title: "Turrets",
-    body: "Turrets can defend the ship. Press T to arm them, but remember that firing consumes ammo from your inventory."
+    body: "Turrets defend the ship automatically when they have power and ammunition. Different turret types use different ammunition."
   },
   shield: {
     title: "Shields",
@@ -157,7 +157,7 @@ function tutorialEvent(id) {
 }
 
 function notifyTutorialModuleBuilt(type) {
-  if (type === "Turret") tutorialEvent("turret");
+  if (isTurretType(type)) tutorialEvent("turret");
   if (type === "Shield Generator") tutorialEvent("shield");
   if (isHangarType(type)) tutorialEvent("hangar");
   if (type === "Fusion Reactor") tutorialEvent("fusion");

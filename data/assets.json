@@ -218,11 +218,19 @@
       "speed": 50
     },
     "TurretBase": {
-      "src": "Graphics/Machines/TurretBase.png",
+      "src": "Graphics/Machines/GunTurret.png",
       "frames": 1
     },
     "TurretGunStraight": {
       "src": "Graphics/Machines/TurretGunStraight.png",
+      "frames": 1
+    },
+    "TurretBase3x3": {
+      "src": "Graphics/Machines/TurretBase3x3.png",
+      "frames": 1
+    },
+    "CannonTurret": {
+      "src": "Graphics/Machines/CannonTurret.png",
       "frames": 1
     },
     "Life Support": {
@@ -236,6 +244,46 @@
     },
     "Quarters": {
       "src": "Graphics/Machines/Quarters.png",
+      "frames": 1
+    },
+    "CannonBalls": {
+      "src": "Graphics/ItemIcons/CannonBalls.png",
+      "frames": 1
+    },
+    "RailgunRods": {
+      "src": "Graphics/ItemIcons/RailgunRods.png",
+      "frames": 1
+    },
+    "RocketAmmunition": {
+      "src": "Graphics/ItemIcons/RocketAmmunition.png",
+      "frames": 1
+    },
+    "Gun Turret": {
+      "src": "Graphics/Machines/GunTurret.png",
+      "frames": 1
+    },
+    "Cannon tower": {
+      "src": "Graphics/Machines/CannonTower.png",
+      "frames": 1
+    },
+    "Railgun turret": {
+      "src": "Graphics/Machines/RailgunTurret.png",
+      "frames": 1
+    },
+    "Missile turret": {
+      "src": "Graphics/Machines/MissileTurret.png",
+      "frames": 1
+    },
+    "Laser turret": {
+      "src": "Graphics/Machines/LaserTurret.png",
+      "frames": 1
+    },
+    "LaserTurretOff": {
+      "src": "Graphics/Machines/LaserTurretOff.png",
+      "frames": 1
+    },
+    "LaserTurretOn": {
+      "src": "Graphics/Machines/LaserTurretOn.png",
       "frames": 1
     }
   },

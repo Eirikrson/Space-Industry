@@ -1,3 +1,59 @@
+const TURRET_TYPES = new Set(["Gun Turret", "Cannon tower", "Railgun turret", "Missile turret", "Laser turret", "Turret"]);
+
+function isTurretType(type) {
+  return TURRET_TYPES.has(type);
+}
+
+function getTurretSpriteName(type) {
+  if (type === "Turret") return "Gun Turret";
+  return type;
+}
+
+function getTurretBaseSpriteName(type, module = null) {
+  if (type === "Cannon tower" || type === "Missile turret") return "TurretBase3x3";
+  if (type === "Laser turret") return module?._laserBeam ? "LaserTurretOn" : "LaserTurretOff";
+  return getTurretSpriteName(type);
+}
+
+function getTurretTopSpriteName(type) {
+  if (type === "Gun Turret" || type === "Turret") return "TurretGunStraight";
+  if (type === "Cannon tower") return "CannonTurret";
+  if (type === "Missile turret") return "Missile turret";
+  return null;
+}
+
+function getTurretTopDrawAngle(type, angle = 0) {
+  if (type === "Cannon tower") return angle + Math.PI;
+  return angle;
+}
+
+function getTurretConfig(type) {
+  const normalized = type === "Turret" ? "Gun Turret" : type;
+  if (normalized === "Cannon tower") return { ammo: "cannonBalls", fireDelay: 3, damage: 1, rangeTiles: 34, speed: 340, kind: "cannon" };
+  if (normalized === "Railgun turret") return { ammo: "railgunRods", ammoPerShot: 0.2, fireDelay: 10, damage: 1, rangeTiles: 150, speed: 980, kind: "railgun", fixed: true };
+  if (normalized === "Missile turret") return { ammo: "rocketAmmunition", fireDelay: 20, damage: 1, rangeTiles: 80, speed: 260, kind: "missile", computerOnly: true };
+  if (normalized === "Laser turret") return { ammo: null, fireDelay: 7, damage: 0.1, rangeTiles: 24, speed: 0, kind: "laser", energyUse: 30, beamDuration: 2 };
+  return { ammo: "ammo", fireDelay: 1, damage: 0.25, rangeTiles: 50, speed: 420, kind: "bullet" };
+}
+
+function getTurretForwardAngle(owner, turret) {
+  return (owner.angle || 0) + (turret.rot || 0) * Math.PI / 2 - Math.PI / 2;
+}
+
+function canRailgunFireAt(owner, turret, from, target) {
+  if ((turret.type !== "Railgun turret")) return true;
+  const forward = getTurretForwardAngle(owner, turret);
+  const angle = Math.atan2(target.y - from.y, target.x - from.x);
+  return Math.abs(normalizeAngle(angle - forward)) < Math.PI / 24;
+}
+
+function canLaserFireAt(owner, turret, from, target) {
+  if (turret.type !== "Laser turret") return true;
+  const forward = getTurretForwardAngle(owner, turret);
+  const angle = Math.atan2(target.y - from.y, target.x - from.x);
+  return Math.abs(normalizeAngle(angle - forward)) <= Math.PI / 2;
+}
+
 function createSmallShipForHangar(hangar) {
   const smallShip = {
     id: nextSmallShipId++,
@@ -170,11 +226,11 @@ function getSmallShipCargoUsed(smallShip) {
 }
 
 function getSmallShipCargoLimit(smallShip, key) {
-  return Math.max(0, Math.floor((smallShip.cargoLimits && smallShip.cargoLimits[key]) ?? 50));
+  return Math.max(0, Math.floor((smallShip.cargoLimits && smallShip.cargoLimits[key]) ?? 0));
 }
 
 function getSmallShipLiquidLimit(smallShip, key) {
-  return Math.max(0, Math.floor((smallShip.liquidLimits && smallShip.liquidLimits[key]) ?? (key === "fuel" ? getSmallShipFuelCap(smallShip) : 50)));
+  return Math.max(0, Math.floor((smallShip.liquidLimits && smallShip.liquidLimits[key]) ?? (key === "fuel" ? getSmallShipFuelCap(smallShip) : 0)));
 }
 
 function getSmallShipLiquidAmount(smallShip, key) {
@@ -778,6 +834,7 @@ function updateSmallShips(dt) {
         const pos = moduleWorldCenter(hangar);
         smallShip.x = pos.x;
         smallShip.y = pos.y;
+        loadSmallShipSupplies(smallShip, dt);
 
         if (needsSmallShipTransfer(smallShip) && now - (smallShip.lastTransferAt || 0) > 1200) {
           beginSmallShipTransfer(smallShip, hangar);
@@ -1012,6 +1069,128 @@ function spawnEnemyFleet(fleet = chooseEnemyFleetDesign()) {
   playSound("enemyDetected", 500);
 }
 
+function addEnemySalvage(enemy, modules) {
+  for (const module of modules || []) {
+    if (module.type === "Computer" || getModuleHealth(module) <= 0) continue;
+    salvageModules.push({
+      id: `${enemy.id}:${module.id}:${performance.now()}`,
+      type: normalizeModuleType(module.type),
+      w: module.w || 1,
+      h: module.h || 1,
+      rot: module.rot || 0,
+      tankContent: module.tankContent,
+      tankCap: module.tankCap
+    });
+  }
+}
+
+function getSalvagePanelLayout() {
+  const width = 235;
+  const rowH = 38;
+  const x = 300;
+  const y = 10;
+  return { x, y, width, rowH, height: 34 + Math.min(8, getGroupedSalvageItems().length) * rowH };
+}
+
+function getSalvageGroupKey(item) {
+  return [
+    item.type,
+    item.w || 1,
+    item.h || 1,
+    item.rot || 0,
+    item.tankContent || "",
+    item.tankCap || ""
+  ].join("|");
+}
+
+function getGroupedSalvageItems() {
+  const groups = new Map();
+
+  for (const item of salvageModules) {
+    const key = getSalvageGroupKey(item);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        ...item,
+        count: 0,
+        items: []
+      });
+    }
+
+    const group = groups.get(key);
+    group.count++;
+    group.items.push(item);
+  }
+
+  return Array.from(groups.values()).sort((a, b) => {
+    const nameCompare = a.type.localeCompare(b.type);
+    if (nameCompare !== 0) return nameCompare;
+    return `${a.w}x${a.h}`.localeCompare(`${b.w}x${b.h}`);
+  });
+}
+
+function isMouseOverSalvagePanel(mx, my) {
+  if (!buildMode || activeSmallShipEdit || salvageModules.length === 0) return false;
+  const layout = getSalvagePanelLayout();
+  return mx >= layout.x && mx <= layout.x + layout.width && my >= layout.y && my <= layout.y + layout.height;
+}
+
+function getSalvageItemAt(mx, my) {
+  if (!isMouseOverSalvagePanel(mx, my)) return null;
+  const layout = getSalvagePanelLayout();
+  if (mx < layout.x || mx > layout.x + layout.width || my < layout.y + 34 || my > layout.y + layout.height) return null;
+  const index = Math.floor((my - layout.y - 34) / layout.rowH);
+  return getGroupedSalvageItems()[index] || null;
+}
+
+function selectSalvageModule(item) {
+  if (!item) return false;
+  const source = item.items?.[0] || item;
+  heldItem = {
+    id: `salvage_${source.id}`,
+    name: source.type,
+    size: [source.w, source.h],
+    freeBuild: true,
+    tankContent: source.tankContent,
+    tankCap: source.tankCap,
+    salvageSource: { ...source }
+  };
+  const index = salvageModules.indexOf(source);
+  if (index !== -1) salvageModules.splice(index, 1);
+  openBuildMode();
+  mouseDown = false;
+  flash("Salvage ready - place it");
+  return true;
+}
+
+function takeMatchingSalvageModule(held) {
+  if (!held?.freeBuild || !held.salvageSource) return false;
+  const source = held.salvageSource;
+  const index = salvageModules.findIndex(item =>
+    item.type === source.type &&
+    (item.w || 1) === (source.w || 1) &&
+    (item.h || 1) === (source.h || 1) &&
+    (item.rot || 0) === (source.rot || 0) &&
+    (item.tankContent || "") === (source.tankContent || "") &&
+    (item.tankCap || "") === (source.tankCap || "")
+  );
+
+  if (index === -1) return false;
+  const next = salvageModules.splice(index, 1)[0];
+  held.salvageSource = { ...next };
+  held.id = `salvage_${next.id}`;
+  return true;
+}
+
+function returnHeldSalvageModule() {
+  if (!heldItem?.freeBuild || !heldItem.salvageSource) return false;
+
+  salvageModules.push({ ...heldItem.salvageSource });
+  heldItem = AIR;
+  lastBlueprintKey = "";
+  flash("Salvage returned");
+  return true;
+}
+
 function updateEnemySpawning() {
   const enemyLimit = currentWorldIsEnd
     ? Math.max(4, Math.floor(getPlayerStrengthScore() / 45))
@@ -1033,14 +1212,19 @@ function getNearestEnemyTargetForTurret(turretModule, rangeTiles = 12) {
   let best = null;
   let bestDist = Infinity;
   const range = CONFIG.GRID_SIZE * rangeTiles;
+  const config = getTurretConfig(turretModule.type);
 
   for (const enemy of enemyShips) {
     if (enemy._dead) continue;
-    const computer = enemy.modules.find(module => module.type === "Computer");
-    const targetWorld = computer ? getEnemyModuleWorldCenter(enemy, computer) : { x: enemy.x, y: enemy.y };
+    const targetModule = config.computerOnly
+      ? enemy.modules.find(module => module.type === "Computer" && getModuleHealth(module) > 0)
+      : getClosestEnemyModuleTo(enemy, world.x, world.y);
+    if (!targetModule) continue;
+    const targetWorld = getEnemyModuleWorldCenter(enemy, targetModule);
+    if (config.kind === "laser" && !canLaserFireAt(ship, turretModule, world, targetWorld)) continue;
     const dist = Math.hypot(targetWorld.x - world.x, targetWorld.y - world.y);
     if (dist < range && dist < bestDist) {
-      best = { x: targetWorld.x, y: targetWorld.y, enemy };
+      best = { x: targetWorld.x, y: targetWorld.y, enemy, module: targetModule };
       bestDist = dist;
     }
   }
@@ -1078,6 +1262,14 @@ function getClosestEnemyModuleTo(enemy, x, y) {
   }
 
   return best;
+}
+
+function getEnemyById(id) {
+  return enemyShips.find(enemy => enemy.id === id && !enemy._dead) || null;
+}
+
+function getEnemyModuleById(enemy, id) {
+  return enemy?.modules?.find(module => module.id === id && getModuleHealth(module) > 0) || null;
 }
 
 function moveEnemyToward(enemy, targetX, targetY, dt, stopDistance = CONFIG.GRID_SIZE * 6) {
@@ -1167,15 +1359,19 @@ function updateEnemyMining(enemy, dt) {
   }
 }
 
-function fireCombatBullet(owner, shooter, fromX, fromY, targetX, targetY) {
+function fireCombatBullet(owner, shooter, fromX, fromY, targetX, targetY, options = {}) {
   const angle = Math.atan2(targetY - fromY, targetX - fromX);
-  const speed = 420;
+  const speed = options.speed || 420;
 
   playSound("turretShot", 70);
 
   combatBullets.push({
     owner,
     shooter,
+    kind: options.kind || "bullet",
+    damage: options.damage ?? 0.25,
+    targetEnemyId: options.targetEnemyId,
+    targetModuleId: options.targetModuleId,
     x: fromX,
     y: fromY,
     vx: Math.cos(angle) * speed + (shooter.vx || 0),
@@ -1194,7 +1390,7 @@ function updateEnemyTurrets(enemy, dt) {
   if (targetDist > attackRange) return;
 
   for (const turret of enemy.modules) {
-    if (turret.type !== "Turret") continue;
+    if (!isTurretType(turret.type)) continue;
     turret._fireCooldown = Math.max(0, (turret._fireCooldown || 0) - dt);
     const turretWorld = getEnemyModuleWorldCenter(enemy, turret);
     turret._gunAngle = Math.atan2(targetWorld.y - turretWorld.y, targetWorld.x - turretWorld.x) - enemy.angle - (turret.rot || 0) * Math.PI / 2 - Math.PI / 2;
@@ -1208,20 +1404,40 @@ function updateEnemyTurrets(enemy, dt) {
 }
 
 function updatePlayerTurrets(dt) {
-  if (!turretsActive || buildMode || (res.ammo || 0) < 0.1) return;
+  if (buildMode) return;
 
   for (const turret of placedModules) {
-    if (turret.type !== "Turret") continue;
+    if (!isTurretType(turret.type)) continue;
+    const config = getTurretConfig(turret.type);
     turret._fireCooldown = Math.max(0, (turret._fireCooldown || 0) - dt);
     if (turret._fireCooldown > 0) continue;
 
-    const target = getNearestEnemyTargetForTurret(turret);
+    if (config.energyUse && (res.energy || 0) < config.energyUse) continue;
+    if (config.ammo && (res[config.ammo] || 0) < (config.ammoPerShot || 1)) continue;
+
+    const target = getNearestEnemyTargetForTurret(turret, config.rangeTiles);
     if (!target) continue;
 
     const turretWorld = moduleWorldCenter(turret);
-    res.ammo -= 0.1;
-    turret._fireCooldown = 1;
-    fireCombatBullet("player", ship, turretWorld.x, turretWorld.y, target.x, target.y);
+    if (!canRailgunFireAt(ship, turret, turretWorld, target)) continue;
+
+    turret._gunAngle = Math.atan2(target.y - turretWorld.y, target.x - turretWorld.x) - ship.angle - (turret.rot || 0) * Math.PI / 2 - Math.PI / 2;
+    if (config.ammo) res[config.ammo] -= (config.ammoPerShot || 1);
+    if (config.energyUse) res.energy -= config.energyUse;
+    turret._fireCooldown = config.fireDelay;
+
+    if (config.kind === "laser") {
+      turret._laserBeam = { targetEnemyId: target.enemy.id, targetModuleId: target.module.id, time: config.beamDuration };
+      playSound("turretShot", 120);
+    } else {
+      fireCombatBullet("player", ship, turretWorld.x, turretWorld.y, target.x, target.y, {
+        kind: config.kind,
+        damage: config.damage,
+        speed: config.speed,
+        targetEnemyId: target.enemy.id,
+        targetModuleId: target.module.id
+      });
+    }
   }
 }
 
@@ -1256,6 +1472,18 @@ function playerShieldBlocksBullet(bullet) {
 function updateCombatBullets(dt) {
   for (let i = combatBullets.length - 1; i >= 0; i--) {
     const bullet = combatBullets[i];
+    if (bullet.kind === "missile") {
+      const enemy = getEnemyById(bullet.targetEnemyId);
+      const computer = enemy?.modules?.find(module => module.type === "Computer" && getModuleHealth(module) > 0);
+      if (enemy && computer) {
+        const target = getEnemyModuleWorldCenter(enemy, computer);
+        const speed = Math.max(1, Math.hypot(bullet.vx, bullet.vy));
+        const desired = Math.atan2(target.y - bullet.y, target.x - bullet.x);
+        bullet.vx += (Math.cos(desired) * speed - bullet.vx) * Math.min(1, dt * 2.5);
+        bullet.vy += (Math.sin(desired) * speed - bullet.vy) * Math.min(1, dt * 2.5);
+      }
+    }
+
     bullet.x += bullet.vx * dt;
     bullet.y += bullet.vy * dt;
     bullet.ttl -= dt;
@@ -1276,22 +1504,43 @@ function updateCombatBullets(dt) {
       const world = moduleWorldCenter(module);
       const hitRadius = Math.max(module.w || 1, module.h || 1) * CONFIG.GRID_SIZE * 0.55;
       if (Math.hypot(world.x - bullet.x, world.y - bullet.y) <= hitRadius) {
-        damageModule(module, 0.25);
+        damageModule(module, bullet.damage ?? 0.25);
         combatBullets.splice(i, 1);
       }
     } else if (bullet.owner === "player") {
       for (const enemy of enemyShips) {
-        const module = getClosestEnemyModuleTo(enemy, bullet.x, bullet.y);
+        const module = bullet.kind === "missile"
+          ? enemy.modules.find(candidate => candidate.type === "Computer" && getModuleHealth(candidate) > 0)
+          : getClosestEnemyModuleTo(enemy, bullet.x, bullet.y);
         if (!module) continue;
         const world = getEnemyModuleWorldCenter(enemy, module);
         const hitRadius = Math.max(module.w || 1, module.h || 1) * CONFIG.GRID_SIZE * 0.55;
         if (Math.hypot(world.x - bullet.x, world.y - bullet.y) <= hitRadius) {
-          damageModule(module, 0.25);
+          damageModule(module, bullet.damage ?? 0.25);
           combatBullets.splice(i, 1);
           break;
         }
       }
     }
+  }
+}
+
+function updateLaserTurretBeams(dt) {
+  for (const turret of placedModules) {
+    const beam = turret._laserBeam;
+    if (!beam) continue;
+
+    beam.time -= dt;
+    const enemy = getEnemyById(beam.targetEnemyId);
+    const turretWorld = moduleWorldCenter(turret);
+    const module = getEnemyModuleById(enemy, beam.targetModuleId) || (enemy ? getClosestEnemyModuleTo(enemy, turretWorld.x, turretWorld.y) : null);
+    if (!enemy || !module || beam.time <= 0) {
+      turret._laserBeam = null;
+      continue;
+    }
+
+    const shield = enemy.modules.find(candidate => candidate.type === "Shield Generator" && getModuleHealth(candidate) > 0);
+    damageModule(shield || module, (shield ? 0.1 : 0.1) * dt);
   }
 }
 function updateEnemyShips(dt) {
@@ -1352,10 +1601,15 @@ function drawEnemyShipModule(enemy, module, com) {
     ctx.fillRect(-sw / 2, -sh / 2, sw, sh);
   }
 
-  if (module.type === "Turret") {
-    drawImageSprite("TurretBase", -sw / 2, -sh / 2, sw, sh);
-    ctx.rotate(module._gunAngle || 0);
-    drawImageSprite("TurretGunStraight", -sw / 2, -sh / 2, sw, sh);
+  if (isTurretType(module.type)) {
+    drawImageSprite(getTurretBaseSpriteName(module.type, module), -sw / 2, -sh / 2, sw, sh);
+    const topSprite = getTurretTopSpriteName(module.type);
+    if (topSprite) {
+      ctx.save();
+      ctx.rotate(getTurretTopDrawAngle(module.type, module._gunAngle || 0));
+      drawImageSprite(topSprite, -sw / 2, -sh / 2, sw, sh);
+      ctx.restore();
+    }
   } else if (!drawImageSprite(spriteName, -sw / 2, -sh / 2, sw, sh)) {
     ctx.fillStyle = module.type === "Computer" ? "#66ffff" : "rgba(55,35,45,0.9)";
     ctx.fillRect(-sw / 2, -sh / 2, sw, sh);
@@ -1407,19 +1661,48 @@ function drawCombatBullets() {
 
   for (const bullet of combatBullets) {
     const p = worldToScreen(bullet.x, bullet.y);
-    ctx.fillStyle = bullet.owner === "enemy" ? "#ff3333" : "#66ccff";
+    ctx.fillStyle = bullet.kind === "missile"
+      ? "#ff8844"
+      : bullet.kind === "railgun"
+        ? "#d8f3ff"
+        : bullet.kind === "cannon"
+          ? "#ffaa33"
+          : bullet.owner === "enemy" ? "#ff3333" : "#66ccff";
     ctx.beginPath();
-    ctx.arc(p.x, p.y, Math.max(2, 3 * camera.scale), 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, Math.max(2, (bullet.kind === "cannon" ? 4 : 3) * camera.scale), 0, Math.PI * 2);
     ctx.fill();
   }
+
+  for (const turret of placedModules) {
+    const beam = turret._laserBeam;
+    if (!beam) continue;
+    const enemy = getEnemyById(beam.targetEnemyId);
+    const module = getEnemyModuleById(enemy, beam.targetModuleId);
+    if (!enemy || !module) continue;
+    const from = worldToScreen(moduleWorldCenter(turret).x, moduleWorldCenter(turret).y);
+    const target = getEnemyModuleWorldCenter(enemy, module);
+    const to = worldToScreen(target.x, target.y);
+    ctx.strokeStyle = "rgba(255,80,80,0.9)";
+    ctx.lineWidth = Math.max(2, 4 * camera.scale);
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+  }
 }
+function getSmallShipConfigLayout() {
+  const width = 235;
+  const x = 300;
+  const y = 10;
+  const rowH = 26;
+  const height = 258;
+  return { x, y, width, rowH, height };
+}
+
 function getSmallShipConfigButtonAt(mx, my) {
   if (!activeSmallShipEdit) return null;
 
-  const width = 235;
-  const x = 10;
-  const y = Math.min(VIEW.h - 278, 640);
-  const buttonH = 26;
+  const { x, y, width, rowH: buttonH } = getSmallShipConfigLayout();
 
   if (mx < x || mx > x + width) return null;
   if (my >= y + 46 && my <= y + 46 + buttonH) return "name";

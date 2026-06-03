@@ -343,12 +343,28 @@ function getExportableModules() {
   });
 }
 
+function getActiveSmallShipExportSettings() {
+  if (!activeSmallShipEdit?.ship) return null;
+  const smallShip = activeSmallShipEdit.ship;
+
+  return {
+    modeMining: !!smallShip.modeMining,
+    modeBattle: !!smallShip.modeBattle,
+    modeGas: !!smallShip.modeGas,
+    modeSolarWind: !!smallShip.modeSolarWind,
+    cargoLimits: JSON.parse(JSON.stringify(smallShip.cargoLimits || {})),
+    liquidLimits: JSON.parse(JSON.stringify(smallShip.liquidLimits || {}))
+  };
+}
+
 function exportShipToClipboard() {
   const data = {
-    v: 1,
-    modules: getExportableModules()
+    v: 2,
+    modules: getExportableModules(),
+    drone: getActiveSmallShipExportSettings()
   };
 
+  if (!data.drone) delete data.drone;
   const code = encodeShipData(data);
 
   navigator.clipboard.writeText(code)
@@ -366,7 +382,7 @@ function normalizeImportedShip(data) {
 
   return data.modules
     .filter(module => module && module.t && module.t !== "Computer")
-    .map(module => ({
+    .map(module => normalizeModuleShape({
       x: Number(module.x) || 0,
       y: Number(module.y) || 0,
       type: normalizeModuleType(module.t),
@@ -378,7 +394,25 @@ function normalizeImportedShip(data) {
     }));
 }
 
+function normalizeImportedDroneSettings(data) {
+  if (!data || typeof data !== "object") return null;
+
+  return {
+    modeMining: !!data.modeMining,
+    modeBattle: !!data.modeBattle,
+    modeGas: !!data.modeGas,
+    modeSolarWind: !!data.modeSolarWind,
+    cargoLimits: JSON.parse(JSON.stringify(data.cargoLimits || {})),
+    liquidLimits: JSON.parse(JSON.stringify(data.liquidLimits || {}))
+  };
+}
+
 const LEGACY_MODULE_NAME_MAP = {
+  "Turret": "Gun Turret",
+  "Cannon Tower": "Cannon tower",
+  "Railgun Turret": "Railgun turret",
+  "Missile Turret": "Missile turret",
+  "Laser Turret": "Laser turret",
   "Storage Tray": "Warehouse MK1",
   "Warehouse": "Warehouse MK2",
   "Small Tank": "Tank MK1",
@@ -392,6 +426,15 @@ const LEGACY_MODULE_NAME_MAP = {
 function normalizeModuleType(type) {
   const name = String(type || "");
   return LEGACY_MODULE_NAME_MAP[name] || name;
+}
+
+function normalizeModuleShape(module) {
+  const normalized = { ...module, type: normalizeModuleType(module.type) };
+  if (normalized.type === "Laser turret" && (normalized.w || 1) === 2 && (normalized.h || 1) === 3) {
+    normalized.w = 3;
+    normalized.h = 2;
+  }
+  return normalized;
 }
 
 function validateImportedModulesForCurrentEditor(modules) {
@@ -417,7 +460,8 @@ function importShipFromCode() {
     if (!code) return;
 
     try {
-      const modules = normalizeImportedShip(decodeShipData(code));
+      const decoded = decodeShipData(code);
+      const modules = normalizeImportedShip(decoded);
 
       if (modules.length === 0) {
         flash("Ship code has no modules");
@@ -429,7 +473,7 @@ function importShipFromCode() {
         return;
       }
 
-      importedShipGhost = { modules };
+      importedShipGhost = { modules, droneSettings: normalizeImportedDroneSettings(decoded?.drone) };
       heldItem = AIR;
       lastBlueprintKey = "";
       flash("Ship ghost ready");

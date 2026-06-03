@@ -399,6 +399,56 @@ function createAsteroidAwayFromShip() {
   return new Asteroid(pos.x, pos.y);
 }
 
+function createAmbientSystemAsteroid(star, maxRadius, kind = "rock") {
+  for (let tries = 0; tries < 50; tries++) {
+    const angle = worldRand() * Math.PI * 2;
+    const minR = star.radius * 2.2;
+    const dist = minR + worldRand() * Math.max(CONFIG.GRID_SIZE * 100, maxRadius - minR);
+    const asteroid = new Asteroid(star.x + Math.cos(angle) * dist, star.y + Math.sin(angle) * dist, kind);
+    if (isInsideCelestialBody(asteroid.x, asteroid.y, asteroid.size + CONFIG.GRID_SIZE * 2)) continue;
+    asteroid._beltStar = star;
+    asteroid._beltDist = dist;
+    asteroid._beltAngle = angle;
+    asteroid._beltOrbitSpeed = (0.000015 + worldRand() * 0.000025) * (worldRand() < 0.5 ? 1 : -1) * (CONFIG.GRID_SIZE * 400 / Math.max(dist, 1));
+    asteroid._ambientSystemAsteroid = true;
+    return asteroid;
+  }
+
+  return null;
+}
+
+function spawnAmbientSystemAsteroids(system, count) {
+  if (!system || !system.star) return;
+  const maxRadius = Math.max(
+    system.outerBelt?.outerR || 0,
+    system.innerBelt?.outerR || 0,
+    ...system.planets.map(planet => planet.orbitRadius + planet.radius)
+  ) * 1.04;
+
+  for (let i = 0; i < count; i++) {
+    const asteroid = createAmbientSystemAsteroid(system.star, maxRadius, worldRand() < 0.12 ? "ice" : "rock");
+    if (asteroid) asteroids.push(asteroid);
+  }
+}
+
+function spawnAmbientGalaxyAsteroids(count) {
+  for (let i = 0; i < count; i++) {
+    for (let tries = 0; tries < 50; tries++) {
+      const angle = worldRand() * Math.PI * 2;
+      const dist = CONFIG.GALAXY_RADIUS * (0.16 + worldRand() * 0.9);
+      const asteroid = new Asteroid(
+        CONFIG.GALAXY_CENTER_X + Math.cos(angle) * dist,
+        CONFIG.GALAXY_CENTER_Y + Math.sin(angle) * dist,
+        worldRand() < 0.08 ? "ice" : "rock"
+      );
+      if (isInsideCelestialBody(asteroid.x, asteroid.y, asteroid.size + CONFIG.GRID_SIZE * 2)) continue;
+      asteroid._ambientGalaxyAsteroid = true;
+      asteroids.push(asteroid);
+      break;
+    }
+  }
+}
+
 function isInsideCelestialBody(x, y, padding = 0) {
   if (blackHole && Math.hypot(x - blackHole.x, y - blackHole.y) <= blackHole.radius + padding) return true;
 
@@ -447,7 +497,7 @@ const CELESTIAL_SIZE_FACTOR = 3;
 const BLACK_HOLE_SIZE_FACTOR = 2.5;
 const PLANET_ORBIT_GAP = CONFIG.GRID_SIZE * 220;
 const SYSTEM_EDGE_PADDING = CONFIG.GRID_SIZE * 900;
-const ASTEROID_BELT_WIDTH = CONFIG.GRID_SIZE * 180;
+const ASTEROID_BELT_WIDTH = CONFIG.GRID_SIZE * 280;
 
 class GalaxyPlanet {
   constructor(x, y, typeKey, r, starRef) {
@@ -753,6 +803,21 @@ class AsteroidBelt {
     const maxR = this.outerR * camera.scale;
     if (starP.x < -maxR*2 || starP.x > VIEW.w+maxR*2 || starP.y < -maxR*2 || starP.y > VIEW.h+maxR*2) return;
 
+    if (camera.scale > 0.003) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,255,255,0.45)";
+      ctx.lineWidth = Math.max(1, camera.scale * 2);
+      ctx.setLineDash([8, 10]);
+      ctx.beginPath();
+      ctx.arc(starP.x, starP.y, this.innerR * camera.scale, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(starP.x, starP.y, this.outerR * camera.scale, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
     for (const rock of this.rocks) {
       const wx = this.star.x + Math.cos(rock.angle) * rock.dist;
       const wy = this.star.y + Math.sin(rock.angle) * rock.dist;
@@ -925,6 +990,12 @@ function generateGalaxy() {
     solarSystems.push({ star, planets: systemPlanets, innerBelt, outerBelt });
   }
 
+  for (const system of solarSystems) {
+    const beltCount = (system.innerBelt?.rocks.length || 0) + (system.outerBelt?.rocks.length || 0);
+    spawnAmbientSystemAsteroids(system, Math.max(8, Math.floor(beltCount / 10)));
+  }
+  spawnAmbientGalaxyAsteroids(Math.max(20, Math.floor(CONFIG.SYSTEM_COUNT * 8)));
+
   // Player starts near system 0
   const startStar = solarSystems[0].star;
   STAR = startStar; // set global STAR for solar panel calculations
@@ -1021,6 +1092,12 @@ function generateEndGalaxy(rng) {
 
     solarSystems.push({ star, planets: systemPlanets, innerBelt, outerBelt });
   }
+
+  for (const system of solarSystems) {
+    const beltCount = (system.innerBelt?.rocks.length || 0) + (system.outerBelt?.rocks.length || 0);
+    spawnAmbientSystemAsteroids(system, Math.max(12, Math.floor(beltCount / 10)));
+  }
+  spawnAmbientGalaxyAsteroids(36);
 
   const startStar = solarSystems[0].star;
   STAR = startStar;
