@@ -19,6 +19,7 @@ function updateBuildCamera() {
 
 function updateBuildMode() {
   if (!buildMode || !hoveredGrid) return;
+  if (turretControlWindowOpen) return;
   if (isMouseOverInventory()) return;
   if (importedShipGhost) return;
   if (!mouseDown || heldItem === AIR || dragging) return;
@@ -37,10 +38,20 @@ function updateBuildMode() {
 
   const projectedTiles = activeSmallShipEdit
     ? countModuleTiles(placedModules) + countModuleTiles(blueprints) + w * h
-    : 0;
+    : countModuleTiles(placedModules) + countModuleTiles(blueprints) + w * h;
 
   if (activeSmallShipEdit && projectedTiles > activeSmallShipEdit.capacityTiles) {
     flash("Hangar ship size limit reached");
+    return;
+  }
+
+  if (!activeSmallShipEdit && projectedTiles > getMotherShipTileLimit()) {
+    flash(`Computer MK${getComputerLevel()} supports max ${getMotherShipTileLimit()} ship tiles`);
+    return;
+  }
+
+  if (!activeSmallShipEdit && !hasComputerLevelForBuilding(heldItem.name)) {
+    flash("Mother ship computer has not enough processing power");
     return;
   }
 
@@ -366,6 +377,13 @@ function updateResources(dt) {
   let eUse = 0;
   const wasPowered = res.energy > 0;
   const hasPower = () => res.energy > 0 || eProd > eUse;
+  const canUsePower = module => {
+    const now = performance.now();
+    if ((module._powerRetryAt || 0) > now) return false;
+    if (hasPower()) return true;
+    module._powerRetryAt = now + 2000;
+    return false;
+  };
 
   for (const m of placedModules) {
     m._machineActive = null;
@@ -405,21 +423,21 @@ function updateResources(dt) {
       m._machineActive = "turbine";
     }
 
-    if (m.type === "Electrolyser" && hasPower() && res.water >= stats.waterUse * dt) {
+    if (m.type === "Electrolyser" && canUsePower(m) && res.water >= stats.waterUse * dt) {
       res.water -= stats.waterUse * dt;
       res.hydrogen = Math.min(res.hydrogenCap || 999, res.hydrogen + stats.hydrogenProd * dt);
       res.oxygen = Math.min(res.oxygenCap || 999, res.oxygen + stats.oxygenProd * dt);
       eUse += stats.energyUse;
     }
 
-    if (m.type === "Fuel Processor" && hasPower() && res.hydrogen >= stats.hydrogenUse * dt && res.oxygen >= stats.oxygenUse * dt) {
+    if (m.type === "Fuel Processor" && canUsePower(m) && res.hydrogen >= stats.hydrogenUse * dt && res.oxygen >= stats.oxygenUse * dt) {
       res.hydrogen -= stats.hydrogenUse * dt;
       res.oxygen -= stats.oxygenUse * dt;
       res.fuel = Math.min(res.fuelCap || 999, res.fuel + stats.fuelProd * dt);
       eUse += stats.energyUse;
     }
 
-    if (m.type === "Smelter" && hasPower()) {
+    if (m.type === "Smelter" && canUsePower(m)) {
       const recipes = [
         { input: "ironOre", output: "ironPlate" },
         { input: "copperOre", output: "copperPlate" },
@@ -435,7 +453,7 @@ function updateResources(dt) {
       }
     }
 
-    if (m.type === "Assembler" && hasPower()) {
+    if (m.type === "Assembler" && canUsePower(m)) {
       const product = getAssemblerProduct(m);
       const recipe = BUILDING_STATS.Assembler?.recipes?.[product];
       if (recipe) {
@@ -462,18 +480,18 @@ function updateResources(dt) {
       }
     }
 
-    if (m.type === "Farm Module" && hasPower() && res.water >= stats.waterUse * dt) {
+    if (m.type === "Farm Module" && canUsePower(m) && res.water >= stats.waterUse * dt) {
       res.water -= stats.waterUse * dt;
       storeResource("food", stats.foodProd * dt);
       eUse += stats.energyUse;
     }
 
-    if (m.type === "Life Support" && hasPower() && res.water >= stats.waterUse * dt) {
+    if (m.type === "Life Support" && canUsePower(m) && res.water >= stats.waterUse * dt) {
       res.water -= stats.waterUse * dt;
       eUse += stats.energyUse;
     }
 
-    if (m.type === "Asteroid Collector" && hasPower()) {
+    if (m.type === "Asteroid Collector" && canUsePower(m)) {
       eUse += stats.energyUse;
 
       if (m._collectorTimer === undefined) {
@@ -491,7 +509,7 @@ function updateResources(dt) {
       }
     }
 
-    if (m.type === "Drill" && hasPower()) {
+    if (m.type === "Drill" && canUsePower(m)) {
       eUse += stats.energyUse;
       const waterPlanet = findWaterPlanetForDrill(m);
       const target = waterPlanet ? null : findAsteroidForDrill(m);
@@ -530,7 +548,7 @@ function updateResources(dt) {
       }
     }
 
-    if (m.type === "Scooper" && hasPower()) {
+    if (m.type === "Scooper" && canUsePower(m)) {
       const planet = findNearestGasPlanet(ship.x, ship.y, CONFIG.GRID_SIZE * 8);
       if (planet) {
         eUse += stats.energyUse;
@@ -544,7 +562,7 @@ function updateResources(dt) {
       }
     }
 
-    if (m.type === "Solar Wind Collector" && hasPower()) {
+    if (m.type === "Solar Wind Collector" && canUsePower(m)) {
       const star = findNearestStar(ship.x, ship.y, CONFIG.GRID_SIZE * 12);
       if (star) {
         eUse += stats.energyUse;
@@ -557,7 +575,7 @@ function updateResources(dt) {
       }
     }
 
-    if (isTurretType(m.type) && hasPower()) {
+    if (isTurretType(m.type) && canUsePower(m)) {
       eUse += stats.energyUse;
     }
   }

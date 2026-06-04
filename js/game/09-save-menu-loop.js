@@ -107,7 +107,8 @@ function createSavePayload(name) {
       shieldsActive,
       repairMode,
       adminInstantBuild,
-      autoBlueprintRepair
+      autoBlueprintRepair,
+      turretTypeEnabled: stripRuntimeState(turretTypeEnabled)
     },
     worldPlayTime,
     nextEnemySpawnAt
@@ -166,6 +167,7 @@ function resetGameRuntime() {
   commitSnapshot = null;
   researchWindowOpen = false;
   assemblerWindowModule = null;
+  turretControlWindowOpen = false;
   hoveredResearchItem = null;
   activeSmallShipEdit = null;
   motherShipModulesBackup = null;
@@ -477,6 +479,8 @@ function loadSavePayload(payload) {
     repairMode = payload.toggles.repairMode !== false;
     adminInstantBuild = (payload.version || 1) >= 2 ? !!payload.toggles.adminInstantBuild : false;
     autoBlueprintRepair = payload.toggles.autoBlueprintRepair !== false;
+    Object.keys(turretTypeEnabled).forEach(key => delete turretTypeEnabled[key]);
+    Object.assign(turretTypeEnabled, payload.toggles.turretTypeEnabled || {});
   }
 
   currentSaveName = payload.name || text("save.loadedSaveFallback");
@@ -748,8 +752,8 @@ function drawMenuEnemyShip() {
     }
 
     if (isTurretType(module.type)) {
-      drawImageSprite(getTurretBaseSpriteName(module.type), -drawW / 2, -drawH / 2, drawW, drawH);
-      const topSprite = getTurretTopSpriteName(module.type);
+      drawImageSprite(getTurretBodySpriteName(module.type, null, { preview: true }), -drawW / 2, -drawH / 2, drawW, drawH);
+      const topSprite = getTurretTopSpriteNameForModule(module.type, null, { preview: true });
       if (topSprite) drawImageSprite(topSprite, -drawW / 2, -drawH / 2, drawW, drawH);
     }
 

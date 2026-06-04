@@ -813,6 +813,14 @@
             "ironPlate": 20,
             "copperPlate": 20
           }
+        },
+        {
+          "name": "Computer MK2",
+          "cost": {
+            "ironPlate": 30,
+            "copperPlate": 20,
+            "circuits": 5
+          }
         }
       ]
     },
@@ -861,12 +869,7 @@
             "ironPlate": 30,
             "copperPlate": 25
           }
-        }
-      ]
-    },
-    {
-      "title": "TIER 3 - Automation",
-      "items": [
+        },
         {
           "name": "Hangar MK1",
           "cost": {
@@ -877,6 +880,20 @@
             "gears": 5
           }
         },
+        {
+          "name": "Computer MK3",
+          "cost": {
+            "ironPlate": 80,
+            "copperPlate": 45,
+            "circuits": 25,
+            "silicon": 10
+          }
+        }
+      ]
+    },
+    {
+      "title": "TIER 3 - Automation",
+      "items": [
         {
           "name": "Warehouse MK2",
           "cost": {
@@ -979,6 +996,16 @@
             "circuits": 45,
             "cables": 35,
             "silicon": 30,
+            "nickel": 20
+          }
+        },
+        {
+          "name": "Computer MK4",
+          "cost": {
+            "ironPlate": 120,
+            "copperPlate": 80,
+            "circuits": 55,
+            "silicon": 25,
             "nickel": 20
           }
         }
@@ -1121,6 +1148,29 @@
       "",
       "OUTPUT Technologies",
       "Unlocks new buildings."
+    ],
+    "Computer MK2": [
+      "UPGRADE Mother ship computer",
+      "",
+      "- Ship size limit: 80 tiles",
+      "- Unlocks resource survey tooltip",
+      "- Unlocks Hangar MK1",
+      "- Unlocks Tier 2 research"
+    ],
+    "Computer MK3": [
+      "UPGRADE Mother ship computer",
+      "",
+      "- Ship size limit: 120 tiles",
+      "- Unlocks orbit mode",
+      "- Unlocks Hangar MK2",
+      "- Unlocks Tier 3 research"
+    ],
+    "Computer MK4": [
+      "UPGRADE Mother ship computer",
+      "",
+      "- Ship size limit: 150 tiles",
+      "- Unlocks Hangar MK3",
+      "- Unlocks Tier 4 research"
     ],
     "Warehouse MK1": [
       "Storage Capacity: 100 items"

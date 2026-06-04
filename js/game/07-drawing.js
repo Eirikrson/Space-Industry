@@ -40,13 +40,14 @@ function drawStar(star = STAR) {
 }
 
 function drawTurretRangeAt(x, y, active = true, type = "Gun Turret", forwardAngle = -Math.PI / 2) {
-  const rangeTiles = getTurretConfig(type).rangeTiles || 12;
+  const config = getTurretConfig(type);
+  const rangeTiles = config.rangeTiles || 12;
   const range = rangeTiles * CONFIG.GRID_SIZE * camera.scale;
 
   ctx.beginPath();
-  if (type === "Laser turret") {
+  if (config.arc) {
     ctx.moveTo(x, y);
-    ctx.arc(x, y, range, forwardAngle - Math.PI / 2, forwardAngle + Math.PI / 2);
+    ctx.arc(x, y, range, forwardAngle - config.arc / 2, forwardAngle + config.arc / 2);
     ctx.closePath();
     ctx.fillStyle = active ? "rgba(255,60,60,0.08)" : "rgba(255,60,60,0.045)";
     ctx.fill();
@@ -61,14 +62,21 @@ function drawTurretRangeAt(x, y, active = true, type = "Gun Turret", forwardAngl
 }
 
 function drawTurretModuleSprite(type, sw, sh, gunAngle = 0, module = null) {
-  drawImageSprite(getTurretBaseSpriteName(type, module), -sw / 2, -sh / 2, sw, sh);
-  const topSprite = getTurretTopSpriteName(type);
+  drawImageSprite(getTurretBodySpriteName(type, module), -sw / 2, -sh / 2, sw, sh);
+  const topSprite = getTurretTopSpriteNameForModule(type, module);
   if (topSprite) {
     ctx.save();
     ctx.rotate(getTurretTopDrawAngle(type, gunAngle || 0));
     drawImageSprite(topSprite, -sw / 2, -sh / 2, sw, sh);
     ctx.restore();
   }
+}
+
+function drawTurretIconSprite(type, x, y, w, h, module = null) {
+  const baseDrawn = drawImageSprite(getTurretBodySpriteName(type, module, { preview: true }), x, y, w, h);
+  const topSprite = getTurretTopSpriteNameForModule(type, module, { preview: true });
+  if (topSprite) drawImageSprite(topSprite, x, y, w, h);
+  return baseDrawn || !!topSprite;
 }
 
 function drawShieldArcAt(x, y, outDir, active = true) {
@@ -777,6 +785,10 @@ function toggleStatusBadgeAction(action) {
     trajectoryVisible = !trajectoryVisible;
     flash(trajectoryVisible ? "Trajectory on" : "Trajectory off");
   } else if (action === "orbit") {
+    if (getComputerLevel() < 3) {
+      flash("Computer MK3 required for orbit mode");
+      return true;
+    }
     orbitModeActive = !orbitModeActive;
     orbitTarget = orbitModeActive ? getBestOrbitTarget() : null;
     orbitDesiredRadius = 0;
@@ -867,6 +879,7 @@ function drawUI() {
   drawSmallShipConfigUI();
   drawResearchWindow();
   drawAssemblerWindow();
+  drawTurretControlWindow();
 
   if (performance.now() < flashUntil) {
     ctx.font = "bold 16px Arial";
@@ -951,7 +964,10 @@ function drawUI() {
     const iconX = sx + buttonW - iconSize - 8;
     const iconY = y + rowH / 2 - iconSize / 2;
 
-    if (!drawImageSprite(iconName, iconX, iconY, iconSize, iconSize)) {
+    const iconDrawn = isTurretType(item.name)
+      ? drawTurretIconSprite(item.name, iconX, iconY, iconSize, iconSize)
+      : drawImageSprite(iconName, iconX, iconY, iconSize, iconSize);
+    if (!iconDrawn) {
       drawResourceIcon("energy", iconX, y + rowH / 2, iconSize);
     }
   }
@@ -963,7 +979,11 @@ function drawUI() {
   const selected = importedShipGhost
     ? "imported ship ghost"
     : heldItem === AIR ? "none" : `${heldItem.name} [rot ${rotation * 90} deg]`;
-  ctx.fillText(`Selected: ${selected}`, sx + 134, menuY + 18);
+  ctx.fillText(`Selected: ${selected}`, sx, menuY + 40);
+  if (!activeSmallShipEdit) {
+    ctx.textAlign = "left";
+    ctx.fillText(`Computer MK${getComputerLevel()}: ${countModuleTiles(placedModules) + countModuleTiles(blueprints)}/${getMotherShipTileLimit()} tiles`, sx, menuY + 58);
+  }
 
   const toolY = VIEW.h - 58;
   drawBtn("Export Ship", VIEW.w / 2 - 170, toolY, 160, 28, false);
@@ -1012,6 +1032,75 @@ function drawSmallShipConfigUI() {
   panelButton("Find Hangar", y + 218, hangarFindShipId === smallShip.id);
 }
 
+function drawTurretControlWindow() {
+  if (!turretControlWindowOpen) return;
+
+  const layout = getTurretControlLayout();
+  turretControlRects.length = 0;
+
+  ctx.fillStyle = "rgba(4, 10, 30, 0.95)";
+  ctx.fillRect(layout.x, layout.y, layout.width, layout.height);
+  ctx.strokeStyle = "rgba(100,150,255,0.72)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(layout.x, layout.y, layout.width, layout.height);
+
+  ctx.fillStyle = "#88aaff";
+  ctx.font = "bold 13px Arial";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText("TURRET CONTROL", layout.x + 16, layout.y + 22);
+
+  ctx.fillStyle = "rgba(255,255,255,0.58)";
+  ctx.font = "11px Arial";
+  ctx.textAlign = "right";
+  ctx.fillText("[ESC] close", layout.x + layout.width - 16, layout.y + 22);
+
+  for (let i = 0; i < TURRET_CONTROL_TYPES.length; i++) {
+    const type = TURRET_CONTROL_TYPES[i];
+    const rowY = layout.y + 48 + i * layout.rowH;
+    const enabled = isTurretTypeEnabled(type);
+    const ammo = getTurretAmmoInfo(type);
+
+    ctx.fillStyle = enabled ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.035)";
+    ctx.fillRect(layout.x + 12, rowY, layout.width - 24, layout.rowH - 8);
+    ctx.strokeStyle = enabled ? "rgba(100,150,255,0.48)" : "rgba(100,150,255,0.22)";
+    ctx.strokeRect(layout.x + 12, rowY, layout.width - 24, layout.rowH - 8);
+
+    drawTurretIconSprite(type, layout.x + 22, rowY + 6, 24, 24);
+
+    ctx.fillStyle = "white";
+    ctx.font = "bold 12px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText(`[${countBuiltTurrets(type)}x] ${type}`, layout.x + 56, rowY + 17);
+
+    if (ammo) {
+      const ammoX = layout.x + 292;
+      ctx.fillStyle = "rgba(255,255,255,0.76)";
+      ctx.font = "11px Arial";
+      ctx.fillText(String(ammo.amount), ammoX, rowY + 17);
+      drawResourceIcon(ammo.key, ammoX + 34, rowY + 17, 13);
+      ctx.fillText(ammo.name, ammoX + 52, rowY + 17);
+    }
+
+    const cb = { x: layout.x + layout.width - 46, y: rowY + 7, w: 20, h: 20, type };
+    turretControlRects.push(cb);
+    ctx.fillStyle = enabled ? "rgba(80,190,255,0.35)" : "rgba(255,255,255,0.05)";
+    ctx.fillRect(cb.x, cb.y, cb.w, cb.h);
+    ctx.strokeStyle = enabled ? "#ccf6ff" : "rgba(255,255,255,0.35)";
+    ctx.strokeRect(cb.x, cb.y, cb.w, cb.h);
+    if (enabled) {
+      ctx.strokeStyle = "#ccf6ff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cb.x + 4, cb.y + 10);
+      ctx.lineTo(cb.x + 8, cb.y + 15);
+      ctx.lineTo(cb.x + 16, cb.y + 5);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+  }
+}
+
 function drawResearchWindow() {
   if (!researchWindowOpen) return;
 
@@ -1055,8 +1144,11 @@ function drawResearchWindow() {
       ctx.strokeStyle = hovered ? "#ccf6ff" : "rgba(100,150,255,0.5)";
       ctx.strokeRect(row.x, row.y, row.w, row.h);
 
-      const iconName = isTurretType(item.name) ? getTurretBaseSpriteName(item.name) : item.name;
-      if (!drawImageSprite(iconName, row.x + 6, row.y + 5, 18, 18)) {
+      const researchIconName = item.name.startsWith("Computer MK") ? "Computer" : item.name;
+      const iconDrawn = isTurretType(item.name)
+        ? drawTurretIconSprite(item.name, row.x + 6, row.y + 5, 18, 18)
+        : drawImageSprite(researchIconName, row.x + 6, row.y + 5, 18, 18);
+      if (!iconDrawn) {
         drawResourceIcon("energy", row.x + 8, row.y + row.h / 2, 14);
       }
 
@@ -1185,7 +1277,7 @@ function drawBtn(text, x, y, w, h, active) {
 }
 
 function getBuildMenuIconName(itemName) {
-  if (isTurretType(itemName)) return getTurretBaseSpriteName(itemName);
+  if (isTurretType(itemName)) return getTurretBodySpriteName(itemName, null, { preview: true });
   if (itemName === "Main Thruster" || itemName === "RCS Thruster") return itemName + " On";
   return itemName;
 }
@@ -1488,8 +1580,10 @@ function drawSalvagePanel() {
     ctx.strokeStyle = "rgba(100,150,255,0.5)";
     ctx.strokeRect(layout.x + 8, rowY, layout.width - 16, layout.rowH - 6);
 
-    const iconName = isTurretType(item.type) ? getTurretBaseSpriteName(item.type) : item.type;
-    if (!drawImageSprite(iconName, layout.x + 16, rowY + 5, 28, 28)) {
+    const iconDrawn = isTurretType(item.type)
+      ? drawTurretIconSprite(item.type, layout.x + 16, rowY + 5, 28, 28)
+      : drawImageSprite(item.type, layout.x + 16, rowY + 5, 28, 28);
+    if (!iconDrawn) {
       ctx.fillStyle = "rgba(80,120,190,0.42)";
       ctx.fillRect(layout.x + 16, rowY + 5, 28, 28);
     }
@@ -1580,7 +1674,10 @@ function drawTooltip() {
   const researchHover = researchWindowOpen && hoveredResearchItem;
   if ((!buildMode || !hoveredInventoryItem) && !researchHover) return;
 
-  const item = researchHover ? getInventoryItemByName(hoveredResearchItem.name) : hoveredInventoryItem;
+  const item = researchHover
+    ? (getInventoryItemByName(hoveredResearchItem.name) || { name: hoveredResearchItem.name, size: [1, 1] })
+    : hoveredInventoryItem;
+  if (!item) return;
   const lines = getBuildingDescription(item.name);
   const cost = researchHover ? hoveredResearchItem.cost : BUILD_COSTS[item.name];
   const costTitle = researchHover ? "RESEARCH COST" : "BUILD COST";
@@ -1635,7 +1732,9 @@ function drawTooltip() {
   ctx.lineWidth = 1;
   ctx.strokeRect(previewX, previewY, imageBox, imageBox);
 
-  const previewName = item.name === "Main Thruster" || item.name === "RCS Thruster"
+  const previewName = item.name.startsWith("Computer MK")
+    ? "Computer"
+    : item.name === "Main Thruster" || item.name === "RCS Thruster"
     ? item.name + " On"
     : item.name;
 
@@ -1660,8 +1759,8 @@ function drawTooltip() {
   }
 
   if (isTurretType(item.name)) {
-    drawPreviewSprite(getTurretBaseSpriteName(item.name));
-    const topSprite = getTurretTopSpriteName(item.name);
+    drawPreviewSprite(getTurretBodySpriteName(item.name, null, { preview: true }));
+    const topSprite = getTurretTopSpriteNameForModule(item.name, null, { preview: true });
     if (topSprite) drawPreviewSprite(topSprite);
   } else {
     drawPreviewSprite(previewName);
@@ -1705,7 +1804,7 @@ function drawTooltip() {
 }
 
 function getHoveredPlanetForTooltip() {
-  if (buildMode || uiDialog || tutorialOverlay) return null;
+  if (getComputerLevel() < 2 || buildMode || uiDialog || tutorialOverlay) return null;
 
   if (mapVisible) {
     const hit = getMapBodyAt(mouse.x, mouse.y);
@@ -1727,15 +1826,28 @@ function getHoveredPlanetForTooltip() {
   return best;
 }
 
-function drawPlanetResourceTooltip() {
-  const planet = getHoveredPlanetForTooltip();
-  if (!planet) return;
+function getHoveredAsteroidForTooltip() {
+  if (getComputerLevel() < 2 || buildMode || uiDialog || tutorialOverlay || mapVisible) return null;
 
-  const rates = getPlanetMiningRates(planet);
-  const entries = Object.entries(rates).filter(([, amount]) => amount > 0);
+  let best = null;
+  let bestDist = Infinity;
+  for (const asteroid of asteroids) {
+    if (asteroid.totalItems <= 0) continue;
+    const p = worldToScreen(asteroid.x, asteroid.y);
+    const r = Math.max(14, asteroid.size * camera.scale);
+    const d = Math.hypot(mouse.x - p.x, mouse.y - p.y);
+    if (d <= r + 10 && d < bestDist) {
+      best = asteroid;
+      bestDist = d;
+    }
+  }
+
+  return best;
+}
+
+function drawResourceSurveyTooltip(title, entries) {
   if (entries.length === 0) return;
 
-  const title = planet.def?.name || planet.typeKey || "Planet";
   const tw = 250;
   const padding = 12;
   const rowH = 20;
@@ -1769,6 +1881,26 @@ function drawPlanetResourceTooltip() {
     ctx.font = "12px Arial";
     ctx.fillText(formatResourceName(key), tx + padding + 22, y);
     y += rowH;
+  }
+}
+
+function drawPlanetResourceTooltip() {
+  const planet = getHoveredPlanetForTooltip();
+  if (planet) {
+    const rates = getPlanetMiningRates(planet);
+    drawResourceSurveyTooltip(
+      planet.def?.name || planet.typeKey || "Planet",
+      Object.entries(rates).filter(([, amount]) => amount > 0)
+    );
+    return;
+  }
+
+  const asteroid = getHoveredAsteroidForTooltip();
+  if (asteroid) {
+    drawResourceSurveyTooltip(
+      "Asteroid",
+      Object.entries(asteroid.contents || {}).filter(([, amount]) => amount > 0)
+    );
   }
 }
 

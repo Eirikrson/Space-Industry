@@ -274,6 +274,14 @@
       "src": "Graphics/Machines/MissileTurret.png",
       "frames": 1
     },
+    "MissileTurretOff": {
+      "src": "Graphics/Machines/MissileTurretOff.png",
+      "frames": 1
+    },
+    "MissileTurretOn": {
+      "src": "Graphics/Machines/MissileTurretOn.png",
+      "frames": 1
+    },
     "Laser turret": {
       "src": "Graphics/Machines/LaserTurret.png",
       "frames": 1

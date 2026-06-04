@@ -74,11 +74,38 @@ function isBuildingUnlocked(type) {
   return adminInstantBuild || type === "Computer" || unlockedResearch.has(type);
 }
 
+function getComputerLevel() {
+  if (adminInstantBuild) return 4;
+  if (unlockedResearch.has("Computer MK4")) return 4;
+  if (unlockedResearch.has("Computer MK3")) return 3;
+  if (unlockedResearch.has("Computer MK2")) return 2;
+  return 1;
+}
+
+function getMotherShipTileLimit() {
+  return [0, 55, 80, 120, 150][getComputerLevel()] || 55;
+}
+
+function getRequiredComputerLevelForBuilding(type) {
+  if (type === "Hangar MK1") return 2;
+  if (type === "Hangar MK2") return 3;
+  if (type === "Hangar MK3") return 4;
+  return 1;
+}
+
+function hasComputerLevelForBuilding(type) {
+  return getComputerLevel() >= getRequiredComputerLevelForBuilding(type);
+}
+
+function getResearchTierRequiredComputerLevel(tierIndex) {
+  return tierIndex + 1;
+}
+
 function getVisibleInventory() {
   return INVENTORY
     .map(category => ({
       ...category,
-      items: category.items.filter(item => isBuildingUnlocked(item.name))
+      items: category.items.filter(item => isBuildingUnlocked(item.name) && hasComputerLevelForBuilding(item.name))
     }))
     .filter(category => category.items.length > 0);
 }
@@ -88,7 +115,7 @@ function getVisibleBuildTabs() {
     ...tab,
     items: tab.items
       .map(name => getInventoryItemByName(name))
-      .filter(item => isBuildingUnlocked(item.name))
+      .filter(item => isBuildingUnlocked(item.name) && hasComputerLevelForBuilding(item.name))
   }));
 }
 
@@ -194,9 +221,63 @@ function getBuildingDescription(name) {
   return lines;
 }
 
+function getVisibleResearchSections() {
+  const sections = [];
+  for (let tierIndex = 0; tierIndex < RESEARCH_TIERS.length; tierIndex++) {
+    if (getComputerLevel() < getResearchTierRequiredComputerLevel(tierIndex)) continue;
+    sections.push(RESEARCH_TIERS[tierIndex]);
+  }
+  return sections;
+}
+
+function getResearchDisplayEntries() {
+  const entries = [];
+
+  for (const tier of getVisibleResearchSections()) {
+    entries.push({ type: "title", tier, displayH: 38 });
+    for (const item of tier.items) {
+      const costLines = item.cost ? getResearchCostLineCount(item.cost) : 1;
+      const h = 32 + (costLines - 1) * 18;
+      entries.push({ type: "item", item, costLines, h, displayH: h + 6 });
+    }
+  }
+
+  return entries;
+}
+
+function getBalancedResearchSplitIndex(entries) {
+  if (entries.length <= 1) return entries.length;
+  const total = entries.reduce((sum, entry) => sum + entry.displayH, 0);
+  let bestIndex = Math.ceil(entries.length / 2);
+  let bestDiff = Infinity;
+  let left = 0;
+
+  for (let i = 1; i < entries.length; i++) {
+    left += entries[i - 1].displayH;
+    let index = i;
+    if (entries[index]?.type === "item" && entries[index - 1]?.type === "title") {
+      index = i - 1;
+    }
+    const adjustedLeft = entries.slice(0, index).reduce((sum, entry) => sum + entry.displayH, 0);
+    const diff = Math.abs(adjustedLeft - (total - adjustedLeft));
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestIndex = index;
+    }
+  }
+
+  if (entries[bestIndex - 1]?.type === "title") bestIndex -= 1;
+  return Math.max(1, Math.min(entries.length - 1, bestIndex));
+}
+
 function getResearchWindowLayout() {
   const width = Math.min(980, VIEW.w - 40);
-  const height = Math.min(760, VIEW.h - 30);
+  const entries = getResearchDisplayEntries();
+  const split = getBalancedResearchSplitIndex(entries);
+  const leftH = entries.slice(0, split).reduce((sum, entry) => sum + entry.displayH, 0);
+  const rightH = entries.slice(split).reduce((sum, entry) => sum + entry.displayH, 0);
+  const estimatedHeight = 74 + Math.max(leftH, rightH);
+  const height = Math.min(Math.max(360, estimatedHeight), VIEW.h - 30);
   const x = VIEW.w / 2 - width / 2;
   const y = VIEW.h / 2 - height / 2;
   const gap = 12;
@@ -217,33 +298,32 @@ function getResearchRows() {
   const layout = getResearchWindowLayout();
   const rows = [];
   const colY = [layout.y + 48, layout.y + 48];
+  const entries = getResearchDisplayEntries();
+  const split = getBalancedResearchSplitIndex(entries);
 
-  for (let tierIndex = 0; tierIndex < RESEARCH_TIERS.length; tierIndex++) {
-    const tier = RESEARCH_TIERS[tierIndex];
-    const col = tierIndex < 2 ? 0 : 1;
+  for (let i = 0; i < entries.length; i++) {
+    const col = i < split ? 0 : 1;
     const x = layout.x + 10 + col * (layout.colW + layout.gap);
-    let y = colY[col];
+    const y = colY[col];
+    const entry = entries[i];
 
-    rows.push({ type: "title", text: tier.title, x, y, w: layout.colW, h: 18 });
-    y += 22;
-
-    for (const item of tier.items) {
-      const costLines = item.cost ? getResearchCostLineCount(item.cost) : 1;
-      const h = layout.rowH + (costLines - 1) * 18;
+    if (entry.type === "title") {
+      const titleY = y > layout.y + 48 ? y + 14 : y;
+      rows.push({ type: "title", text: entry.tier.title, x, y: titleY, w: layout.colW, h: 18 });
+      colY[col] = titleY + 24;
+    } else {
       rows.push({
         type: "item",
-        item,
+        item: entry.item,
         x,
         y,
         w: layout.colW,
-        h,
-        costLines,
+        h: entry.h,
+        costLines: entry.costLines,
         costX: x + layout.costXOffset
       });
-      y += h + 6;
+      colY[col] += entry.displayH;
     }
-
-    colY[col] = y + 8;
   }
 
   return rows;

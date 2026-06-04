@@ -130,8 +130,6 @@ function unlockAudio() {
 }
 
 function playSound(name, minInterval = 80) {
-  if (name !== "mouse") return;
-
   const now = performance.now();
   if ((lastSoundAt[name] || 0) + minInterval > now) return;
   lastSoundAt[name] = now;
@@ -147,8 +145,6 @@ function playSound(name, minInterval = 80) {
 }
 
 function updateLoopSound(name, active) {
-  return;
-
   const audio = getSound(name);
   if (!audio) return;
 
@@ -317,6 +313,9 @@ let adminInstantBuild = false;
 let researchWindowOpen = false;
 let hoveredResearchItem = null;
 let assemblerWindowModule = null;
+let turretControlWindowOpen = false;
+const turretControlRects = [];
+const turretTypeEnabled = {};
 let repairTargetModuleId = null;
 let nextSmallShipId = 1;
 let nextAutoShipNumber = 1;

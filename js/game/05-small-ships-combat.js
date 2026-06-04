@@ -1,4 +1,5 @@
 const TURRET_TYPES = new Set(["Gun Turret", "Cannon tower", "Railgun turret", "Missile turret", "Laser turret", "Turret"]);
+const TURRET_CONTROL_TYPES = ["Gun Turret", "Cannon tower", "Railgun turret", "Missile turret", "Laser turret"];
 
 function isTurretType(type) {
   return TURRET_TYPES.has(type);
@@ -18,21 +19,33 @@ function getTurretBaseSpriteName(type, module = null) {
 function getTurretTopSpriteName(type) {
   if (type === "Gun Turret" || type === "Turret") return "TurretGunStraight";
   if (type === "Cannon tower") return "CannonTurret";
-  if (type === "Missile turret") return "Missile turret";
+  if (type === "Missile turret") return "MissileTurretOff";
   return null;
 }
 
+function getTurretTopSpriteNameForModule(type, module = null, options = {}) {
+  if (type === "Missile turret") {
+    const on = options.preview || (module?._spriteOnUntil || 0) > performance.now();
+    return on ? "MissileTurretOn" : "MissileTurretOff";
+  }
+  return getTurretTopSpriteName(type);
+}
+
 function getTurretTopDrawAngle(type, angle = 0) {
-  if (type === "Cannon tower") return angle + Math.PI;
+  if (type === "Cannon tower" || type === "Missile turret") return angle + Math.PI;
   return angle;
+}
+
+function getTurretBodySpriteName(type, module = null, options = {}) {
+  return getTurretBaseSpriteName(type, module);
 }
 
 function getTurretConfig(type) {
   const normalized = type === "Turret" ? "Gun Turret" : type;
   if (normalized === "Cannon tower") return { ammo: "cannonBalls", fireDelay: 3, damage: 1, rangeTiles: 34, speed: 340, kind: "cannon" };
-  if (normalized === "Railgun turret") return { ammo: "railgunRods", ammoPerShot: 0.2, fireDelay: 10, damage: 1, rangeTiles: 150, speed: 980, kind: "railgun", fixed: true };
+  if (normalized === "Railgun turret") return { ammo: "railgunRods", ammoPerShot: 0.2, fireDelay: 10, damage: 1, rangeTiles: 150, speed: 980, kind: "railgun", fixed: true, arc: Math.PI / 8 };
   if (normalized === "Missile turret") return { ammo: "rocketAmmunition", fireDelay: 20, damage: 1, rangeTiles: 80, speed: 260, kind: "missile", computerOnly: true };
-  if (normalized === "Laser turret") return { ammo: null, fireDelay: 7, damage: 0.1, rangeTiles: 24, speed: 0, kind: "laser", energyUse: 30, beamDuration: 2 };
+  if (normalized === "Laser turret") return { ammo: null, fireDelay: 7, damage: 0.1, rangeTiles: 24, speed: 0, kind: "laser", energyUse: 30, beamDuration: 2, arc: Math.PI / 2 };
   return { ammo: "ammo", fireDelay: 1, damage: 0.25, rangeTiles: 50, speed: 420, kind: "bullet" };
 }
 
@@ -44,14 +57,71 @@ function canRailgunFireAt(owner, turret, from, target) {
   if ((turret.type !== "Railgun turret")) return true;
   const forward = getTurretForwardAngle(owner, turret);
   const angle = Math.atan2(target.y - from.y, target.x - from.x);
-  return Math.abs(normalizeAngle(angle - forward)) < Math.PI / 24;
+  return Math.abs(normalizeAngle(angle - forward)) <= getTurretConfig(turret.type).arc / 2;
 }
 
 function canLaserFireAt(owner, turret, from, target) {
   if (turret.type !== "Laser turret") return true;
   const forward = getTurretForwardAngle(owner, turret);
   const angle = Math.atan2(target.y - from.y, target.x - from.x);
-  return Math.abs(normalizeAngle(angle - forward)) <= Math.PI / 2;
+  return Math.abs(normalizeAngle(angle - forward)) <= getTurretConfig(turret.type).arc / 2;
+}
+
+function normalizeTurretControlType(type) {
+  return type === "Turret" ? "Gun Turret" : type;
+}
+
+function isTurretTypeEnabled(type) {
+  return turretTypeEnabled[normalizeTurretControlType(type)] !== false;
+}
+
+function setTurretTypeEnabled(type, enabled) {
+  turretTypeEnabled[normalizeTurretControlType(type)] = !!enabled;
+}
+
+function getTurretAmmoInfo(type) {
+  const key = getTurretConfig(type).ammo || (type === "Laser turret" ? "energy" : null);
+  if (!key) return null;
+  return { key, amount: Math.floor(res[key] || 0), name: key === "energy" ? "Energy" : formatResourceName(key) };
+}
+
+function countBuiltTurrets(type) {
+  return placedModules.filter(module => normalizeTurretControlType(module.type) === type).length;
+}
+
+function getTurretControlLayout() {
+  const width = 560;
+  const rowH = 42;
+  const height = 58 + TURRET_CONTROL_TYPES.length * rowH + 14;
+  const x = VIEW.w / 2 - width / 2;
+  const y = VIEW.h / 2 - height / 2;
+  return { x, y, width, height, rowH };
+}
+
+function openTurretControlWindow() {
+  turretControlWindowOpen = true;
+  mouseDown = false;
+  assemblerWindowModule = null;
+  researchWindowOpen = false;
+  playSound("toggle", 120);
+}
+
+function handleTurretControlClick(mx, my) {
+  if (!turretControlWindowOpen) return false;
+  const layout = getTurretControlLayout();
+  if (mx < layout.x || mx > layout.x + layout.width || my < layout.y || my > layout.y + layout.height) {
+    return true;
+  }
+
+  for (const rect of turretControlRects) {
+    if (mx >= rect.x && mx <= rect.x + rect.w && my >= rect.y && my <= rect.y + rect.h) {
+      setTurretTypeEnabled(rect.type, !isTurretTypeEnabled(rect.type));
+      playSound("toggle", 120);
+      return true;
+    }
+  }
+
+  return true;
 }
 
 function createSmallShipForHangar(hangar) {
@@ -1408,6 +1478,7 @@ function updatePlayerTurrets(dt) {
 
   for (const turret of placedModules) {
     if (!isTurretType(turret.type)) continue;
+    if (!isTurretTypeEnabled(turret.type)) continue;
     const config = getTurretConfig(turret.type);
     turret._fireCooldown = Math.max(0, (turret._fireCooldown || 0) - dt);
     if (turret._fireCooldown > 0) continue;
@@ -1428,8 +1499,10 @@ function updatePlayerTurrets(dt) {
 
     if (config.kind === "laser") {
       turret._laserBeam = { targetEnemyId: target.enemy.id, targetModuleId: target.module.id, time: config.beamDuration };
+      turret._spriteOnUntil = performance.now() + 500;
       playSound("turretShot", 120);
     } else {
+      turret._spriteOnUntil = performance.now() + 500;
       fireCombatBullet("player", ship, turretWorld.x, turretWorld.y, target.x, target.y, {
         kind: config.kind,
         damage: config.damage,
@@ -1602,7 +1675,7 @@ function drawEnemyShipModule(enemy, module, com) {
   }
 
   if (isTurretType(module.type)) {
-    drawImageSprite(getTurretBaseSpriteName(module.type, module), -sw / 2, -sh / 2, sw, sh);
+    drawImageSprite(getTurretBodySpriteName(module.type, module), -sw / 2, -sh / 2, sw, sh);
     const topSprite = getTurretTopSpriteName(module.type);
     if (topSprite) {
       ctx.save();

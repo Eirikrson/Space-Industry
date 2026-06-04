@@ -29,6 +29,12 @@ function canPlaceImportedShip(grid, modules = importedShipGhost?.modules || []) 
   const offset = getImportedShipOffset(grid, modules);
   const temp = placedModules.concat(blueprints);
 
+  if (!activeSmallShipEdit) {
+    const projectedTiles = countModuleTiles(temp) + countModuleTiles(modules);
+    if (projectedTiles > getMotherShipTileLimit()) return false;
+    if (modules.some(module => !hasComputerLevelForBuilding(module.type))) return false;
+  }
+
   for (const module of modules) {
     if (!canPlaceModule(module.x + offset.x, module.y + offset.y, module.w, module.h, temp)) {
       return false;
@@ -49,7 +55,13 @@ function placeImportedShipGhost(grid) {
   }
 
   if (!canPlaceImportedShip(grid, modules)) {
-    flash("Not enough space for ship");
+    if (!activeSmallShipEdit && countModuleTiles(placedModules.concat(blueprints)) + countModuleTiles(modules) > getMotherShipTileLimit()) {
+      flash(`Computer MK${getComputerLevel()} supports max ${getMotherShipTileLimit()} ship tiles`);
+    } else if (!activeSmallShipEdit && modules.some(module => !hasComputerLevelForBuilding(module.type))) {
+      flash("Mother ship computer has not enough processing power");
+    } else {
+      flash("Not enough space for ship");
+    }
     return false;
   }
 
@@ -302,10 +314,10 @@ function getBuildInventoryLayout() {
   const rowH = 54;
   const menuW = 330;
   const menuX = Math.max(302, VIEW.w - menuW - 15);
-  const menuY = 38;
+  const menuY = 10;
   const tabSize = 44;
   const tabGap = 8;
-  const tabY = menuY + 38;
+  const tabY = menuY + 86;
   const titleY = tabY + tabSize + 24;
   let y = titleY + 24;
 
@@ -597,6 +609,12 @@ function handlePlayingEscapeKey() {
     return true;
   }
 
+  if (turretControlWindowOpen) {
+    turretControlWindowOpen = false;
+    playSound("toggle", 120);
+    return true;
+  }
+
   if (importedShipGhost) {
     importedShipGhost = null;
     lastBlueprintKey = "";
@@ -819,7 +837,7 @@ window.addEventListener("keydown", e => {
     return;
   }
 
-  if (adminInstantBuild && !buildMode && (key === "shift" || (key === "w" && keys.shift))) {
+  if (adminInstantBuild && !buildMode && key === "w" && keys.shift) {
     adminJumpForward();
     e.preventDefault();
     return;
@@ -963,6 +981,7 @@ window.addEventListener("mousedown", e => {
 
   if (handleTutorialClick(mouse.x, mouse.y)) return;
   if (handleUiDialogClick(mouse.x, mouse.y)) return;
+  if (handleTurretControlClick(mouse.x, mouse.y)) return;
 
   if (appState !== "playing") {
     handleGameInterfaceClick(mouse.x, mouse.y);
@@ -1010,6 +1029,11 @@ window.addEventListener("mousedown", e => {
           })()
         : getModuleAtScreen(mouse.x, mouse.y);
 
+      if (result && isTurretType(result.module.type)) {
+        openTurretControlWindow();
+        return;
+      }
+
       if (!buildMode && handleHangarFindClick(result)) {
         return;
       }
@@ -1023,7 +1047,7 @@ window.addEventListener("mousedown", e => {
         }
       }
 
-      if (!buildMode && result && result.module.type === "Computer") {
+      if (!buildMode && result && result.module.type === "Quarters") {
         openCrewManagement(e.clientX, e.clientY);
         playSound("toggle", 120);
         return;
