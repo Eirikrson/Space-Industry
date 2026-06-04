@@ -16,6 +16,15 @@ class Ship {
     this.angularVelocity = 0;
   }
 
+  setThrusterLimitPulse(module, dt) {
+    module._thrustLimitPulseTime = ((module._thrustLimitPulseTime || 0) + dt) % 2;
+    module._thrustActive = module._thrustLimitPulseTime < 1;
+  }
+
+  resetThrusterLimitPulse(module) {
+    module._thrustLimitPulseTime = 0;
+  }
+
   update(dt) {
     if (buildMode) return;
 
@@ -25,6 +34,7 @@ class Ship {
 
       if (res.fuel <= 0) {
         m._thrustActive = false;
+        this.resetThrusterLimitPulse(m);
         continue;
       }
 
@@ -50,7 +60,7 @@ class Ship {
         const ay = Math.sin(worldDir) * stats.thrust * thrustScale * dt * 0.12 * massFactor;
 
         if (!canAccelerateWithVelocity(this.vx, this.vy, ax, ay)) {
-          m._thrustActive = false;
+          this.setThrusterLimitPulse(m, dt);
           continue;
         }
 
@@ -60,8 +70,10 @@ class Ship {
           res.fuel = Math.max(0, res.fuel - stats.fuelUse * thrustScale * dt);
         }
         m._thrustActive = true;
+        this.resetThrusterLimitPulse(m);
       } else {
         m._thrustActive = false;
+        this.resetThrusterLimitPulse(m);
       }
     }
 
@@ -85,8 +97,10 @@ class Ship {
 
     clampVelocity(this);
 
-    // Apply gravity from galaxy bodies
+    // Apply gravity from galaxy bodies (only black hole now)
     applyGravity(dt);
+    // Auto-deceleration when no thrust is applied
+    applyVelocityDamping(dt);
     updateOrbitMode(dt);
     updateLandingMode(dt);
 
@@ -218,7 +232,10 @@ class Ship {
       const ax = Math.cos(worldDir) * stats.thrust * thrustScale * dt * 0.12 * massFactor;
       const ay = Math.sin(worldDir) * stats.thrust * thrustScale * dt * 0.12 * massFactor;
 
-      if (!canAccelerateWithVelocity(this.vx, this.vy, ax, ay)) continue;
+      if (!canAccelerateWithVelocity(this.vx, this.vy, ax, ay)) {
+        this.setThrusterLimitPulse(m, dt);
+        continue;
+      }
 
       this.vx += ax;
       this.vy += ay;
@@ -226,6 +243,7 @@ class Ship {
         res.fuel = Math.max(0, res.fuel - stats.fuelUse * thrustScale * dt);
       }
       m._thrustActive = true;
+      this.resetThrusterLimitPulse(m);
       usedThruster = true;
     }
 
@@ -497,7 +515,128 @@ const CELESTIAL_SIZE_FACTOR = 3;
 const BLACK_HOLE_SIZE_FACTOR = 2.5;
 const PLANET_ORBIT_GAP = CONFIG.GRID_SIZE * 220;
 const SYSTEM_EDGE_PADDING = CONFIG.GRID_SIZE * 900;
-const ASTEROID_BELT_WIDTH = CONFIG.GRID_SIZE * 280;
+const ASTEROID_BELT_WIDTH = CONFIG.GRID_SIZE * 420;
+const PLANET_ORBIT_PERIOD_MIN = 60 * 60;
+const PLANET_ORBIT_PERIOD_MAX = 3 * 60 * 60;
+const SYSTEM_ORBIT_PERIOD_MIN = 3 * 60 * 60;
+const SYSTEM_ORBIT_PERIOD_MAX = 5 * 60 * 60;
+const WORLD_CHUNK_SIZE = CONFIG.GRID_SIZE * 1800;
+const ACTIVE_CHUNK_RADIUS = 1;
+
+function orbitSpeedFromPeriodSeconds(seconds) {
+  return Math.PI * 2 / Math.max(1, seconds);
+}
+
+function randomOrbitSpeed(minSeconds, maxSeconds) {
+  return orbitSpeedFromPeriodSeconds(minSeconds + worldRand() * (maxSeconds - minSeconds));
+}
+
+function getOrbitAngleAt(baseAngle, speed, dir, timeSeconds) {
+  return baseAngle + speed * dir * Math.max(0, timeSeconds || 0);
+}
+
+function getWorldChunkCoord(value) {
+  return Math.floor(value / WORLD_CHUNK_SIZE);
+}
+
+function getWorldChunkKey(x, y) {
+  return `${getWorldChunkCoord(x)},${getWorldChunkCoord(y)}`;
+}
+
+function addActiveWorldChunksForPoint(chunks, x, y) {
+  const cx = getWorldChunkCoord(x);
+  const cy = getWorldChunkCoord(y);
+
+  for (let dx = -ACTIVE_CHUNK_RADIUS; dx <= ACTIVE_CHUNK_RADIUS; dx++) {
+    for (let dy = -ACTIVE_CHUNK_RADIUS; dy <= ACTIVE_CHUNK_RADIUS; dy++) {
+      chunks.add(`${cx + dx},${cy + dy}`);
+    }
+  }
+}
+
+function getActiveWorldChunks() {
+  const chunks = new Set();
+  addActiveWorldChunksForPoint(chunks, ship.x, ship.y);
+
+  if (typeof smallShips !== "undefined") {
+    for (const smallShip of smallShips) {
+      if (smallShip && !smallShip._delete && Number.isFinite(smallShip.x) && Number.isFinite(smallShip.y)) {
+        addActiveWorldChunksForPoint(chunks, smallShip.x, smallShip.y);
+      }
+    }
+  }
+
+  return chunks;
+}
+
+function getActiveWorldFocusPoints() {
+  const points = [{ x: ship.x, y: ship.y }];
+
+  if (typeof smallShips !== "undefined") {
+    for (const smallShip of smallShips) {
+      if (smallShip && !smallShip._delete && Number.isFinite(smallShip.x) && Number.isFinite(smallShip.y)) {
+        points.push({ x: smallShip.x, y: smallShip.y });
+      }
+    }
+  }
+
+  return points;
+}
+
+function isPointInActiveChunks(x, y, chunks) {
+  return chunks.has(getWorldChunkKey(x, y));
+}
+
+function getSystemActivityRadius(system) {
+  if (!system) return 0;
+  return Math.max(
+    system.outerBelt?.outerR || 0,
+    system.innerBelt?.outerR || 0,
+    ...((system.planets || []).map(planet => planet.orbitRadius + planet.radius))
+  );
+}
+
+function isSystemNearActiveFocus(system, focusPoints) {
+  if (!system || !system.star) return false;
+  const radius = getSystemActivityRadius(system) + WORLD_CHUNK_SIZE * (ACTIVE_CHUNK_RADIUS + 1);
+
+  for (const point of focusPoints) {
+    if (Math.hypot(point.x - system.star.x, point.y - system.star.y) <= radius) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function syncSystemPositionsAtTime(system, timeSeconds) {
+  if (!system) return;
+  system.star?.setPositionAt?.(timeSeconds);
+
+  for (const planet of system.planets || []) {
+    planet.setPositionAt?.(timeSeconds);
+  }
+}
+
+function syncStarPositionsAtTime(timeSeconds = worldPlayTime) {
+  for (const star of worldStars) {
+    star.setPositionAt?.(timeSeconds);
+  }
+}
+
+function syncVisibleWorldPositions(timeSeconds = worldPlayTime) {
+  for (const system of solarSystems) {
+    syncSystemPositionsAtTime(system, timeSeconds);
+  }
+}
+
+let lastMapWorldSyncSecond = -1;
+function syncMapWorldPositionsIfNeeded(timeSeconds = worldPlayTime) {
+  const second = Math.floor(timeSeconds || 0);
+  if (lastMapWorldSyncSecond === second) return;
+  lastMapWorldSyncSecond = second;
+  syncVisibleWorldPositions(timeSeconds);
+}
 
 class GalaxyPlanet {
   constructor(x, y, typeKey, r, starRef) {
@@ -510,8 +649,9 @@ class GalaxyPlanet {
     const dx = x - starRef.x, dy = y - starRef.y;
     this.orbitRadius = Math.sqrt(dx*dx + dy*dy);
     this.orbitAngle = Math.atan2(dy, dx);
-    this.orbitSpeed = (0.00004 + worldRand() * 0.00006) * (5000 / Math.max(this.orbitRadius, 1000));
     this.orbitDir = worldRand() < 0.5 ? 1 : -1;
+    this.orbitSpeed = randomOrbitSpeed(PLANET_ORBIT_PERIOD_MIN, PLANET_ORBIT_PERIOD_MAX);
+    this.baseOrbitAngle = this.orbitAngle;
     this.spinAngle = worldRand() * Math.PI * 2;
     this.spinSpeed = 0.005 + worldRand() * 0.02;
     // Generate cloud bands (for visual)
@@ -525,9 +665,18 @@ class GalaxyPlanet {
 
   update(dt) {
     this.orbitAngle += this.orbitSpeed * this.orbitDir * dt;
+    this.setPositionFromAngle(this.orbitAngle);
+    this.spinAngle += this.spinSpeed * dt;
+  }
+
+  setPositionFromAngle(angle) {
+    this.orbitAngle = angle;
     this.x = this.star.x + Math.cos(this.orbitAngle) * this.orbitRadius;
     this.y = this.star.y + Math.sin(this.orbitAngle) * this.orbitRadius;
-    this.spinAngle += this.spinSpeed * dt;
+  }
+
+  setPositionAt(timeSeconds) {
+    this.setPositionFromAngle(getOrbitAngleAt(this.baseOrbitAngle, this.orbitSpeed, this.orbitDir, timeSeconds));
   }
 
   get gravity() { return this.radius * 0.018; }
@@ -818,7 +967,9 @@ class AsteroidBelt {
       ctx.restore();
     }
 
-    for (const rock of this.rocks) {
+    const drawStep = camera.scale < 0.02 ? 5 : camera.scale < 0.05 ? 3 : camera.scale < 0.12 ? 2 : 1;
+    for (let i = 0; i < this.rocks.length; i += drawStep) {
+      const rock = this.rocks[i];
       const wx = this.star.x + Math.cos(rock.angle) * rock.dist;
       const wy = this.star.y + Math.sin(rock.angle) * rock.dist;
       const p = worldToScreen(wx, wy);
@@ -849,16 +1000,26 @@ class GalaxyStar {
     const dx = x - CONFIG.GALAXY_CENTER_X, dy = y - CONFIG.GALAXY_CENTER_Y;
     this.orbitRadius = Math.sqrt(dx*dx + dy*dy);
     this.orbitAngle = Math.atan2(dy, dx);
-    this.orbitSpeed = 0.000002 + 0.000003 * (1 - this.orbitRadius / CONFIG.GALAXY_RADIUS);
     this.orbitDir = worldRand() < 0.5 ? 1 : -1;
+    this.orbitSpeed = randomOrbitSpeed(SYSTEM_ORBIT_PERIOD_MIN, SYSTEM_ORBIT_PERIOD_MAX);
+    this.baseOrbitAngle = this.orbitAngle;
     this.pulseT = worldRand() * Math.PI * 2;
   }
 
   update(dt) {
     this.orbitAngle += this.orbitSpeed * this.orbitDir * dt;
+    this.setPositionFromAngle(this.orbitAngle);
+    this.pulseT += dt * 0.4;
+  }
+
+  setPositionFromAngle(angle) {
+    this.orbitAngle = angle;
     this.x = CONFIG.GALAXY_CENTER_X + Math.cos(this.orbitAngle) * this.orbitRadius;
     this.y = CONFIG.GALAXY_CENTER_Y + Math.sin(this.orbitAngle) * this.orbitRadius;
-    this.pulseT += dt * 0.4;
+  }
+
+  setPositionAt(timeSeconds) {
+    this.setPositionFromAngle(getOrbitAngleAt(this.baseOrbitAngle, this.orbitSpeed, this.orbitDir, timeSeconds));
   }
 
   get gravity() { return this.radius * 0.008; }
@@ -976,7 +1137,13 @@ function generateGalaxy() {
       innerEdge: sortedPlanets[3].orbitRadius + sortedPlanets[3].radius + CONFIG.GRID_SIZE * 45,
       outerEdge: sortedPlanets[4].orbitRadius - sortedPlanets[4].radius - CONFIG.GRID_SIZE * 45
     };
-    const secondSlot = beltSlots.find(slot => Math.abs(slot.index - firstSlot.index) >= 2) || beltSlots[1] || firstSlot;
+    const fallbackOuterPlanet = sortedPlanets[Math.min(7, sortedPlanets.length - 1)];
+    const fallbackSecondSlot = {
+      innerEdge: fallbackOuterPlanet.orbitRadius + fallbackOuterPlanet.radius + CONFIG.GRID_SIZE * 70,
+      outerEdge: fallbackOuterPlanet.orbitRadius + fallbackOuterPlanet.radius + ASTEROID_BELT_WIDTH * 1.55
+    };
+    const secondSlot = beltSlots.find(slot => Math.abs(slot.index - firstSlot.index) >= 2) || beltSlots[1] || fallbackSecondSlot;
+    const orderedSlots = [firstSlot, secondSlot].sort((a, b) => a.innerEdge - b.innerEdge);
 
     function makeBelt(slot, count, kind) {
       const center = (slot.innerEdge + slot.outerEdge) / 2;
@@ -984,8 +1151,8 @@ function generateGalaxy() {
       return new AsteroidBelt(star, center - halfWidth, center + halfWidth, count, kind);
     }
 
-    const innerBelt = makeBelt(firstSlot, 80, "inner");
-    const outerBelt = makeBelt(secondSlot, 60, "outer");
+    const innerBelt = makeBelt(orderedSlots[0], 90, "inner");
+    const outerBelt = makeBelt(orderedSlots[1], 75, "outer");
 
     solarSystems.push({ star, planets: systemPlanets, innerBelt, outerBelt });
   }
@@ -1044,7 +1211,6 @@ function generateEndGalaxy(rng) {
     const starTypeIdx = Math.floor(rng() * STAR_TYPES.length);
 
     const star = new GalaxyStar(sx, sy, starRadius, starTypeIdx);
-    star.orbitSpeed *= 1.8;
     worldStars.push(star);
 
     const systemPlanets = [];
@@ -1067,7 +1233,6 @@ function generateEndGalaxy(rng) {
         radius,
         star
       );
-      planet.orbitSpeed *= 1.25;
       systemPlanets.push(planet);
       planets.push(planet);
     }
@@ -1079,14 +1244,14 @@ function generateEndGalaxy(rng) {
       star,
       beltA.orbitRadius + beltA.radius + CONFIG.GRID_SIZE * 55,
       beltA.orbitRadius + beltA.radius + ASTEROID_BELT_WIDTH,
-      110,
+      120,
       "inner"
     );
     const outerBelt = new AsteroidBelt(
       star,
       beltB.orbitRadius + beltB.radius + CONFIG.GRID_SIZE * 65,
-      beltB.orbitRadius + beltB.radius + ASTEROID_BELT_WIDTH * 1.2,
-      90,
+      beltB.orbitRadius + beltB.radius + ASTEROID_BELT_WIDTH * 1.3,
+      100,
       "outer"
     );
 
@@ -1148,13 +1313,35 @@ let orbitDesiredRadius = 0;
 const GRAVITY_RANGE = 40000; // only compute gravity within this distance
 const GRAVITY_SCALE = 0.00012;
 
+// ── Velocity Damping (5 % per second, stops below 1 % of max speed) ───────
+const VELOCITY_DAMPING_RATE = 0.05; // 5% per second
+function applyVelocityDamping(dt) {
+  if (buildMode) return;
+  if (shouldSkipGravity()) return; // no damping when landed
+  if (orbitModeActive) return;     // no damping in orbit
+  if (placedModules.some(module => module._thrustActive)) return;
+
+  const speed = Math.hypot(ship.vx, ship.vy);
+  if (speed === 0) return;
+
+  const minSpeed = MAX_SHIP_SPEED * 0.01;
+  const dampedSpeed = speed * Math.pow(1 - VELOCITY_DAMPING_RATE, dt);
+
+  if (dampedSpeed < minSpeed) {
+    ship.vx = 0;
+    ship.vy = 0;
+  } else {
+    const scale = dampedSpeed / speed;
+    ship.vx *= scale;
+    ship.vy *= scale;
+  }
+}
+
 function applyGravity(dt) {
   if (buildMode) return;
-  if (shouldSkipGravity()) return; // Gravitation deaktiviert wenn gelandet
+  if (shouldSkipGravity()) return; // Gravity is disabled while landed.
 
-  let totalGx = 0, totalGy = 0;
-
-  // Black hole gravity
+  // ONLY black hole gravity is applied – stars and planets no longer pull the ship.
   if (blackHole) {
     const dx = blackHole.x - ship.x, dy = blackHole.y - ship.y;
     const dist2 = dx*dx + dy*dy;
@@ -1162,38 +1349,10 @@ function applyGravity(dt) {
     if (dist2 < range * range) {
       const dist = Math.sqrt(dist2);
       const strength = blackHole.gravity * GRAVITY_SCALE * 80 * dt / Math.max(dist * 0.001, 1);
-      totalGx += (dx / dist) * strength;
-      totalGy += (dy / dist) * strength;
+      ship.vx += (dx / dist) * strength;
+      ship.vy += (dy / dist) * strength;
     }
   }
-
-  // Star gravity
-  for (const star of worldStars) {
-    const dx = star.x - ship.x, dy = star.y - ship.y;
-    const dist2 = dx*dx + dy*dy;
-    const range = GRAVITY_RANGE * 2;
-    if (dist2 < range * range && dist2 > star.radius * star.radius) {
-      const dist = Math.sqrt(dist2);
-      const strength = star.gravity * GRAVITY_SCALE * dt / Math.max(dist * 0.0005, 1);
-      totalGx += (dx / dist) * strength;
-      totalGy += (dy / dist) * strength;
-    }
-  }
-
-  // Planet gravity
-  for (const planet of planets) {
-    const dx = planet.x - ship.x, dy = planet.y - ship.y;
-    const dist2 = dx*dx + dy*dy;
-    if (dist2 < GRAVITY_RANGE * GRAVITY_RANGE && dist2 > planet.radius * planet.radius) {
-      const dist = Math.sqrt(dist2);
-      const strength = planet.gravity * GRAVITY_SCALE * dt / Math.max(dist * 0.002, 1);
-      totalGx += (dx / dist) * strength;
-      totalGy += (dy / dist) * strength;
-    }
-  }
-
-  ship.vx += totalGx;
-  ship.vy += totalGy;
 }
 
 // ── Orbit system ──────────────────────────────────────────────────────────
@@ -1208,221 +1367,116 @@ function applyGravity(dt) {
 //             No fuel consumed.  Other bodies perturb the orbit naturally
 //             → ellipses, swingbys, etc.
 //
-// The drawn trajectory is computed by forward-integrating the simulation's
-// own gravity equations, so it exactly matches where the ship will actually
-// fly – no Kepler approximations, no mismatch.
 // ─────────────────────────────────────────────────────────────────────────
 
-let orbitPhase = "approach"; // "approach" | "circularize" | "free"
-let orbitEllipse = null;     // [{x,y}] predicted trajectory world-points
+// ── Orbit system (simplified, no-gravity version) ─────────────────────────
+//
+// Since planets/stars no longer exert gravity, orbiting is a simple
+// "snap to circular path" mechanic:
+//   ENTRY  – 'O' pressed → ship burns to reach orbit radius, then locks
+//   ORBIT  – ship coasts in a perfect circle, zero fuel consumed
+//   EXIT   – 'O' pressed again → ship gets tangential velocity and leaves
+//
+// The drawn orbit ring matches the radius the ship actually follows.
+// ─────────────────────────────────────────────────────────────────────────
 
-// Gravity acceleration from one body at position (px, py),
-// using the identical formula as applyGravity() so predictions match.
-function gravAccelFromBody(body, px, py) {
-  const dx = body.x - px;
-  const dy = body.y - py;
-  const dist2 = dx * dx + dy * dy;
-  if (dist2 < body.radius * body.radius) return { ax: 0, ay: 0 };
-  const dist = Math.sqrt(dist2);
-  let strength;
-  if (body._isBlackHole) {
-    if (dist2 >= (GRAVITY_RANGE * 4) * (GRAVITY_RANGE * 4)) return { ax: 0, ay: 0 };
-    strength = body.gravity * GRAVITY_SCALE * 80 / Math.max(dist * 0.001, 1);
-  } else if (body.type === "star") {
-    if (dist2 >= (GRAVITY_RANGE * 2) * (GRAVITY_RANGE * 2)) return { ax: 0, ay: 0 };
-    strength = body.gravity * GRAVITY_SCALE / Math.max(dist * 0.0005, 1);
-  } else {
-    if (dist2 >= GRAVITY_RANGE * GRAVITY_RANGE) return { ax: 0, ay: 0 };
-    strength = body.gravity * GRAVITY_SCALE / Math.max(dist * 0.002, 1);
-  }
-  return { ax: (dx / dist) * strength, ay: (dy / dist) * strength };
-}
+const ORBIT_SPEED = 2.0;  // world-units per second along the circle (visual speed)
+const ORBIT_APPROACH_ACCEL_FACTOR = 0.006; // how aggressively we close to orbit radius
 
-// Total gravitational acceleration from all bodies at (px, py).
-function totalGravAccel(px, py) {
-  let ax = 0, ay = 0;
-  if (blackHole) {
-    const bh = Object.assign({}, blackHole, { _isBlackHole: true });
-    const g = gravAccelFromBody(bh, px, py);
-    ax += g.ax; ay += g.ay;
-  }
-  for (const star of worldStars) {
-    const g = gravAccelFromBody(star, px, py);
-    ax += g.ax; ay += g.ay;
-  }
-  for (const planet of planets) {
-    const g = gravAccelFromBody(planet, px, py);
-    ax += g.ax; ay += g.ay;
-  }
-  return { ax, ay };
-}
-
-// Forward-integrate the trajectory and return [{x,y}] world points.
-// stepDt is in "simulation seconds" (same units as game dt).
-function predictTrajectory(startX, startY, startVx, startVy, steps, stepDt) {
-  const pts = [];
-  let px = startX, py = startY, pvx = startVx, pvy = startVy;
-  const sx = startX, sy = startY;
-  for (let i = 0; i < steps; i++) {
-    const g = totalGravAccel(px, py);
-    pvx += g.ax * stepDt;
-    pvy += g.ay * stepDt;
-    px += pvx * stepDt;
-    py += pvy * stepDt;
-    pts.push({ x: px, y: py });
-    // Early exit if closed orbit detected (returned near start)
-    if (i > 40) {
-      const cx = px - sx, cy = py - sy;
-      if (cx * cx + cy * cy < stepDt * stepDt * 900) break;
-    }
-  }
-  return pts;
-}
-
-// Circular orbital speed at radius r, matching applyGravity formula.
-function circularSpeedAtRadius(body, r) {
-  const factor = body.type === "star"
-    ? Math.max(r * 0.0005, 1)
-    : Math.max(r * 0.002, 1);
-  const accel = body.gravity * GRAVITY_SCALE / factor;
-  return Math.sqrt(Math.max(0, accel * r));
-}
+let orbitPhase = "approach"; // "approach" | "free"
+let orbitEllipse = null;     // [{x,y}] – drawn orbit circle points
+let _orbitAngle  = 0;        // current angle on the circle (radians)
 
 function updateOrbitMode(dt) {
-  if (!orbitModeActive) return;
+  if (!orbitModeActive) { orbitEllipse = null; return; }
 
   // Validate / find orbit target
   if (!orbitTarget || !isOrbitTargetValid(orbitTarget)) {
-    const newTarget = getBestOrbitTarget();
-    if (newTarget !== orbitTarget) {
-      orbitTarget = newTarget;
-      orbitPhase = "approach";
-      orbitEllipse = null;
-    }
+    orbitTarget = getBestOrbitTarget();
+    orbitPhase = "approach";
+    orbitEllipse = null;
   }
   if (!orbitTarget) { orbitEllipse = null; return; }
 
-  const body = orbitTarget;
-  const bv = getOrbitBodyVelocity(body);
-
-  // ── Intercept prediction: predict where the planet will be ──────────
-  // We estimate a lead position so the autopilot chases where the planet
-  // IS GOING rather than where it currently is.
-  const dx0 = ship.x - body.x;
-  const dy0 = ship.y - body.y;
-  const dist0 = Math.max(1, Math.hypot(dx0, dy0));
-
-  // Rough time-to-arrive (dist / max_approach_speed), used for lead
-  const approachSpeedEst = Math.max(1, Math.hypot(ship.vx - bv.x, ship.vy - bv.y));
-  const eta = Math.min(dist0 / approachSpeedEst, 60); // cap at 60s look-ahead
-
-  // Predicted body position
-  const predBodyX = body.x + bv.x * eta;
-  const predBodyY = body.y + bv.y * eta;
-
-  // Use predicted position for radial direction during approach,
-  // use current position once close (circularize / free)
+  const body  = orbitTarget;
+  const bv    = getOrbitBodyVelocity(body);
   const desiredR = getDesiredOrbitRadius(body);
   orbitDesiredRadius = desiredR;
 
-  const dist = Math.max(1, Math.hypot(dx0, dy0));
+  // Current relative position to body
+  const relX = ship.x - body.x;
+  const relY = ship.y - body.y;
+  const dist  = Math.max(1, Math.hypot(relX, relY));
   const radialErr = dist - desiredR;
-  const isFar = Math.abs(radialErr) > CONFIG.GRID_SIZE * 20;
 
-  // Reference point: lead planet when far, current planet when close
-  const refX = isFar ? predBodyX : body.x;
-  const refY = isFar ? predBodyY : body.y;
-  const dx = ship.x - refX;
-  const dy = ship.y - refY;
-  const refDist = Math.max(1, Math.hypot(dx, dy));
-  const nx = dx / refDist;
-  const ny = dy / refDist;
+  if (orbitPhase === "approach") {
+    // --- APPROACH: fly to orbit radius using thrusters, then snap to free ---
+    const nx = relX / dist;
+    const ny = relY / dist;
+    // Tangential direction (counterclockwise)
+    const orbitDir = getOrbitDirection(body);
+    const tx = -ny * orbitDir;
+    const ty =  nx * orbitDir;
 
-  // Relative velocity to body (always vs current body velocity)
-  const relVx = ship.vx - bv.x;
-  const relVy = ship.vy - bv.y;
-  const radialRelV = relVx * nx + relVy * ny;
+    // Desired tangential speed (a reasonable constant so orbit looks smooth)
+    const tangSpeed = Math.max(0.5, Math.min(MAX_SHIP_SPEED * 0.55, desiredR * 0.0008));
 
-  // Orbit tangential direction
-  const orbitDir = getOrbitDirection(body);
-  const tx = -ny * orbitDir;
-  const ty =  nx * orbitDir;
-  const tangRelV = relVx * tx + relVy * ty;
-
-  const vCircDesired = circularSpeedAtRadius(body, desiredR);
-
-  const isNearR     = Math.abs(radialErr) < CONFIG.GRID_SIZE * 5;
-  const isNearSpeed = Math.abs(radialRelV) < 0.8 && Math.abs(tangRelV - vCircDesired) < 1.5;
-
-  // ── Phase transitions ────────────────────────────────────────────────
-  if (orbitPhase !== "free") {
-    if (isNearR && isNearSpeed) {
-      ship.vx = bv.x + tx * vCircDesired;
-      ship.vy = bv.y + ty * vCircDesired;
-      orbitPhase = "free";
-    } else {
-      orbitPhase = isFar ? "approach" : "circularize";
-    }
-  }
-
-  // ── Autopilot thrust ─────────────────────────────────────────────────
-  if (orbitPhase !== "free") {
-    // Compute external gravity disturbance (from all OTHER bodies, not orbitTarget)
-    // so the autopilot can feed-forward compensate for it.
-    let extGx = 0, extGy = 0;
-    if (blackHole) {
-      const g = gravAccelFromBody(Object.assign({}, blackHole, { _isBlackHole: true }), ship.x, ship.y);
-      extGx += g.ax; extGy += g.ay;
-    }
-    for (const star of worldStars) {
-      if (star === body) continue;
-      const g = gravAccelFromBody(star, ship.x, ship.y);
-      extGx += g.ax; extGy += g.ay;
-    }
-    for (const planet of planets) {
-      if (planet === body) continue;
-      const g = gravAccelFromBody(planet, ship.x, ship.y);
-      extGx += g.ax; extGy += g.ay;
-    }
-
-    // Desired radial velocity: PD brake controller
-    const radialAccel = 0.10;
-    const stopSpeed = Math.sqrt(Math.max(0, 2 * radialAccel * Math.abs(radialErr))) * 0.85;
-    const desiredRadialV = Math.max(-MAX_SHIP_SPEED * 0.7,
-      Math.min(MAX_SHIP_SPEED * 0.7, -Math.sign(radialErr) * stopSpeed));
-
-    // Tangential velocity: ramp up to circular speed as radius is reached
-    const blend = Math.max(0, 1 - Math.abs(radialErr) / (CONFIG.GRID_SIZE * 35));
-    const desiredTangV = vCircDesired * blend;
-
-    // Target absolute velocity = body velocity + desired relative radial + tangential
-    // + feed-forward to counteract external gravity over next frame
-    const targetVx = bv.x + nx * desiredRadialV + tx * desiredTangV - extGx * dt;
-    const targetVy = bv.y + ny * desiredRadialV + ty * desiredTangV - extGy * dt;
-
+    // Target velocity: body-relative radial correction + tangential speed
+    const radialCorrect = -radialErr * ORBIT_APPROACH_ACCEL_FACTOR * 60;
+    const targetVx = bv.x + nx * radialCorrect + tx * tangSpeed;
+    const targetVy = bv.y + ny * radialCorrect + ty * tangSpeed;
     const dvx = targetVx - ship.vx;
     const dvy = targetVy - ship.vy;
 
-    if (Math.hypot(dvx, dvy) > 0.04) {
+    if (Math.hypot(dvx, dvy) > 0.08 && res.fuel > 0) {
       ship.thrustToward(dt, Math.atan2(dvy, dvx));
+      // Note: thrustToward already handles fuel consumption, but we want free orbit
+      // so refund the fuel (orbit should be free once established).
+      // During approach, fuel IS consumed (brief burn to reach orbit).
     }
 
-    // Nose orientation
-    if (orbitPhase === "circularize") {
-      ship.rotateToward(dt, Math.atan2(ty, tx) + Math.PI / 2 + SHIP_NOSE_OFFSET, 0.8);
-    } else {
-      // Point toward lead intercept position
-      const toLeadX = refX - ship.x;
-      const toLeadY = refY - ship.y;
-      ship.rotateToward(dt, Math.atan2(toLeadY, toLeadX) + Math.PI / 2 + SHIP_NOSE_OFFSET, 0.6);
+    // Orient along tangential direction
+    ship.rotateToward(dt, Math.atan2(ty, tx) + Math.PI / 2 + SHIP_NOSE_OFFSET, 0.7);
+
+    // Transition to free when close enough
+    if (Math.abs(radialErr) < CONFIG.GRID_SIZE * 6 && Math.hypot(dvx, dvy) < 1.2) {
+      // Snap to orbit
+      _orbitAngle = Math.atan2(relY, relX);
+      orbitPhase = "free";
     }
+
+  } else {
+    // --- FREE ORBIT: move ship exactly along the circle, zero fuel ---
+    const orbitDir = getOrbitDirection(body);
+    const tangSpeed = Math.max(0.5, Math.min(MAX_SHIP_SPEED * 0.55, desiredR * 0.0008));
+    const angularSpeed = (tangSpeed / desiredR) * orbitDir;
+    _orbitAngle += angularSpeed * dt;
+
+    // Pin ship to circle
+    ship.x = body.x + Math.cos(_orbitAngle) * desiredR;
+    ship.y = body.y + Math.sin(_orbitAngle) * desiredR;
+
+    // Tangential velocity (for realistic exit)
+    const tx = -Math.sin(_orbitAngle) * orbitDir;
+    const ty =  Math.cos(_orbitAngle) * orbitDir;
+    ship.vx = bv.x + tx * tangSpeed;
+    ship.vy = bv.y + ty * tangSpeed;
+
+    // Nose along flight direction
+    ship.rotateToward(dt, Math.atan2(ty, tx) + Math.PI / 2 + SHIP_NOSE_OFFSET, 0.6);
   }
 
-  // ── Trajectory prediction (refresh every ~0.33 s) ────────────────────
+  // Build the visible orbit circle (refresh every 0.5 s or on phase change)
   ship._orbitPredictTimer = (ship._orbitPredictTimer || 0) - dt;
   if (ship._orbitPredictTimer <= 0) {
-    ship._orbitPredictTimer = 0.33;
-    orbitEllipse = predictTrajectory(ship.x, ship.y, ship.vx, ship.vy, 600, 0.5);
+    ship._orbitPredictTimer = 0.5;
+    const pts = [];
+    const steps = 120;
+    for (let i = 0; i <= steps; i++) {
+      const a = (i / steps) * Math.PI * 2;
+      pts.push({ x: body.x + Math.cos(a) * desiredR, y: body.y + Math.sin(a) * desiredR });
+    }
+    orbitEllipse = pts;
   }
 }
 
@@ -1566,51 +1620,26 @@ function drawGalaxyBackground() {
 function drawOrbitIndicator() {
   if (!orbitModeActive || !orbitTarget) return;
 
-  // Draw the desired-orbit reference circle (always shown as faint guide)
   const bodyScreen = worldToScreen(orbitTarget.x, orbitTarget.y);
-  const refR = getDesiredOrbitRadius(orbitTarget) * camera.scale;
+  const desiredR = getDesiredOrbitRadius(orbitTarget);
+  const refR = desiredR * camera.scale;
+
+  // Draw the exact orbit circle the ship follows
   ctx.beginPath();
   ctx.arc(bodyScreen.x, bodyScreen.y, refR, 0, Math.PI * 2);
-  ctx.strokeStyle = "rgba(0,255,200,0.12)";
-  ctx.lineWidth = 1;
-  ctx.setLineDash([4, 8]);
+  const orbitColor = orbitPhase === "free"
+    ? "rgba(0,220,180,0.55)"
+    : "rgba(255,200,60,0.45)";
+  ctx.strokeStyle = orbitColor;
+  ctx.lineWidth = orbitPhase === "free" ? 2 : 1.5;
+  ctx.setLineDash(orbitPhase === "free" ? [] : [6, 8]);
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Draw the predicted trajectory (forward-integrated, exact match to physics)
-  if (orbitEllipse && orbitEllipse.length > 1) {
-    const pts = orbitEllipse;
-
-    // Color by phase: autopilot = orange/yellow, free orbit = teal
-    const trajColor = orbitPhase === "free"
-      ? "rgba(0,220,180,0.55)"
-      : "rgba(255,200,60,0.55)";
-
-    ctx.beginPath();
-    const p0 = worldToScreen(pts[0].x, pts[0].y);
-    ctx.moveTo(p0.x, p0.y);
-    for (let i = 1; i < pts.length; i++) {
-      const p = worldToScreen(pts[i].x, pts[i].y);
-      ctx.lineTo(p.x, p.y);
-    }
-    ctx.strokeStyle = trajColor;
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([]);
-    ctx.stroke();
-
-    // Mark the end of the predicted path with a small dot
-    const pLast = worldToScreen(pts[pts.length - 1].x, pts[pts.length - 1].y);
-    ctx.beginPath();
-    ctx.arc(pLast.x, pLast.y, 3, 0, Math.PI * 2);
-    ctx.fillStyle = trajColor;
-    ctx.fill();
-  }
-
-  // Phase label near the body
-  if (orbitPhase !== "free") {
-    const label = orbitPhase === "approach" ? "→ Orbit approach" : "→ Circularizing";
+  // Phase label
+  if (orbitPhase === "approach") {
     ctx.font = "11px monospace";
-    ctx.fillStyle = "rgba(255,200,60,0.8)";
-    ctx.fillText(label, bodyScreen.x + refR * 0.7 + 6, bodyScreen.y - 6);
+    ctx.fillStyle = "rgba(255,200,60,0.85)";
+    ctx.fillText("→ Approaching orbit …", bodyScreen.x + refR * 0.7 + 6, bodyScreen.y - 6);
   }
 }

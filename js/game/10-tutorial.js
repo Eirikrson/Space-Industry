@@ -30,12 +30,6 @@ const TUTORIAL_STEPS = [
     waitFor: "ok"
   },
   {
-    id: "trajectory",
-    title: "Trajectory line",
-    body: "The blue line shows where your ship is currently heading. Press H to toggle it while flying manually.",
-    waitFor: "ok"
-  },
-  {
     id: "orbit",
     title: "Orbit pilot",
     body: "Near a planet or star, press O to use the orbit pilot. It helps you settle into a stable orbit instead of falling into the body.",
@@ -81,7 +75,7 @@ const TUTORIAL_EVENT_STEPS = {
   },
   turret: {
     title: "Turrets",
-    body: "Turrets defend the ship automatically when they have power and ammunition. Different turret types use different ammunition."
+    body: "Turrets defend the ship automatically when they have power and ammunition. Click any turret to open turret control and enable or disable turret types."
   },
   shield: {
     title: "Shields",
@@ -91,6 +85,10 @@ const TUTORIAL_EVENT_STEPS = {
     title: "Drones and hangars",
     body: "Hangars let you build and configure drones. Click a hangar to edit its drone, assign cargo limits, and press C to recall drones when needed."
   },
+  laboratory: {
+    title: "Laboratory",
+    body: "Click a Laboratory to open research. Research unlocks buildings, and computer upgrades unlock the next technology tiers."
+  },
   fusion: {
     title: "Fusion reactor",
     body: "Fusion reactors can burn different fuels. Click the reactor to choose its mode, then make sure the matching resources are available."
@@ -98,6 +96,10 @@ const TUTORIAL_EVENT_STEPS = {
   assembler: {
     title: "Assembler",
     body: "Assemblers craft parts automatically. Click an assembler to set target amounts for items you want it to keep stocked."
+  },
+  quarters: {
+    title: "Quarters",
+    body: "Click Quarters to open crew management. More assigned crew helps repair and operate the ship faster."
   },
   crew: {
     title: "Life support and crew",
@@ -160,8 +162,10 @@ function notifyTutorialModuleBuilt(type) {
   if (isTurretType(type)) tutorialEvent("turret");
   if (type === "Shield Generator") tutorialEvent("shield");
   if (isHangarType(type)) tutorialEvent("hangar");
+  if (type === "Laboratory") tutorialEvent("laboratory");
   if (type === "Fusion Reactor") tutorialEvent("fusion");
   if (type === "Assembler") tutorialEvent("assembler");
+  if (type === "Quarters") tutorialEvent("quarters");
   if (type === "Life Support" || type === "Farm Module" || type === "Quarters") tutorialEvent("crew");
 }
 
@@ -176,8 +180,8 @@ function notifyTutorialAsteroidMined() {
 function notifyTutorialBuildOpened() {
   if (tutorialSkipped || tutorialSeen.has("buildOpened")) return;
   tutorialSeen.add("buildOpened");
-  tutorialStepIndex = Math.max(tutorialStepIndex, 8);
-  tutorialOverlay = TUTORIAL_STEPS[8];
+  tutorialStepIndex = Math.max(tutorialStepIndex, 7);
+  tutorialOverlay = TUTORIAL_STEPS[7];
 }
 
 function updateTutorial(dt) {
@@ -201,11 +205,11 @@ function updateTutorial(dt) {
   }
 
   tutorialFlightTime += dt;
-  if (tutorialFlightTime > 60 && tutorialStepIndex < 10) {
-    showTutorialStep(10);
+  if (tutorialFlightTime > 60 && tutorialStepIndex < 9) {
+    showTutorialStep(9);
   }
-  if (tutorialFlightTime > 70 && tutorialStepIndex < 11) {
-    showTutorialStep(11);
+  if (tutorialFlightTime > 70 && tutorialStepIndex < 10) {
+    showTutorialStep(10);
   }
 }
 

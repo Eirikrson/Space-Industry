@@ -499,12 +499,16 @@ function harvestAsteroid(asteroid) {
   for (const key in asteroid.contents) {
     const amount = asteroid.contents[key];
     if (amount > 0) {
-      collected += storeResource(key, amount);
+      const stored = storeResource(key, amount);
+      asteroid.contents[key] = Math.max(0, amount - stored);
+      collected += stored;
     }
   }
 
   if (collected > 0) playSound("items", 250);
-  asteroid.contents = {};
-  asteroid.totalItems = 0;
-  notifyTutorialAsteroidMined();
+  asteroid.totalItems = getAsteroidTotal(asteroid.contents);
+  if (asteroid.totalItems <= 0) {
+    asteroid.contents = {};
+    notifyTutorialAsteroidMined();
+  }
 }

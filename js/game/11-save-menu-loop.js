@@ -1495,8 +1495,9 @@ function loop(now) {
   inactiveOverlayDrawn = false;
 
   const simulationActive = appState === "playing" && appWindowActive && !shouldBlockSimulationForOverlay();
-  const stepDt = simulationActive ? dt : 0;
-  if (simulationActive) worldPlayTime += dt;
+  const gameplayActive = simulationActive && !buildMode;
+  const stepDt = gameplayActive ? dt : 0;
+  if (gameplayActive) worldPlayTime += dt;
   if (appState === "playing" && appWindowActive && !shouldBlockSimulationForOverlay()) updateTutorial(dt);
 
   ctx.setTransform(VIEW.dpr, 0, 0, VIEW.dpr, 0, 0);
@@ -1522,47 +1523,53 @@ function loop(now) {
   ctx.fillRect(0, 0, VIEW.w, VIEW.h);
 
   if (!buildMode) {
+    syncStarPositionsAtTime(worldPlayTime);
+    const activeWorldChunks = getActiveWorldChunks();
+    const activeWorldFocusPoints = getActiveWorldFocusPoints();
+    const activeSystems = solarSystems.filter(system => isSystemNearActiveFocus(system, activeWorldFocusPoints));
+
+    for (const system of activeSystems) {
+      syncSystemPositionsAtTime(system, worldPlayTime);
+    }
+
     // Galaxy background (nebula, dust)
     drawGalaxyBackground();
 
-    // Parallax background stars (screen-space wrapped, moves with camera)
-    ctx.fillStyle = "rgba(255,255,255,0.62)";
-    for (let i = 0; i < 200; i++) {
-      const layer = 0.012 + (i % 5) * 0.006;
-      const baseX = (Math.sin(i * 137.5) * 0.5 + 0.5) * VIEW.w;
-      const baseY = (Math.cos(i * 97.3) * 0.5 + 0.5) * VIEW.h;
-      const sx = ((baseX - camera.x * layer) % VIEW.w + VIEW.w) % VIEW.w;
-      const sy = ((baseY - camera.y * layer) % VIEW.h + VIEW.h) % VIEW.h;
-      ctx.fillRect(sx, sy, i % 3 === 0 ? 2 : 1, i % 3 === 0 ? 2 : 1);
-    }
+    drawParallaxStarfield();
 
     // Black hole
-    if (blackHole) { blackHole.update(stepDt); blackHole.draw(); }
+    if (blackHole && isPointInActiveChunks(blackHole.x, blackHole.y, activeWorldChunks)) {
+      blackHole.update(stepDt);
+      blackHole.draw();
+    }
 
     // Stars
-    for (const star of worldStars) {
+    for (const { star } of activeSystems) {
       star.update(stepDt);
       drawStar(star);
     }
 
     // Asteroid belts
-    for (const sys of solarSystems) {
+    for (const sys of activeSystems) {
       sys.innerBelt.update(stepDt);
       sys.innerBelt.draw();
       sys.outerBelt.update(stepDt);
       sys.outerBelt.draw();
     }
 
-    if (simulationActive) updateDynamicBeltAsteroids();
+    if (gameplayActive) updateDynamicBeltAsteroids();
 
     // Planets
-    for (const planet of planets) {
-      planet.update(stepDt);
-      planet.draw();
+    for (const system of activeSystems) {
+      for (const planet of system.planets) {
+        planet.update(stepDt);
+        planet.draw();
+      }
     }
 
     // Free asteroids
     for (const asteroid of asteroids) {
+      if (!isPointInActiveChunks(asteroid.x, asteroid.y, activeWorldChunks)) continue;
       asteroid.update(stepDt);
       asteroid.draw();
     }
@@ -1570,15 +1577,18 @@ function loop(now) {
     drawGrid();
   }
 
-  if (simulationActive) {
+  if (gameplayActive) {
     ship.update(dt);
     updateSpaceHazards(dt);
+  }
+
+  if (simulationActive) {
     updateBuildCamera();
     updateBuildMode();
     processCommit();
   }
 
-  if (simulationActive && !buildMode) {
+  if (gameplayActive) {
     updateRepairs(dt);
     updateHangarDroneRepairs(dt);
     updateResources(dt);
@@ -1586,7 +1596,7 @@ function loop(now) {
     camera.y += (ship.y - camera.y) * 0.08;
   }
 
-  if (simulationActive) {
+  if (gameplayActive) {
     updateTurretGuns(dt);
     updatePlayerTurrets(dt);
     updateLaserTurretBeams(dt);
@@ -1605,11 +1615,11 @@ function loop(now) {
   drawSmallShips();
   drawBlueprints();
   drawGhost();
-  drawTrajectory();
   drawCombatBullets();
   drawUI();
   drawResourceUI();
   drawOrbitIndicator();
+  if (mapVisible) syncMapWorldPositionsIfNeeded(worldPlayTime);
   drawMapOverlay();
   drawTooltip();
   drawPlanetResourceTooltip();

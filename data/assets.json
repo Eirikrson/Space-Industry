@@ -263,7 +263,7 @@
       "frames": 1
     },
     "Cannon tower": {
-      "src": "Graphics/Machines/CannonTower.png",
+      "src": "Graphics/Machines/CannonTurret.png",
       "frames": 1
     },
     "Railgun turret": {
@@ -271,7 +271,7 @@
       "frames": 1
     },
     "Missile turret": {
-      "src": "Graphics/Machines/MissileTurret.png",
+      "src": "Graphics/Machines/MissileTurretOff.png",
       "frames": 1
     },
     "MissileTurretOff": {
@@ -283,7 +283,7 @@
       "frames": 1
     },
     "Laser turret": {
-      "src": "Graphics/Machines/LaserTurret.png",
+      "src": "Graphics/Machines/LaserTurretOff.png",
       "frames": 1
     },
     "LaserTurretOff": {

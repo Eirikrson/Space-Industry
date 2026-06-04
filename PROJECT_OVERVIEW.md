@@ -3,7 +3,7 @@
 
 ## Startdateien
 
-### `Index.html`
+### `index.html`
 - Kleine Startseite des Spiels.
 - Erstellt nur die Grundelemente: Canvas, Dropdown-Overlay und den Bootstrap-Script-Link.
 - Setzt den Browser-Titel auf `Space Industry`.
@@ -13,8 +13,8 @@
 ### `Start-Game.bat`
 - Bequemer Windows-Startpunkt fuer das Spiel.
 - Startet zuerst den lokalen Server fuer HTML, JSON, JS, Grafiken und Sounds.
-- Oeffnet danach automatisch `http://127.0.0.1:8765/Index.html` im Browser.
-- Sollte statt direktem Doppelklick auf `Index.html` benutzt werden, weil Browser lokale JSON-Dateien sonst blockieren koennen.
+- Oeffnet danach automatisch `http://127.0.0.1:8765/index.html` im Browser.
+- Sollte statt direktem Doppelklick auf `index.html` benutzt werden, weil Browser lokale JSON-Dateien sonst blockieren koennen.
 
 ### `styles.css`
 - Enthaelt das ausgelagerte CSS der Spielseite.
@@ -35,6 +35,7 @@
 - Enthaelt Bild-Sprites mit Dateipfad, Frame-Anzahl und Animationsgeschwindigkeit.
 - Enthaelt Sound-Dateipfade und Lautstaerke-Faktoren.
 - Maschinen mit mehreren Groessen nutzen MK-Namen und passende Dateinamen wie `TankMK1.png` oder `HangarMK3.png`.
+- Turret-Vorschau-Sprites verweisen auf vorhandene Basis- oder Off-Sprites; aktive Varianten werden im Kampfsystem separat ausgewaehlt.
 - Trennt Asset-Daten von der Spiellogik.
 - Sollte erweitert werden, wenn neue Grafiken oder Sounds ins Spiel kommen.
 
@@ -89,6 +90,7 @@
 - Bestimmt die Reihenfolge, in der die Dateien unter `js/game` zusammengesetzt werden.
 - Enthaelt keine eigentliche Spiellogik mehr.
 - Muss aktualisiert werden, wenn neue Spielskript-Dateien hinzukommen oder die Reihenfolge geaendert wird.
+- Die Nummerierung der Dateien unter `js/game` folgt der Lade-Reihenfolge und ist eindeutig.
 
 ### `js/local-server.js`
 - Kleiner lokaler Server fuer das Spiel.
@@ -109,11 +111,19 @@
 - Erzeugt Galaxie, Nebel und Himmelskoerper.
 - Skaliert Planeten und Sterne mit einem zentralen Groessenfaktor; das schwarze Loch nutzt einen kleineren eigenen Faktor und langsamere Ringe.
 - Baut Planetenbahnen mit Sicherheitsabstand zu Stern, Nachbarbahnen, Sonnensystemrand und schwarzem Loch auf.
-- Platziert Asteroidenguertel in mittleren freien Luecken zwischen Planetenbahnen statt direkt am Stern oder ganz am Systemrand.
+- Planeten brauchen 1-3 Spielstunden fuer einen Umlauf um ihre Sonne.
+- Sonnensysteme brauchen 3-5 Spielstunden fuer einen Umlauf um das schwarze Loch.
+- Teilt die Welt in aktive Chunks um Mutterschiff und Flotte ein.
+- Stellt Hilfsfunktionen bereit, um Sterne und Planeten bei Bedarf aus `worldPlayTime` auf ihre aktuelle Orbitposition zu setzen.
+- Erstellt pro Sonnensystem einen inneren und einen aeusseren Asteroidenguertel; beide sind breiter als frueher.
+- Zeichnet bei niedrigerem Zoom nur einen Teil der Belt-Rocks, damit grosse Guertel guenstiger bleiben.
+- Aktualisiert Kartenpositionen fuer Sterne und Planeten gecacht statt jedes Frame.
+- Platziert Asteroidenguertel bevorzugt in freien Luecken zwischen Planetenbahnen und nutzt Fallbacks, wenn nicht genug grosse Luecken entstehen.
 - Stellt sicher, dass Asteroiden nicht innerhalb von Sternen, Planeten oder dem schwarzen Loch erzeugt werden.
 - Das schwarze Loch ist wieder eine zerstoerende Kollisionsgefahr, ausser der Adminmodus ist aktiv.
 - Zeichnet Gasplaneten mit einer weichen aeusseren Wolkenschicht, die nur optisch ist und nicht als Kollisionsflaeche zaehlt.
 - Enthaelt Orbit-, Gravitation-, Lande- und Sonneneffizienz-Logik.
+- Laesst Thruster bei Maximalgeschwindigkeit in ruhigen 1s-an/1s-aus-Pulsen anzeigen und hoerbar machen, statt pro Frame zu flackern.
 - Haengt stark mit Flugphysik und Ressourcenabbau zusammen.
 
 ### `js/game/02-resources-research.js`
@@ -121,12 +131,14 @@
 - Steuert Baukostenpruefung, Forschungskauf und sichtbare Inventargegenstaende.
 - Enthaelt Assembler-, Drill- und Ernte-Hilfsfunktionen.
 - Leitet Assembler-Auswahl und Assembler-Tooltip aus den Rezeptdaten in `data/buildings.json` ab.
+- Asteroidenabbau lagert nur Ressourcen ein, die wirklich Platz im Schiffslager finden; nicht eingelagerte Reste bleiben im Asteroiden.
 - Ist die zentrale Datei fuer Wirtschaft, Forschung und Produktionsfreischaltung.
 
 ### `js/game/03-flight.js`
 - Enthaelt Zielerkennung im Weltraum und Flugassistenz.
 - Berechnet Annaeherung, Geschwindigkeitsabgleich und Trajektorien.
 - Verwaltet dynamische Asteroiden lokal um das Schiff und entfernt entfernte Asteroiden wieder.
+- Erzeugt dynamische lokale Belt-Asteroiden erst, wenn das Schiff in einem Asteroidenguertel ist.
 - Entfernt lokale Asteroiden auch dann, wenn sie durch Bewegung in Planeten, Sterne oder das schwarze Loch geraten.
 - Enthaelt Koordinatenumrechnung zwischen Welt, Bildschirm und Grid.
 - Bereitet viele Werte vor, die Zeichnung und Steuerung brauchen.
@@ -142,6 +154,8 @@
 - Enthaelt kleine Schiffe, Hangars, Drohnenaufgaben und Rueckkehrlogik.
 - Enthaelt Gegnerdesigns, Gegnerflotten, Gegnerbewegung und Gegnerabbau.
 - Enthaelt Turrets, Schuesse, Schilde und Kampftreffer.
+- Turrets suchen neue Ziele nur alle 0.5 Sekunden und nutzen zwischendurch ihr gecachtes Ziel.
+- Hangar-Drohnen und gegnerische Turrets fuehren teure Entscheidungspruefungen in Intervallen aus.
 - Ist gross, weil Drohnen- und Kampfsysteme aktuell eng miteinander verbunden sind.
 
 ### `js/game/06-build-ui-controls.js`
@@ -161,33 +175,50 @@
 - Planeten, Sterne, Guertel, schwarzes Loch und Spielerpfeil nutzen auf der Karte dieselben Weltkoordinaten wie im Spiel.
 - Zeigt unten links die gespeicherte Spielzeit als Stunden, Minuten und Sekunden in einem gerahmten UI-Feld.
 - Zeigt den Adminstatus als `Admin mode` an, passend zum Toggle-Text.
+- Nutzt ein vorberechnetes Parallax-Sternmuster statt die Hintergrundsterne jedes Frame neu zu erzeugen.
+- Nutzt Map- und Tooltip-Caches fuer wiederholte Hover- und Kartenabfragen.
+- Ueberspringt offscreen liegende Module frueh, bevor Sprites, Texte und Overlays berechnet werden.
 - Namen erscheinen erst in der fokussierten Systemansicht; dort werden Planeten deutlich groesser gezeichnet.
+- Ressourcen-Scans fuer Planeten, Sterne und Asteroiden sind erst ab Computer MK2 sichtbar.
+- Asteroiden-Scans zeigen nur Ressourcen, die aktuell wirklich noch im Asteroiden enthalten sind.
 - Enthaelt die meisten Canvas-Ausgabefunktionen.
 - Sollte erweitert werden, wenn neue sichtbare Panels oder Anzeigen dazukommen.
 
 ### `js/game/08-simulation.js`
 - Aktualisiert Build-Kamera, Build-Commit, Ressourcen und Gefahren.
 - Enthaelt Produktionslogik fuer Maschinen und Crew-Reparaturen.
+- Prueft Weltraumgefahren nur in den aktiven Welt-Chunks um Mutterschiff und Flotte.
+- Nutzt guenstigere quadratische Distanzvergleiche in Kollisionspfaden, wenn keine echte Distanz gebraucht wird.
+- Fasst Solar-Panel-Produktion zusammen, statt sie in einem separaten Durchlauf pro Panel zu addieren.
 - Schmelzt Erze zu Platten und verarbeitet Assembler-Rezepte aus den JSON-Daten.
 - Begrenzt gespeicherte Energie auf echte Batteriekapazitaet, laesst Solarstrom aber direkt Maschinen versorgen.
 - Ignoriert im Adminmodus zerstoerende Kollisionen und Sternhitze.
 - Enthaelt Hitzeschaden, Kollisionen, Schilde und Spielsounds.
 - Wird im Hauptloop aufgerufen, wenn das Spiel aktiv laeuft.
 
-### `js/game/09-save-menu-loop.js`
+### `js/game/09-landing.js`
+- Enthaelt das Planeten-Landesystem und den passiven Ressourcenabbau auf Planeten.
+- Definiert Landing-Zustaende wie Anflug, Einkreisen, Abstieg und gelandet.
+- Stellt `updateLandingMode`, `updatePlanetMining`, `shouldSkipGravity` und `drawLandingOverlay` bereit.
+- Muss nach Simulation-Grundlagen und vor Tutorial sowie Hauptloop geladen werden, weil Simulation und Loop diese Funktionen aufrufen.
+
+### `js/game/10-tutorial.js`
+- Enthaelt Tutorial-Schritte, Tutorial-Ereignisse und das Tutorial-Overlay.
+- Blockiert bei offenen Tutorial-Hinweisen die Simulation, wenn ein Schritt dies verlangt.
+- Reagiert auf Spielereignisse wie Bauen, Forschung, Asteroidenabbau und Build-Mode.
+- Sollte erweitert werden, wenn neue gefuehrte Einstiegsschritte dazukommen.
+
+### `js/game/11-save-menu-loop.js`
 - Enthaelt Speichern, Laden, Import, Export und Autosave.
 - Zeichnet Hauptmenue, Save-Slots, Pausenmenue und Save-Dialoge.
 - Migriert alte Saves von `iron`/`copper` auf `ironPlate`/`copperPlate`.
 - Speichert und laedt die laufende Spielzeit, die in der UI angezeigt wird.
 - Alte Saves starten nicht automatisch mit Admin-Build, neue Saves behalten die bewusst gespeicherte Einstellung.
 - Enthaelt den Hauptloop, der Update- und Draw-Funktionen in der richtigen Reihenfolge aufruft.
+- Aktualisiert und zeichnet im normalen Flug nur aktive Sonnensysteme und Asteroidenbereiche.
+- Synchronisiert alle Stern- und Planetenpositionen nur dann auf die aktuelle Spielzeit, wenn die Galaxy Map geoeffnet ist.
+- Pausiert die Gameplay-Simulation im Baumodus; Baukamera, Platzierung und Build-Commit bleiben aktiv.
 - Nutzt `data/texts.json` fuer Menue-, Pause- und Savegame-Texte.
-
-### `js/game/09-planet-landing.js`
-- Enthaelt das neue Planeten-Landesystem und den passiven Ressourcenabbau auf Planeten.
-- Definiert Landing-Zustaende wie Anflug, Einkreisen, Abstieg und gelandet.
-- Stellt `updateLandingMode`, `updatePlanetMining`, `shouldSkipGravity` und `drawLandingOverlay` bereit.
-- Muss vor `09-save-menu-loop.js` geladen werden, weil der Hauptloop und die Simulation diese Funktionen aufrufen.
 
 ## Assetordner
 
@@ -207,5 +238,8 @@
 
 - Neue sichtbare Texte zuerst in `data/texts.json` anlegen und dann im Code mit `text("bereich.schluessel")` benutzen.
 - Neue Balancingwerte nach Moeglichkeit in eine passende JSON-Datei unter `data` legen.
-- Neue Spielskripte unter `js/game` ablegen und danach in `js/app.js` in der richtigen Reihenfolge eintragen.
+- Neue Spielskripte unter `js/game` mit eindeutiger Nummer in Lade-Reihenfolge ablegen und danach in `js/app.js` eintragen.
+- Dateinamen und Pfade konsequent klein schreiben, wenn sie als URL genutzt werden, damit das Projekt auch auf case-sensitiven Systemen sauber laeuft.
+- Asset-Pfade in `data/assets.json` muessen auf vorhandene Dateien unter `Graphics` oder `Sounds` zeigen.
+- Neue globale Weltobjekte sollten pruefen, ob sie in aktiven Chunks liegen, bevor sie dauerhaft simuliert werden.
 - Diese Datei aktualisieren, sobald sich Zweck, Reihenfolge oder Verantwortlichkeit einer Datei aendert.

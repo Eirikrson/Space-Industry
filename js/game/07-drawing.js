@@ -1,3 +1,37 @@
+const PARALLAX_STAR_PATTERN = Array.from({ length: 140 }, (_, i) => ({
+  x: (Math.sin(i * 137.5) * 0.5 + 0.5),
+  y: (Math.cos(i * 97.3) * 0.5 + 0.5),
+  layer: 0.012 + (i % 5) * 0.006,
+  size: i % 3 === 0 ? 2 : 1,
+  alpha: 0.46 + (i % 4) * 0.08
+}));
+
+let mapFrameCache = null;
+let mapFrameCacheKey = "";
+let mapHitCache = { key: "", value: null };
+let resourceTooltipCache = { key: "", frame: -1, value: null };
+let uiFrameCounter = 0;
+
+function drawParallaxStarfield() {
+  for (const star of PARALLAX_STAR_PATTERN) {
+    const sx = ((star.x * VIEW.w - camera.x * star.layer) % VIEW.w + VIEW.w) % VIEW.w;
+    const sy = ((star.y * VIEW.h - camera.y * star.layer) % VIEW.h + VIEW.h) % VIEW.h;
+    ctx.fillStyle = `rgba(255,255,255,${star.alpha})`;
+    ctx.fillRect(sx, sy, star.size, star.size);
+  }
+}
+
+function getCachedMapLayout() {
+  const focusKey = mapFocusSystem ? solarSystems.indexOf(mapFocusSystem) : -1;
+  const key = `${VIEW.w}:${VIEW.h}:${focusKey}:${Math.floor(worldPlayTime)}`;
+  if (!mapFrameCache || mapFrameCacheKey !== key) {
+    mapFrameCache = getMapLayout();
+    mapFrameCacheKey = key;
+    mapHitCache.key = "";
+  }
+  return mapFrameCache;
+}
+
 function drawGrid() {
   const grid = CONFIG.GRID_SIZE;
   const size = grid * camera.scale;
@@ -100,6 +134,8 @@ function drawModules() {
   for (const m of placedModules) {
     const world = moduleWorldCenter(m);
     const p = worldToScreen(world.x, world.y);
+    const rangePad = (isTurretType(m.type) ? (getTurretConfig(m.type)?.rangeTiles || 4) : 4) * CONFIG.GRID_SIZE * camera.scale;
+    if (p.x < -rangePad || p.x > VIEW.w + rangePad || p.y < -rangePad || p.y > VIEW.h + rangePad) continue;
 
     if (m.type === "Shield Generator" && (buildMode || shieldsActive)) {
       const outDir = ship.angle + (m.rot || 0) * Math.PI / 2 + Math.PI / 2;
@@ -124,6 +160,8 @@ function drawModules() {
     const drawSize = getDrawSize(w, h, rot);
     const sw = drawSize.w * grid * camera.scale;
     const sh = drawSize.h * grid * camera.scale;
+    const pad = Math.max(sw, sh) * 1.5;
+    if (p.x < -pad || p.x > VIEW.w + pad || p.y < -pad || p.y > VIEW.h + pad) continue;
 
     ctx.save();
     ctx.translate(p.x, p.y);
@@ -499,10 +537,13 @@ function getMapSystemForPoint(worldX, worldY) {
       system.innerBelt?.outerR || 0,
       ...system.planets.map(planet => planet.orbitRadius + planet.radius)
     );
-    const dist = Math.hypot(worldX - system.star.x, worldY - system.star.y);
-    if (dist <= radius * 1.15 && dist < bestDist) {
+    const dx = worldX - system.star.x;
+    const dy = worldY - system.star.y;
+    const distSq = dx * dx + dy * dy;
+    const hitRadius = radius * 1.15;
+    if (distSq <= hitRadius * hitRadius && distSq < bestDist) {
       best = system;
-      bestDist = dist;
+      bestDist = distSq;
     }
   }
 
@@ -612,7 +653,10 @@ function drawMapBelt(belt, map, fillColor) {
 function getMapBodyAt(mx, my) {
   if (!mapVisible || buildMode) return null;
 
-  const map = getMapLayout();
+  const cacheKey = `${Math.round(mx)}:${Math.round(my)}:${mapFocusSystem ? solarSystems.indexOf(mapFocusSystem) : -1}:${Math.floor(worldPlayTime)}`;
+  if (mapHitCache.key === cacheKey) return mapHitCache.value;
+
+  const map = getCachedMapLayout();
   if (mx < map.x || mx > map.x + map.w || my < map.y || my > map.y + map.h) return null;
 
   let best = null;
@@ -622,7 +666,9 @@ function getMapBodyAt(mx, my) {
 
   for (const star of stars) {
     const p = worldToMap(map, star.x, star.y);
-    const d = Math.hypot(mx - p.x, my - p.y);
+    const dx = mx - p.x;
+    const dy = my - p.y;
+    const d = dx * dx + dy * dy;
     const system = getSystemForBody(star);
     const systemRadius = !map.focused && system
       ? Math.max(
@@ -634,7 +680,7 @@ function getMapBodyAt(mx, my) {
     const hitRadius = map.focused
       ? Math.max(18, star.radius * map.scale + 6)
       : Math.max(36, systemRadius);
-    if (d < hitRadius && d < bestDist) {
+    if (d < hitRadius * hitRadius && d < bestDist) {
       best = { star, system };
       bestDist = d;
     }
@@ -642,13 +688,17 @@ function getMapBodyAt(mx, my) {
 
   for (const planet of systemPlanets) {
     const p = worldToMap(map, planet.x, planet.y);
-    const d = Math.hypot(mx - p.x, my - p.y);
-    if (d < Math.max(12, planet.radius * map.scale + 8) && d < bestDist) {
+    const dx = mx - p.x;
+    const dy = my - p.y;
+    const d = dx * dx + dy * dy;
+    const hitRadius = Math.max(12, planet.radius * map.scale + 8);
+    if (d < hitRadius * hitRadius && d < bestDist) {
       best = { planet, system: getSystemForBody(planet) };
       bestDist = d;
     }
   }
 
+  mapHitCache = { key: cacheKey, value: best };
   return best;
 }
 
@@ -671,7 +721,7 @@ function handleMapClick(mx, my) {
 function drawMapOverlay() {
   if (!mapVisible || buildMode) return;
 
-  const map = getMapLayout();
+  const map = getCachedMapLayout();
   const { x, y, w, h } = map;
 
   ctx.save();
@@ -781,9 +831,6 @@ function toggleStatusBadgeAction(action) {
   } else if (action === "map") {
     mapVisible = !mapVisible;
     flash(mapVisible ? "Map open" : "Map closed");
-  } else if (action === "trajectory") {
-    trajectoryVisible = !trajectoryVisible;
-    flash(trajectoryVisible ? "Trajectory on" : "Trajectory off");
   } else if (action === "orbit") {
     if (getComputerLevel() < 3) {
       flash("Computer MK3 required for orbit mode");
@@ -871,10 +918,9 @@ function drawUI() {
     drawStatusBadge("[X] Shields", 81, shieldsActive, "shields");
     drawStatusBadge("[V] Repair", 109, repairMode, "repair");
     drawStatusBadge("[M] Map", 137, mapVisible, "map");
-    drawStatusBadge("[H] Trajectory", 165, trajectoryVisible, "trajectory");
-    drawStatusBadge("[O] Orbit", 193, orbitModeActive, "orbit");
-    drawStatusBadge("[L] Landing", 221, landingModeActive, "landing");
-    drawStatusBadge("[N] Automatic blueprint", 249, autoBlueprintRepair, "autoBlueprint");
+    drawStatusBadge("[O] Orbit", 165, orbitModeActive, "orbit");
+    drawStatusBadge("[L] Landing", 193, landingModeActive, "landing");
+    drawStatusBadge("[N] Automatic blueprint", 221, autoBlueprintRepair, "autoBlueprint");
   }
   drawSmallShipConfigUI();
   drawResearchWindow();
@@ -1713,7 +1759,7 @@ function drawTooltip() {
   roundRect(tx, ty, tw, th, 8);
   ctx.stroke();
 
-  // Titel blau + fett, Grösse direkt dahinter
+  // Blue bold title, with size directly after it.
   ctx.font = "bold 14px Arial";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
@@ -1804,7 +1850,7 @@ function drawTooltip() {
 }
 
 function getHoveredPlanetForTooltip() {
-  if (getComputerLevel() < 2 || buildMode || uiDialog || tutorialOverlay) return null;
+  if (!canShowResourceSurveyTooltip()) return null;
 
   if (mapVisible) {
     const hit = getMapBodyAt(mouse.x, mouse.y);
@@ -1827,7 +1873,7 @@ function getHoveredPlanetForTooltip() {
 }
 
 function getHoveredAsteroidForTooltip() {
-  if (getComputerLevel() < 2 || buildMode || uiDialog || tutorialOverlay || mapVisible) return null;
+  if (!canShowResourceSurveyTooltip() || mapVisible) return null;
 
   let best = null;
   let bestDist = Infinity;
@@ -1843,6 +1889,37 @@ function getHoveredAsteroidForTooltip() {
   }
 
   return best;
+}
+
+function getHoveredStarForTooltip() {
+  if (!canShowResourceSurveyTooltip()) return null;
+
+  if (mapVisible) {
+    const hit = getMapBodyAt(mouse.x, mouse.y);
+    return hit?.star || null;
+  }
+
+  let best = null;
+  let bestDist = Infinity;
+  for (const star of worldStars) {
+    const p = worldToScreen(star.x, star.y);
+    const r = Math.max(28, star.radius * camera.scale);
+    const d = Math.hypot(mouse.x - p.x, mouse.y - p.y);
+    if (d <= r + 18 && d < bestDist) {
+      best = star;
+      bestDist = d;
+    }
+  }
+
+  return best;
+}
+
+function canShowResourceSurveyTooltip() {
+  return getComputerLevel() >= 2 && !buildMode && !uiDialog && !tutorialOverlay;
+}
+
+function getAsteroidSurveyEntries(asteroid) {
+  return Object.entries(asteroid.contents || {}).filter(([, amount]) => amount > 0);
 }
 
 function drawResourceSurveyTooltip(title, entries) {
@@ -1885,23 +1962,45 @@ function drawResourceSurveyTooltip(title, entries) {
 }
 
 function drawPlanetResourceTooltip() {
-  const planet = getHoveredPlanetForTooltip();
-  if (planet) {
-    const rates = getPlanetMiningRates(planet);
-    drawResourceSurveyTooltip(
-      planet.def?.name || planet.typeKey || "Planet",
-      Object.entries(rates).filter(([, amount]) => amount > 0)
-    );
-    return;
+  uiFrameCounter++;
+  const tooltipKey = `${Math.round(mouse.x)}:${Math.round(mouse.y)}:${mapVisible ? 1 : 0}:${buildMode ? 1 : 0}:${getComputerLevel()}:${Math.floor(worldPlayTime)}`;
+  let cached = resourceTooltipCache.key === tooltipKey ? resourceTooltipCache.value : null;
+
+  if (!cached) {
+    const planet = getHoveredPlanetForTooltip();
+    if (planet) {
+      const rates = getPlanetMiningRates(planet);
+      cached = {
+        title: planet.def?.name || planet.typeKey || "Planet",
+        entries: Object.entries(rates).filter(([, amount]) => amount > 0)
+      };
+    }
+
+    if (!cached) {
+      const star = getHoveredStarForTooltip();
+      if (star) {
+        cached = {
+          title: star.starType?.name || "Star",
+          entries: [["helium3", 1]]
+        };
+      }
+    }
+
+    if (!cached) {
+      const asteroid = getHoveredAsteroidForTooltip();
+      if (asteroid) {
+        cached = {
+          title: "Asteroid",
+          entries: getAsteroidSurveyEntries(asteroid)
+        };
+      }
+    }
+
+    resourceTooltipCache = { key: tooltipKey, frame: uiFrameCounter, value: cached || false };
   }
 
-  const asteroid = getHoveredAsteroidForTooltip();
-  if (asteroid) {
-    drawResourceSurveyTooltip(
-      "Asteroid",
-      Object.entries(asteroid.contents || {}).filter(([, amount]) => amount > 0)
-    );
-  }
+  if (!cached || cached === false) return;
+  drawResourceSurveyTooltip(cached.title, cached.entries);
 }
 
 function roundRect(x, y, w, h, r) {

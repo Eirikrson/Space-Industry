@@ -304,7 +304,6 @@ let recallSmallShips = false;
 let shieldsActive = true;
 let mapVisible = false;
 let mapFocusSystem = null;
-let trajectoryVisible = false;
 let autoBlueprintRepair = true;
 let repairMode = true;
 let landingModeActive = false;

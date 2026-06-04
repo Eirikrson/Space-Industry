@@ -20,7 +20,7 @@ function send(res, status, body, type = "text/plain; charset=utf-8") {
 
 const server = http.createServer((req, res) => {
   const urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
-  const relPath = urlPath === "/" ? "Index.html" : urlPath.split("/").filter(Boolean).join(path.sep);
+  const relPath = urlPath === "/" ? "index.html" : urlPath.split("/").filter(Boolean).join(path.sep);
   const filePath = path.resolve(root, relPath);
 
   if (!filePath.startsWith(root) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
@@ -33,13 +33,13 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`Space Industry läuft auf http://127.0.0.1:${port}/Index.html`);
-  console.log("Dieses Fenster offen lassen, solange du spielst.");
+  console.log(`Space Industry is running at http://127.0.0.1:${port}/index.html`);
+  console.log("Keep this window open while you play.");
 });
 
 server.on("error", error => {
   if (error.code === "EADDRINUSE") {
-    console.log(`Port ${port} ist schon belegt. Öffne http://127.0.0.1:${port}/Index.html`);
+    console.log(`Port ${port} is already in use. Open http://127.0.0.1:${port}/index.html`);
     return;
   }
   console.error(error);

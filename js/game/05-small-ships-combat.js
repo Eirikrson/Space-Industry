@@ -913,12 +913,16 @@ function updateSmallShips(dt) {
         smallShip.status = "orphaned";
       }
 
-      if (!recallSmallShips && smallShip.modeMining && hangar && smallShip.status === "hangar" && hasSmallShipTripSupplies(smallShip) && hasMiningTargetNearMother(40)) {
-        launchSmallShip(smallShip, hangar);
-      } else if (!recallSmallShips && smallShip.modeGas && hangar && smallShip.status === "hangar" && hasSmallShipTripSupplies(smallShip) && smallShipHasModule(smallShip, "Scooper") && hasGasPlanetNearMother(50)) {
-        launchSmallShip(smallShip, hangar);
-      } else if (!recallSmallShips && smallShip.modeSolarWind && hangar && smallShip.status === "hangar" && hasSmallShipTripSupplies(smallShip) && smallShipHasModule(smallShip, "Solar Wind Collector") && hasStarNearMother(50)) {
-        launchSmallShip(smallShip, hangar);
+      smallShip._hangarThinkTimer = Math.max(0, (smallShip._hangarThinkTimer || 0) - dt);
+      if (smallShip._hangarThinkTimer <= 0) {
+        smallShip._hangarThinkTimer = 0.5;
+        if (!recallSmallShips && smallShip.modeMining && hangar && smallShip.status === "hangar" && hasSmallShipTripSupplies(smallShip) && hasMiningTargetNearMother(40)) {
+          launchSmallShip(smallShip, hangar);
+        } else if (!recallSmallShips && smallShip.modeGas && hangar && smallShip.status === "hangar" && hasSmallShipTripSupplies(smallShip) && smallShipHasModule(smallShip, "Scooper") && hasGasPlanetNearMother(50)) {
+          launchSmallShip(smallShip, hangar);
+        } else if (!recallSmallShips && smallShip.modeSolarWind && hangar && smallShip.status === "hangar" && hasSmallShipTripSupplies(smallShip) && smallShipHasModule(smallShip, "Solar Wind Collector") && hasStarNearMother(50)) {
+          launchSmallShip(smallShip, hangar);
+        }
       }
     } else if (smallShip.status === "docking") {
       if (!hangar) {
@@ -1282,18 +1286,24 @@ function getNearestEnemyTargetForTurret(turretModule, rangeTiles = 12) {
   let best = null;
   let bestDist = Infinity;
   const range = CONFIG.GRID_SIZE * rangeTiles;
+  const rangeSq = range * range;
   const config = getTurretConfig(turretModule.type);
 
   for (const enemy of enemyShips) {
     if (enemy._dead) continue;
+    const enemyDx = enemy.x - world.x;
+    const enemyDy = enemy.y - world.y;
+    if (enemyDx * enemyDx + enemyDy * enemyDy > rangeSq * 1.8) continue;
     const targetModule = config.computerOnly
       ? enemy.modules.find(module => module.type === "Computer" && getModuleHealth(module) > 0)
       : getClosestEnemyModuleTo(enemy, world.x, world.y);
     if (!targetModule) continue;
     const targetWorld = getEnemyModuleWorldCenter(enemy, targetModule);
     if (config.kind === "laser" && !canLaserFireAt(ship, turretModule, world, targetWorld)) continue;
-    const dist = Math.hypot(targetWorld.x - world.x, targetWorld.y - world.y);
-    if (dist < range && dist < bestDist) {
+    const dx = targetWorld.x - world.x;
+    const dy = targetWorld.y - world.y;
+    const dist = dx * dx + dy * dy;
+    if (dist < rangeSq && dist < bestDist) {
       best = { x: targetWorld.x, y: targetWorld.y, enemy, module: targetModule };
       bestDist = dist;
     }
@@ -1482,11 +1492,17 @@ function updatePlayerTurrets(dt) {
     const config = getTurretConfig(turret.type);
     turret._fireCooldown = Math.max(0, (turret._fireCooldown || 0) - dt);
     if (turret._fireCooldown > 0) continue;
+    turret._targetScanTimer = Math.max(0, (turret._targetScanTimer || 0) - dt);
 
     if (config.energyUse && (res.energy || 0) < config.energyUse) continue;
     if (config.ammo && (res[config.ammo] || 0) < (config.ammoPerShot || 1)) continue;
 
-    const target = getNearestEnemyTargetForTurret(turret, config.rangeTiles);
+    let target = turret._cachedTarget || null;
+    if (turret._targetScanTimer <= 0 || !getEnemyById(target?.enemy?.id)) {
+      target = getNearestEnemyTargetForTurret(turret, config.rangeTiles);
+      turret._cachedTarget = target;
+      turret._targetScanTimer = 0.5;
+    }
     if (!target) continue;
 
     const turretWorld = moduleWorldCenter(turret);
@@ -1641,7 +1657,11 @@ function updateEnemyShips(dt) {
       moveEnemyToward(enemy, enemy.x + Math.cos(enemy.patrolAngle) * CONFIG.GRID_SIZE * 8, enemy.y + Math.sin(enemy.patrolAngle) * CONFIG.GRID_SIZE * 8, dt, CONFIG.GRID_SIZE * 2);
     }
 
-    updateEnemyTurrets(enemy, dt);
+    enemy._turretThinkTimer = Math.max(0, (enemy._turretThinkTimer || 0) - dt);
+    if (enemy._turretThinkTimer <= 0) {
+      enemy._turretThinkTimer = 0.5;
+      updateEnemyTurrets(enemy, 0.5);
+    }
 
     if (!enemy.modules.some(module => module.type === "Computer" && getModuleHealth(module) > 0)) {
       enemy._dead = true;

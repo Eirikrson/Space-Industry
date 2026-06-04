@@ -914,11 +914,6 @@ window.addEventListener("keydown", e => {
     e.preventDefault();
   }
 
-  if (key === "h" && !buildMode) {
-    toggleStatusBadgeAction("trajectory");
-    e.preventDefault();
-  }
-
   if (key === "n" && !buildMode) {
     toggleStatusBadgeAction("autoBlueprint");
     e.preventDefault();

@@ -352,6 +352,7 @@ function updateResources(dt) {
   res.itemUsed = 0;
   res.foodCap = 0;
   res.steamCap = 0;
+  let solarEnergyProdBase = 0;
 
   for (const m of placedModules) {
     if (m.tankContent && m.tankCap) {
@@ -365,15 +366,13 @@ function updateResources(dt) {
     if (stats.energyCap) res.energyCap += stats.energyCap;
     if (stats.crewCap) res.crewCap += stats.crewCap;
     if (stats.itemCap) res.itemCap += stats.itemCap;
+    if (stats.energyProdBase) solarEnergyProdBase += stats.energyProdBase;
   }
 
   const solarFactor = getSolarEfficiency();
   res.itemUsed = getSolidStorageUsed();
 
-  let eProd = placedModules.reduce((sum, module) => {
-    const stats = BUILDING_STATS[module.type];
-    return sum + (stats?.energyProdBase || 0) * solarFactor;
-  }, 0);
+  let eProd = solarEnergyProdBase * solarFactor;
   let eUse = 0;
   const wasPowered = res.energy > 0;
   const hasPower = () => res.energy > 0 || eProd > eUse;
@@ -619,7 +618,7 @@ function updateResources(dt) {
     resourceRateTimer = 0;
   }
 
-  updatePlanetMining(dt); // Passiver Ressourcenabbau wenn gelandet
+  updatePlanetMining(dt); // Passive resource mining while landed.
   removeEmptyAsteroids();
 }
 
@@ -816,6 +815,7 @@ function updateStarHeat(dt) {
   const heatRange = CONFIG.GRID_SIZE * 10;
   let maxIntensity = 0;
   const moduleHeat = [];
+  const activeWorldChunks = getActiveWorldChunks();
 
   for (const module of placedModules) {
     const center = moduleWorldCenter(module);
@@ -823,6 +823,7 @@ function updateStarHeat(dt) {
     let intensity = 0;
 
     for (const star of worldStars) {
+      if (!isPointInActiveChunks(star.x, star.y, activeWorldChunks)) continue;
       const dist = Math.hypot(center.x - star.x, center.y - star.y);
       const gap = dist - star.radius - moduleRadius;
       intensity = Math.max(intensity, Math.max(0, Math.min(1, 1 - gap / heatRange)));
@@ -841,25 +842,67 @@ function updateStarHeat(dt) {
     damageModule(hit.module, hit.intensity * 0.036 * dt);
   }
 }
+// ── Landing & post-launch invulnerability ─────────────────────────────────
+let _postLaunchImmunePlanet = null;
+let _postLaunchImmuneActive = false;
+let _wasLandingModeActive   = false; // tracks previous frame's landingModeActive
+
+function updateLandingInvulnerability() {
+  // While actively landed: remember which planet for post-launch immunity
+  if (shipLanded && landedPlanet) {
+    _postLaunchImmunePlanet = landedPlanet;
+  }
+
+  // Detect landing mode being turned OFF after a landed session
+  if (_wasLandingModeActive && !landingModeActive && _postLaunchImmunePlanet) {
+    _postLaunchImmuneActive = true;
+  }
+  _wasLandingModeActive = landingModeActive;
+
+  // Check if ship has left the planet's orbit radius → end immunity
+  if (_postLaunchImmuneActive && _postLaunchImmunePlanet) {
+    const dist = Math.hypot(ship.x - _postLaunchImmunePlanet.x, ship.y - _postLaunchImmunePlanet.y);
+    const orbitR = typeof getDesiredOrbitRadius === "function"
+      ? getDesiredOrbitRadius(_postLaunchImmunePlanet)
+      : _postLaunchImmunePlanet.radius * 4;
+    if (dist > orbitR) {
+      _postLaunchImmuneActive = false;
+      _postLaunchImmunePlanet = null;
+    }
+  }
+}
+
+function isShipInvulnerableToPlanet(planet) {
+  if (landingModeActive) return true;            // approach / landed / leaving
+  if (_postLaunchImmuneActive && _postLaunchImmunePlanet === planet) return true;
+  return false;
+}
+
 function updateSpaceHazards(dt) {
   if (buildMode) return;
 
+  updateLandingInvulnerability();
+
   const shipRadius = getShipCollisionRadius();
   const bodies = [];
+  const activeWorldChunks = getActiveWorldChunks();
 
   for (const star of worldStars) {
+    if (!isPointInActiveChunks(star.x, star.y, activeWorldChunks)) continue;
     bodies.push({ x: star.x, y: star.y, radius: star.radius, mass: star.radius * 2300, type: "star", star });
   }
 
-  if (blackHole) {
+  if (blackHole && isPointInActiveChunks(blackHole.x, blackHole.y, activeWorldChunks)) {
     bodies.push({ x: blackHole.x, y: blackHole.y, radius: blackHole.radius, mass: blackHole.radius * 8000, type: "blackhole", blackHole });
   }
 
   for (const asteroid of asteroids) {
+    if (!isPointInActiveChunks(asteroid.x, asteroid.y, activeWorldChunks)) continue;
     bodies.push({ x: asteroid.x, y: asteroid.y, radius: asteroid.size, mass: asteroid.size * 1400, type: "asteroid", asteroid });
   }
 
   for (const planet of planets) {
+    if (!isPointInActiveChunks(planet.x, planet.y, activeWorldChunks)) continue;
     bodies.push({ x: planet.x, y: planet.y, radius: planet.radius, mass: planet.radius * 2500, type: "planet", planet });
   }
 
@@ -872,12 +915,12 @@ function updateSpaceHazards(dt) {
     const dx = body.x - ship.x;
     const dy = body.y - ship.y;
     const distSq = dx * dx + dy * dy;
-    const dist = Math.sqrt(distSq);
 
     const asteroidHits = body.type === "asteroid" ? collidesAsteroidWithShip(body.asteroid) : [];
+    const collisionRadius = body.radius + shipRadius * 0.6;
     const collided = body.type === "asteroid"
       ? asteroidHits.length > 0
-      : dist < body.radius + shipRadius * 0.6;
+      : distSq < collisionRadius * collisionRadius;
 
     if (collided && adminInstantBuild) {
       if (body.type === "asteroid") body.asteroid.totalItems = 0;
@@ -893,11 +936,18 @@ function updateSpaceHazards(dt) {
     }
 
     if (collided) {
+      // Planet collision: skip if invulnerable (landed / landing / post-launch)
+      if (body.type === "planet" && isShipInvulnerableToPlanet(body.planet)) {
+        continue;
+      }
+      // Orbit mode protects from planet collisions too (autopilot approach)
+      if (body.type === "planet" && orbitModeActive) {
+        continue;
+      }
+      // Stars and black hole always destroy (no protection)
       destroyShip("Ship destroyed", body);
       continue;
     }
-
-
   }
 
   updateStarHeat(dt);
@@ -931,7 +981,7 @@ function updateTurretGuns(dt) {
       }
     }
 
-    const turnSpeed = 2.8; // rad/s, höher = schneller
+    const turnSpeed = 2.8; // rad/s, higher means faster.
     const diff = normalizeAngle(m._gunTargetAngle - m._gunAngle);
     const maxStep = turnSpeed * dt;
 

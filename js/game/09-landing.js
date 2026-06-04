@@ -2,111 +2,111 @@
 // PLANET LANDING SYSTEM
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Ablauf:
-//   1. Spieler aktiviert Landing-Modus (landingModeActive = true)
-//   2. Schiff fliegt in Kurve (curved approach) vom Orbit an den Planeten
-//   3. Sobald nah genug → landed, Gravitation ausgeschaltet
-//   4. Passiver Ressourcenabbau läuft pro Sekunde (planet-spezifisch)
-//   5. Beim Verlassen → gravityOverride = false, normaler Betrieb
+// Flow:
+//   1. Player activates landing mode (landingModeActive = true)
+//   2. Ship flies in a curved approach from orbit to the planet
+//   3. Once close enough, it lands and gravity is disabled
+//   4. Passive resource mining runs once per second (planet-specific)
+//   5. On departure, gravityOverride = false and normal flight resumes
 //
 // Integration:
-//   • Ersetze die bestehende updateLandingMode()-Funktion in 01-world.js
-//     durch updateLandingMode() aus dieser Datei.
-//   • Füge updatePlanetMining(dt) am Ende von updateResources() in
-//     08-simulation.js ein (vor removeEmptyAsteroids()).
-//   • Ergänze die globalen Variablen (Abschnitt "State" unten) in deiner
-//     globalen Variablendatei (z.B. direkt nach den bestehenden Landing-Vars).
-//   • Rufe drawLandingOverlay() in deiner Haupt-Draw-Schleife auf (nach den
-//     Planeten, vor der HUD-Ebene).
+//   • Replace the existing updateLandingMode() function in 01-world.js
+//     with updateLandingMode() from this file.
+//   • Add updatePlanetMining(dt) at the end of updateResources() in
+//     08-simulation.js before removeEmptyAsteroids().
+//   • Add the global variables (the "State" section below) to your
+//     global state file, for example directly after the existing landing vars.
+//   • Call drawLandingOverlay() in the main draw loop, after planets and before
+//     the HUD layer.
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ── State ─────────────────────────────────────────────────────────────────
-// Diese Variablen ergänzen die bestehenden (landingModeActive, landingTarget).
+// These variables extend the existing landingModeActive and landingTarget state.
 
-let shipLanded         = false;   // true = Schiff ist auf Planeten gelandet
-let landedPlanet       = null;    // Referenz auf den aktuell belegten Planeten
-let gravityOverride    = false;   // true = applyGravity() wird überbrückt
+let shipLanded         = false;   // true = ship is landed on a planet
+let landedPlanet       = null;    // reference to the currently occupied planet
+let gravityOverride    = false;   // true = applyGravity() is bypassed
 let landingPhase       = "none";  // "none" | "approach" | "circling" | "descend" | "landed"
-let landingApproachAngle = 0;     // Winkel am dem das Schiff den Planeten umkreist
-let landingCircleTimer = 0;       // Zeit während des Einkreisens
-let planetMiningTimer  = 0;       // Akkumulator für Ressourcen-Ticks
+let landingApproachAngle = 0;     // angle used while the ship circles the planet
+let landingCircleTimer = 0;       // time spent circling
+let planetMiningTimer  = 0;       // resource tick accumulator
 
-// ── Passiver Abbau pro Planetentyp ────────────────────────────────────────
-// Grundwerte sind BEWUSST niedrig gehalten – Asteroiden-Flotten lohnen sich mehr.
-// Ausnahme: spezialisierte Ressourcen je Planetentyp sind deutlich effektiver.
+// ── Passive mining per planet type ────────────────────────────────────────
+// Base values are intentionally low; asteroid fleets are more profitable.
+// Exception: specialized resources per planet type are much more effective.
 //
-// Einheit: Ressource pro Sekunde (wird über storeResource() gespeist)
+// Unit: resource per second, fed through storeResource().
 
 const PLANET_MINING_RATES = {
   water: {
-    water:    0.8,   // Spezial – effizienter als Asteroiden für Wasser
+    water:    0.8,   // specialty - more efficient than asteroids for water
     hydrogen: 0.05,
   },
   lava: {
-    uranium:  0.35,  // moderat – radioaktiver Planet ist besser für Uran
+    uranium:  0.35,  // moderate - radioactive planets are better for uranium
     ironOre:  0.12,
   },
   ice: {
     water:    0.4,
-    deuterium: 0.18, // Spezial
-    tritium:  0.10,  // Spezial
+    deuterium: 0.18, // specialty
+    tritium:  0.10,  // specialty
   },
   desert: {
-    silicon:  0.20,  // Spezial
+    silicon:  0.20,  // specialty
     copperOre: 0.12,
   },
   gas: {
-    hydrogen: 0.55,  // Spezial – effizienter als Scooper für H2
+    hydrogen: 0.55,  // specialty - more efficient than scoopers for H2
     deuterium: 0.08,
   },
   metal: {
-    ironOre:  0.22,  // Spezial
-    nickel:   0.15,  // Spezial
+    ironOre:  0.22,  // specialty
+    nickel:   0.15,  // specialty
     copperOre: 0.08,
   },
   jungle: {
-    food:     0.60,  // Spezial – beste Nahrungsquelle
+    food:     0.60,  // specialty - best food source
     carbon:   0.10,
   },
   radioactive: {
-    uranium:  0.80,  // SPEZIAL – mit Abstand effizienteste Uranquelle
+    uranium:  0.80,  // specialty - by far the best uranium source
     silicon:  0.06,
   },
 };
 
-// Basisrate für alle nicht-spezialisierten Ressourcen (Asteroiden-Flotte lohnt
-// sich ab ca. 3 Drohnen mehr als diese Rate für die meisten Güter).
+// Base rate for non-specialized resources. Asteroid fleets outperform this
+// rate for most goods once roughly three drones are active.
 const PLANET_MINING_BASE_RATE = 0.04;
 
-// ── Hilfsfunktion: Ressourcensatz für aktuellen Planeten ──────────────────
+// ── Helper: resource set for the current planet ───────────────────────────
 function getPlanetMiningRates(planet) {
   if (!planet) return {};
   const typeKey = planet.typeKey || planet.type;
   return PLANET_MINING_RATES[typeKey] || {};
 }
 
-// ── Abstands-Geometrie ────────────────────────────────────────────────────
+// ── Distance geometry ─────────────────────────────────────────────────────
 function getLandingOrbitRadius(planet) {
-  // Orbit-Kreis, von dem die Kurve zum Landen beginnt
+  // Orbit circle where the landing curve begins.
   return planet.radius + CONFIG.GRID_SIZE * 18;
 }
 
 function getLandedRadius(planet) {
-  // Abstand wenn "gelandet" (knapp über Oberfläche)
-  return planet.radius + getShipCollisionRadius() * 0.9 + CONFIG.GRID_SIZE * 1.5;
+  // Negative offset so the ship appears to "sink into" the planet visually
+  return planet.radius - getShipCollisionRadius() * 0.3;
 }
 
-// ── Haupt-Update ──────────────────────────────────────────────────────────
+// ── Main update ───────────────────────────────────────────────────────────
 function updateLandingMode(dt) {
   if (!landingModeActive) {
-    // Wenn Modus deaktiviert wird → Landung abbrechen
+    // If the mode is disabled, cancel the landing.
     if (shipLanded || landingPhase !== "none") {
       _exitLanding();
     }
     return;
   }
 
-  // Ziel bestimmen (bevorzuge gewähltes Ziel, sonst nächster Planet)
+  // Pick a target: prefer the selected target, otherwise the nearest planet.
   if (!landingTarget || !planets.includes(landingTarget)) {
     landingTarget = getBestLandingTarget();
   }
@@ -134,12 +134,12 @@ function updateLandingMode(dt) {
   }
 }
 
-// Phase 1: Anflug – Schiff fliegt auf Orbit-Kreis zu
+// Phase 1: approach - ship flies toward the orbit circle.
 function _startLandingApproach(planet) {
   landingPhase = "approach";
   landingCircleTimer = 0;
 
-  // Startwinkel: Schiff → Planet, dann kurz im Uhrzeigersinn einkreisen
+  // Start angle: ship to planet, then circle clockwise briefly.
   const dx = ship.x - planet.x;
   const dy = ship.y - planet.y;
   landingApproachAngle = Math.atan2(dy, dx);
@@ -154,13 +154,13 @@ function _updateApproach(dt, planet, bodyVel) {
   const dy = targetY - ship.y;
   const dist = Math.hypot(dx, dy);
 
-  // Kreisbahngeschwindigkeit am Orbit
+  // Orbital speed at the orbit.
   const orbitSpeed = Math.sqrt(Math.max(0,
     (planet.gravity || 1) * GRAVITY_SCALE / Math.max(orbitR * 0.002, 1) * orbitR
   ));
   const clampedOrbitSpeed = Math.max(0.3, Math.min(MAX_SHIP_SPEED * 0.6, orbitSpeed));
 
-  // Tangentialvektor (im Uhrzeigersinn)
+  // Tangential vector, clockwise.
   const tangX = -Math.sin(landingApproachAngle) * clampedOrbitSpeed;
   const tangY =  Math.cos(landingApproachAngle) * clampedOrbitSpeed;
 
@@ -174,7 +174,7 @@ function _updateApproach(dt, planet, bodyVel) {
     ship.thrustToward(dt, Math.atan2(dvy, dvx));
   }
 
-  // Nase zum Planeten drehen
+  // Turn the nose toward the planet.
   ship.rotateToward(dt,
     Math.atan2(planet.y - ship.y, planet.x - ship.x) + Math.PI / 2 + SHIP_NOSE_OFFSET,
     0.5
@@ -186,12 +186,12 @@ function _updateApproach(dt, planet, bodyVel) {
   }
 }
 
-// Phase 2: Einkreisen – halbe Umrundung als Kurve, dann Abstieg
+// Phase 2: circling - half a curved orbit, then descent.
 function _updateCircling(dt, planet, bodyVel) {
   const orbitR = getLandingOrbitRadius(planet);
   landingCircleTimer += dt;
 
-  // Winkel kontinuierlich vorschieben → erzeugt die elegante Kurve
+  // Advance the angle continuously to create the curve.
   const angularSpeed = 0.55; // rad/s
   landingApproachAngle += angularSpeed * dt;
 
@@ -219,13 +219,13 @@ function _updateCircling(dt, planet, bodyVel) {
     0.55
   );
 
-  // Nach einer halben Runde → Abstieg beginnen
+  // After half an orbit, begin descent.
   if (landingCircleTimer > Math.PI / angularSpeed) {
     landingPhase = "descend";
   }
 }
 
-// Phase 3: Abstieg – radial auf Landeabstand zubewegen
+// Phase 3: descent - move radially toward landing distance.
 function _updateDescend(dt, planet, bodyVel) {
   const landR = getLandedRadius(planet);
   const dx = ship.x - planet.x;
@@ -237,7 +237,7 @@ function _updateDescend(dt, planet, bodyVel) {
   const radialError = dist - landR;
   const radialSpeed = (ship.vx - bodyVel.x) * nx + (ship.vy - bodyVel.y) * ny;
 
-  // Sanfte Annäherungsgeschwindigkeit
+  // Smooth approach speed.
   const descentSpeed = Math.max(-2.0, Math.min(1.0, -radialError * 0.004 - radialSpeed * 0.7));
   const targetVx = bodyVel.x + nx * descentSpeed;
   const targetVy = bodyVel.y + ny * descentSpeed;
@@ -253,8 +253,8 @@ function _updateDescend(dt, planet, bodyVel) {
     0.45
   );
 
-  // Gelandet?
-  if (Math.abs(radialError) < CONFIG.GRID_SIZE * 0.5 && Math.hypot(dvx, dvy) < 0.3) {
+  // Landed?
+  if (Math.abs(radialError) < CONFIG.GRID_SIZE * 1.5 && Math.hypot(dvx, dvy) < 0.5) {
     ship.vx = bodyVel.x;
     ship.vy = bodyVel.y;
     ship.angularVelocity = 0;
@@ -262,7 +262,7 @@ function _updateDescend(dt, planet, bodyVel) {
   }
 }
 
-// Phase 4: Gelandet – Schiff bleibt synchron mit Planet
+// Phase 4: landed - ship stays synchronized with the planet.
 function _updateLanded(dt, planet, bodyVel) {
   const landR = getLandedRadius(planet);
   const dx = ship.x - planet.x;
@@ -271,7 +271,7 @@ function _updateLanded(dt, planet, bodyVel) {
   const nx = dx / dist;
   const ny = dy / dist;
 
-  // Sanft an Landeposition heften
+  // Smoothly pin to the landing position.
   const radialError = dist - landR;
   ship.x += nx * radialError * 0.08;
   ship.y += ny * radialError * 0.08;
@@ -280,17 +280,17 @@ function _updateLanded(dt, planet, bodyVel) {
   ship.angularVelocity = 0;
 }
 
-// ── Landeereignisse ────────────────────────────────────────────────────────
+// ── Landing events ────────────────────────────────────────────────────────
 function _onLanded(planet) {
   landingPhase = "landed";
   shipLanded    = true;
   landedPlanet  = planet;
-  gravityOverride = true;  // Gravitation für Spieler deaktivieren
+  gravityOverride = true;  // Disable gravity for the player while landed.
   planetMiningTimer = 0;
 
   const typeKey = planet.typeKey || planet.type;
   const typeName = (planet.def && planet.def.name) || typeKey || "Planet";
-  flash(`Gelandet auf ${typeName} – passiver Abbau aktiv`);
+  flash(`Landed on ${typeName} - passive mining active`);
   playSound("toggle", 90);
 }
 
@@ -301,15 +301,15 @@ function _exitLanding() {
   landingPhase    = "none";
   landingCircleTimer = 0;
   planetMiningTimer  = 0;
-  // landingModeActive und landingTarget werden vom bestehenden Toggle-Code verwaltet
+  // landingModeActive and landingTarget are handled by the existing toggle code.
 }
 
-// ── Passiver Ressourcenabbau (in updateResources aufrufen) ────────────────
+// ── Passive resource mining (called from updateResources) ─────────────────
 function updatePlanetMining(dt) {
   if (!shipLanded || !landedPlanet) return;
 
   planetMiningTimer += dt;
-  if (planetMiningTimer < 1.0) return; // einmal pro Sekunde
+  if (planetMiningTimer < 1.0) return; // once per second
   const elapsed = planetMiningTimer;
   planetMiningTimer = 0;
 
@@ -321,7 +321,7 @@ function updatePlanetMining(dt) {
     storeResource(key, amount);
   }
 
-  // Akustisches Feedback (alle 5 s)
+  // Audio feedback every 5 seconds.
   landedPlanet._miningSound = (landedPlanet._miningSound || 0) + elapsed;
   if (landedPlanet._miningSound >= 5) {
     landedPlanet._miningSound = 0;
@@ -329,9 +329,9 @@ function updatePlanetMining(dt) {
   }
 }
 
-// ── Gravitations-Override (wird in applyGravity aufgerufen) ───────────────
-// Füge am Anfang von applyGravity() ein: if (gravityOverride) return;
-// Alternativ hier als Wrapper falls du applyGravity nicht ändern willst:
+// ── Gravity override (called by applyGravity) ─────────────────────────────
+// Add this at the start of applyGravity(): if (gravityOverride) return;
+// Alternatively, keep this wrapper if applyGravity should stay unchanged:
 function shouldSkipGravity() {
   return gravityOverride;
 }
@@ -342,11 +342,11 @@ function drawLandingOverlay() {
   if (!landingModeActive && !shipLanded) return;
 
   const phaseLabels = {
-    approach:  "⬇ Anflug …",
-    circling:  "↻ Einkreisen …",
-    descend:   "⬇ Abstieg …",
-    landed:    "⚓ Gelandet",
-    none:      "Landing-Modus aktiv",
+    approach:  "Approach...",
+    circling:  "Circling...",
+    descend:   "Descent...",
+    landed:    "Landed",
+    none:      "Landing mode active",
   };
 
   const label = phaseLabels[landingPhase] || "Landing";
@@ -374,7 +374,7 @@ function drawLandingOverlay() {
   ctx.restore();
 }
 
-// ── Tooltip für Planeten-Scan (optional, passt in drawFlightTargetInfo) ───
+// ── Planet scan tooltip (optional, fits into drawFlightTargetInfo) ────────
 function getPlanetMiningTooltip(planet) {
   if (!planet) return "";
   const rates = getPlanetMiningRates(planet);
@@ -382,5 +382,5 @@ function getPlanetMiningTooltip(planet) {
   const lines = Object.entries(rates)
     .map(([k, v]) => `  ${formatResourceName(k)}: +${v.toFixed(2)}/s`)
     .join("\n");
-  return `Passiver Abbau (gelandet):\n${lines}`;
+  return `Passive mining (landed):\n${lines}`;
 }

@@ -45,7 +45,7 @@ loadSpaceIndustryData()
     console.error(error);
     const message = document.createElement("div");
     message.className = "load-error";
-    message.textContent = "Space Industry konnte die JSON-Daten nicht laden. Bitte starte das Spiel mit Start-Game.bat.";
+    message.textContent = "Space Industry could not load the JSON data. Please start the game with Start-Game.bat.";
     document.body.appendChild(message);
   });
 

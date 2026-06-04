@@ -5,7 +5,7 @@
     "credits": "Game by Eirikrson"
   },
   "loader": {
-    "dataLoadError": "Space Industry konnte die JSON-Daten nicht laden. Bitte starte das Spiel mit Start-Game.bat."
+    "dataLoadError": "Space Industry could not load the JSON data. Please start the game with Start-Game.bat."
   },
   "menu": {
     "selectSaveSlot": "Select a save slot",
