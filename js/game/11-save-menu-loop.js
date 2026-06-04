@@ -115,6 +115,18 @@ function createSavePayload(name) {
   };
 }
 
+function saveInitialWorldToSlot(slot) {
+  if (slot === null || slot === undefined || slot === "auto") return false;
+  const payload = createSavePayload(currentSaveName || text("menu.unnamedSave"));
+  payload.savedAt = new Date().toISOString();
+  if (!writeSaveSlot(slot, payload)) {
+    flash("Start save could not be saved");
+    return false;
+  }
+  lastAutosaveAt = performance.now();
+  return true;
+}
+
 function normalizeWorldSeed(seed) {
   const numeric = Number(seed);
   if (Number.isFinite(numeric) && numeric >= 0) return Math.floor(numeric) >>> 0;
@@ -265,6 +277,7 @@ function openNewWorldDialog(slot) {
     ],
     onSubmit(values) {
       resetGameToNew((values.name || "").trim() || text("menu.newGameDefaultName", { slot }), values.seed === "" ? undefined : Number(values.seed));
+      saveInitialWorldToSlot(slot);
       resetTutorialForNewWorld();
     }
   };
@@ -504,9 +517,11 @@ function saveGameToSlot(slot, name) {
   saveSelectionMode = null;
   pendingOverwriteSlot = null;
   if (slot !== "auto") {
-    appState = "menu";
     selectedMenuSaveSlot = null;
-    stopAllLoopSounds();
+    if (appState !== "paused") {
+      appState = "menu";
+      stopAllLoopSounds();
+    }
   }
   flash(slot === "auto" ? text("save.autosavedFlash") : text("save.savedFlash", { name: payload.name }));
 }
@@ -1317,7 +1332,7 @@ function getMenuSaveActionButtonAt(mx, my) {
 
 function drawPauseMenu() {
   const layout = getSaveMenuLayout();
-  ctx.fillStyle = "rgba(0,0,0,0.42)";
+  ctx.fillStyle = uiDialog ? "rgba(0,0,0,0.18)" : "rgba(0,0,0,0.42)";
   ctx.fillRect(0, 0, VIEW.w, VIEW.h);
 
   ctx.fillStyle = "rgba(4, 10, 30, 0.94)";
@@ -1482,7 +1497,7 @@ function loop(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
 
-  if (!appWindowActive) {
+  if (!appWindowActive && appState === "playing" && !uiDialog) {
     stopAllLoopSounds();
     if (!inactiveOverlayDrawn) {
       drawInactiveWindowOverlay();
@@ -1624,11 +1639,12 @@ function loop(now) {
   drawTooltip();
   drawPlanetResourceTooltip();
   drawTutorialOverlay();
-  drawUiDialog();
 
   if (appState === "paused") {
     drawPauseMenu();
   }
+
+  drawUiDialog();
 
   requestAnimationFrame(loop);
 }

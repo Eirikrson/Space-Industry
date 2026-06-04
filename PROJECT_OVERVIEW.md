@@ -218,6 +218,10 @@
 - Aktualisiert und zeichnet im normalen Flug nur aktive Sonnensysteme und Asteroidenbereiche.
 - Synchronisiert alle Stern- und Planetenpositionen nur dann auf die aktuelle Spielzeit, wenn die Galaxy Map geoeffnet ist.
 - Pausiert die Gameplay-Simulation im Baumodus; Baukamera, Platzierung und Build-Commit bleiben aktiv.
+- Manuelles Speichern aus dem Pausenmenue bleibt nach dem Speichern im Pausenmenue, statt in das Hauptmenue zu springen.
+- Der Inactive-Overlay blockiert nur das laufende Spiel, nicht Menues oder offene Dialoge.
+- Save-Dialoge werden ueber dem Pausenmenue gezeichnet; die Pause-Verdunkelung wird bei offenem Dialog reduziert.
+- Neue Welten werden direkt beim Start in den ausgewaehlten Save-Slot geschrieben, inklusive Seed und Startzustand.
 - Nutzt `data/texts.json` fuer Menue-, Pause- und Savegame-Texte.
 
 ## Assetordner

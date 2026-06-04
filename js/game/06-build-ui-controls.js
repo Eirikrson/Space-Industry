@@ -814,11 +814,16 @@ window.addEventListener("keydown", e => {
       playSound("toggle", 120);
     }
     if (key === "escape" && appState === "paused") {
-      appState = "playing";
-      saveSelectionMode = null;
-      pendingSavePayload = null;
-      pendingOverwriteSlot = null;
-      playSound("toggle", 120);
+      if (saveSelectionMode !== null || pendingSavePayload !== null || pendingOverwriteSlot !== null) {
+        // Only cancel the save flow, stay in pause menu
+        saveSelectionMode = null;
+        pendingSavePayload = null;
+        pendingOverwriteSlot = null;
+        playSound("toggle", 120);
+      } else {
+        appState = "playing";
+        playSound("toggle", 120);
+      }
     }
     keys[key] = false;
     e.preventDefault();
