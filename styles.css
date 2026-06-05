@@ -14,7 +14,7 @@
   #dropdown-overlay div {
     padding: 6px 14px;
     color: white;
-    font: 13px Arial;
+    font: 13px Consolas, monospace;
     cursor: pointer;
   }
   #dropdown-overlay div:hover { background: #2a2a5e; }
@@ -29,7 +29,7 @@
   #dropdown-overlay .dd-title:hover { background: none; }
   .load-error {
     color: white;
-    font: 16px Arial, sans-serif;
+    font: 16px Consolas, monospace;
     padding: 24px;
   }
 

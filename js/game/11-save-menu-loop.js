@@ -2,7 +2,55 @@ function getSaveSlotKey(slot) {
   return slot === "auto" ? AUTOSAVE_KEY : SAVE_KEY_PREFIX + slot;
 }
 
+function getAutosaveSlotKey(index = 0) {
+  return index <= 0 ? AUTOSAVE_KEY : `${AUTOSAVE_KEY}.${index}`;
+}
+
+function readAutosaveIndex(index = 0) {
+  try {
+    const raw = localStorage.getItem(getAutosaveSlotKey(index));
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeAutosaveIndex(index, payload) {
+  try {
+    localStorage.setItem(getAutosaveSlotKey(index), JSON.stringify(payload));
+    return true;
+  } catch (error) {
+    console.warn("Could not write autosave", error);
+    return false;
+  }
+}
+
+function getAutosaveEntries() {
+  const entries = [];
+  for (let i = 0; i < 3; i++) {
+    const save = readAutosaveIndex(i);
+    if (save) entries.push({ index: i, save });
+  }
+  return entries;
+}
+
+function writeRotatingAutosave(payload) {
+  const previous0 = localStorage.getItem(getAutosaveSlotKey(0));
+  const previous1 = localStorage.getItem(getAutosaveSlotKey(1));
+  try {
+    if (previous1 !== null) localStorage.setItem(getAutosaveSlotKey(2), previous1);
+    else localStorage.removeItem(getAutosaveSlotKey(2));
+    if (previous0 !== null) localStorage.setItem(getAutosaveSlotKey(1), previous0);
+    else localStorage.removeItem(getAutosaveSlotKey(1));
+    return writeAutosaveIndex(0, payload);
+  } catch (error) {
+    console.warn("Could not rotate autosaves", error);
+    return false;
+  }
+}
+
 function readSaveSlot(slot) {
+  if (slot === "auto") return readAutosaveIndex(0);
   try {
     const raw = localStorage.getItem(getSaveSlotKey(slot));
     return raw ? JSON.parse(raw) : null;
@@ -12,6 +60,7 @@ function readSaveSlot(slot) {
 }
 
 function writeSaveSlot(slot, payload) {
+  if (slot === "auto") return writeRotatingAutosave(payload);
   const key = getSaveSlotKey(slot);
   const serialized = JSON.stringify(payload);
   const previous = localStorage.getItem(key);
@@ -111,7 +160,11 @@ function createSavePayload(name) {
       turretTypeEnabled: stripRuntimeState(turretTypeEnabled)
     },
     worldPlayTime,
-    nextEnemySpawnAt
+    nextEnemySpawnAt,
+    dysonSpheres: stripRuntimeState(dysonSpheres),
+    blackHoleCompleted,
+    enemyShipsDestroyed,
+    endRobotDiscoveryShown
   };
 }
 
@@ -177,6 +230,7 @@ function resetGameRuntime() {
   importedShipGhost = null;
   commitPending = false;
   commitSnapshot = null;
+  buildWorkSoundUntil = 0;
   researchWindowOpen = false;
   assemblerWindowModule = null;
   turretControlWindowOpen = false;
@@ -191,6 +245,15 @@ function resetGameRuntime() {
   pendingSeedInput = "";
   uiDialog = null;
   activeDialogField = 0;
+  dysonPanelOpen = false;
+  dysonPanelSystemIndex = -1;
+  dysonSpheres = {};
+  blackHoleEndingActive = false;
+  blackHoleEndingTimer = 0;
+  blackHoleEndingResult = null;
+  blackHoleResultPlayerName = "";
+  enemyShipsDestroyed = 0;
+  endRobotDiscoveryShown = false;
   blueprints.length = 0;
   demolishSet.clear();
   combatBullets.length = 0;
@@ -428,6 +491,483 @@ function startEndWorldFromBlackHole() {
   stopAllLoopSounds();
 }
 
+function getSystemIndexForStar(star) {
+  return solarSystems.findIndex(system => system.star === star);
+}
+
+function getDysonSphere(systemIndex) {
+  if (systemIndex < 0) return null;
+  if (!dysonSpheres[systemIndex]) {
+    dysonSpheres[systemIndex] = {
+      progress: 0,
+      resources: {}
+    };
+  }
+  return dysonSpheres[systemIndex];
+}
+
+function getDysonSphereCost() {
+  return {
+    ironPlate: 1800,
+    copperPlate: 1400,
+    circuits: 700,
+    cables: 900,
+    silicon: 500,
+    nickel: 350
+  };
+}
+
+function getDysonSphereProgress(systemIndex) {
+  const sphere = getDysonSphere(systemIndex);
+  const cost = getDysonSphereCost();
+  let supplied = 0;
+  let needed = 0;
+  for (const [key, amount] of Object.entries(cost)) {
+    supplied += Math.min(amount, sphere.resources[key] || 0);
+    needed += amount;
+  }
+  sphere.progress = needed > 0 ? Math.min(1, supplied / needed) : 0;
+  return sphere.progress;
+}
+
+function isDysonSphereComplete(systemIndex) {
+  return getDysonSphereProgress(systemIndex) >= 1;
+}
+
+function isStarCoveredByCompleteDysonSphere(star) {
+  const systemIndex = getSystemIndexForStar(star);
+  return systemIndex >= 0 && !!dysonSpheres[systemIndex] && isDysonSphereComplete(systemIndex);
+}
+
+function contributeToDysonSphere(systemIndex, key) {
+  const sphere = getDysonSphere(systemIndex);
+  const cost = getDysonSphereCost();
+  const needed = Math.max(0, (cost[key] || 0) - (sphere.resources[key] || 0));
+  const available = Math.max(0, res[key] || 0);
+  const amount = Math.min(needed, available);
+  if (amount <= 0) return false;
+  res[key] -= amount;
+  sphere.resources[key] = (sphere.resources[key] || 0) + amount;
+  getDysonSphereProgress(systemIndex);
+  playSound("items", 180);
+  flash(isDysonSphereComplete(systemIndex) ? "Dyson sphere complete" : "Dyson sphere construction");
+  return true;
+}
+
+function getOrbitStarForDysonBuild() {
+  if (!orbitModeActive || !orbitTarget || !(orbitTarget instanceof GalaxyStar)) return null;
+  if (Math.abs(Math.hypot(ship.x - orbitTarget.x, ship.y - orbitTarget.y) - getDesiredOrbitRadius(orbitTarget)) > CONFIG.GRID_SIZE * 18) return null;
+  return orbitTarget;
+}
+
+function updateDysonEnergy(dt) {
+  const star = getOrbitStarForDysonBuild();
+  if (!star) return 0;
+  const systemIndex = getSystemIndexForStar(star);
+  if (!isDysonSphereComplete(systemIndex)) return 0;
+  const before = res.energy || 0;
+  res.energy = Math.min(res.energyCap || 0, before + 1800 * dt);
+  return res.energy - before;
+}
+
+function getDysonChargeRate() {
+  const star = getOrbitStarForDysonBuild();
+  if (!star) return 0;
+  const systemIndex = getSystemIndexForStar(star);
+  return isDysonSphereComplete(systemIndex) ? 1800 : 0;
+}
+
+function getRequiredEventHorizonShieldCount() {
+  return Math.max(4, Math.ceil(getShipCollisionRadius() / (CONFIG.GRID_SIZE * 1.35)));
+}
+
+function getBlackHoleReadiness() {
+  const eventShields = placedModules.filter(module => module.type === "Event horizon Shield" && getModuleHealth(module) > 0).length;
+  const requiredShields = getRequiredEventHorizonShieldCount();
+  return {
+    energy: (res.energy || 0) >= 45000,
+    stabilizer: placedModules.some(module => module.type === "Gravitational pull stabilizer" && getModuleHealth(module) > 0),
+    quantum: placedModules.some(module => module.type === "Quantum computer" && getModuleHealth(module) > 0),
+    shields: eventShields >= requiredShields,
+    eventShields,
+    requiredShields
+  };
+}
+
+function canSurviveBlackHoleEntry() {
+  const ready = getBlackHoleReadiness();
+  return ready.energy && ready.stabilizer && ready.quantum && ready.shields;
+}
+
+function getBlackHoleRequirementStatusText() {
+  const ready = getBlackHoleReadiness();
+  return [
+    "Black-hole travel requirements:",
+    `Energy: ${Math.floor(res.energy || 0)}/45000`,
+    `Gravitational pull stabilizer: ${ready.stabilizer ? "1/1" : "0/1"}`,
+    `Quantum computer: ${ready.quantum ? "1/1" : "0/1"}`,
+    `Event horizon Shields: ${ready.eventShields}/${ready.requiredShields}`,
+    "",
+    "The required shield count depends on the ship size. A larger ship needs more Event horizon Shields so the whole hull is covered before entering the black hole."
+  ].join("\n");
+}
+
+function openQuantumComputerStatus() {
+  uiDialog = {
+    title: "Quantum computer",
+    body: getBlackHoleRequirementStatusText(),
+    width: Math.min(560, VIEW.w - 48),
+    height: Math.min(340, VIEW.h - 48),
+    buttons: [{ id: "ok", text: "Ok", primary: true }]
+  };
+}
+
+function startBlackHoleEnding(success, reason = "") {
+  blackHoleEndingActive = true;
+  blackHoleEndingTimer = 0;
+  blackHoleEndingResult = success ? "success" : "lost";
+  blackHoleEndingReason = reason || (success ? "" : "The ship is torn apart before it can stabilize the gravitational pull.");
+  ship.vx = 0;
+  ship.vy = 0;
+  ship.angularVelocity = 0;
+  appState = "blackHoleEnd";
+  buildMode = false;
+  stopAllLoopSounds();
+  flash(success ? "Event horizon breach" : "You lost");
+}
+
+function startGameOverEnding(reason = "Ship destroyed") {
+  blackHoleEndingActive = true;
+  blackHoleEndingTimer = 0;
+  blackHoleEndingResult = "lost";
+  blackHoleEndingReason = reason;
+  ship.vx = 0;
+  ship.vy = 0;
+  ship.angularVelocity = 0;
+  appState = "blackHoleEnd";
+  buildMode = false;
+  stopAllLoopSounds();
+  flash("You lost");
+}
+
+function continueAfterBlackHoleEnding() {
+  blackHoleCompleted = true;
+  localStorage.setItem("spaceIndustryBlackHoleCompleted", "1");
+  blackHoleEndingActive = false;
+  blackHoleEndingResult = null;
+  blackHoleEndingReason = "";
+  startEndWorldFromBlackHole();
+}
+
+function quitAfterBlackHoleEnding() {
+  if (blackHoleEndingResult === "success") {
+    blackHoleCompleted = true;
+    localStorage.setItem("spaceIndustryBlackHoleCompleted", "1");
+  }
+  blackHoleEndingActive = false;
+  blackHoleEndingResult = null;
+  blackHoleEndingReason = "";
+  appState = "start";
+  buildMode = false;
+  selectedMenuSaveSlot = null;
+  saveSelectionMode = null;
+  stopAllLoopSounds();
+}
+
+function getBlackHoleEndingLayout() {
+  const w = Math.min(620, VIEW.w - 64);
+  const h = 330;
+  const x = VIEW.w / 2 - w / 2;
+  const y = VIEW.h / 2 - h / 2;
+  return {
+    x, y, w, h,
+    downloadButton: { x: x + w - 184, y: y + 18, w: 148, h: 30 },
+    continueButton: { x: x + 36, y: y + h - 72, w: 180, h: 38 },
+    loadAutosaveButton: { x: x + 36, y: y + h - 72, w: 220, h: 38 },
+    quitButton: { x: x + w - 216, y: y + h - 72, w: 180, h: 38 }
+  };
+}
+
+function getAutosaveAgeSeconds(save = readSaveSlot("auto")) {
+  if (!save?.savedAt) return 0;
+  const savedAt = Date.parse(save.savedAt);
+  if (!Number.isFinite(savedAt)) return 0;
+  return Math.max(0, Math.floor((Date.now() - savedAt) / 1000));
+}
+
+function formatAutosaveAge(save) {
+  const seconds = getAutosaveAgeSeconds(save);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest > 0 ? `${minutes} min ${rest}s` : `${minutes} min`;
+}
+
+function hasAutosaveSlot() {
+  return getAutosaveEntries().length > 0;
+}
+
+function loadAutosaveIndex(index = 0) {
+  const payload = readAutosaveIndex(index);
+  if (!payload) {
+    openInfoDialog("Autosave empty", "There is no autosave yet.");
+    return false;
+  }
+  blackHoleEndingActive = false;
+  blackHoleEndingResult = null;
+  blackHoleEndingReason = "";
+  return loadSavePayload(payload);
+}
+
+function openAutosaveChoiceDialog() {
+  const entries = getAutosaveEntries();
+  if (entries.length === 0) {
+    openInfoDialog("Autosave empty", "There is no autosave yet.");
+    return false;
+  }
+
+  uiDialog = {
+    title: "Load Autosave",
+    body: "Choose which autosave you want to restore.",
+    width: Math.min(520, VIEW.w - 48),
+    buttons: entries.map(entry => ({
+      id: `auto${entry.index}`,
+      text: `vor ${formatAutosaveAge(entry.save)}`,
+      primary: entry.index === 0
+    })).concat([{ id: "cancel", text: "Cancel", primary: false }]),
+    onSubmit: values => {
+      const id = values.__buttonId || "";
+      const match = id.match(/^auto(\d)$/);
+      if (match) loadAutosaveIndex(Number(match[1]));
+    }
+  };
+  return true;
+}
+
+function drawBlackHoleEnding() {
+  const t = blackHoleEndingTimer;
+  const shake = blackHoleEndingResult === "success" ? Math.sin(t * 80) * Math.min(8, t * 8) : 0;
+  ctx.save();
+  ctx.translate(shake, -shake * 0.4);
+  ctx.fillStyle = "rgba(0,0,0,0.82)";
+  ctx.fillRect(-20, -20, VIEW.w + 40, VIEW.h + 40);
+
+  const cx = VIEW.w / 2;
+  const cy = VIEW.h / 2;
+  const rings = blackHoleEndingResult === "success" ? 11 : 6;
+  for (let i = rings; i >= 1; i--) {
+    const r = 42 + i * 34 + Math.sin(t * 5 + i) * 10;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r * (1 + i * 0.035), r * 0.28, t * 0.7 + i * 0.16, 0, Math.PI * 2);
+    ctx.strokeStyle = blackHoleEndingResult === "success"
+      ? `rgba(150,90,255,${0.05 + i * 0.018})`
+      : `rgba(255,70,70,${0.05 + i * 0.02})`;
+    ctx.lineWidth = 2 + i * 0.25;
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  const layout = getBlackHoleEndingLayout();
+  ctx.fillStyle = "rgba(4, 8, 22, 0.94)";
+  ctx.fillRect(layout.x, layout.y, layout.w, layout.h);
+  ctx.strokeStyle = blackHoleEndingResult === "success" ? "rgba(160,110,255,0.9)" : "rgba(80,160,255,0.95)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(layout.x, layout.y, layout.w, layout.h);
+
+  ctx.fillStyle = "white";
+  ctx.font = "bold 28px Consolas, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText(blackHoleEndingResult === "success" ? "Black hole explored" : "You lost", VIEW.w / 2, layout.y + 34);
+
+  ctx.font = "15px Consolas, monospace";
+  ctx.fillStyle = "rgba(230,235,255,0.82)";
+  const body = blackHoleEndingResult === "success"
+    ? "Humanity has developed a method for using black holes as a transportation system. This has opened up access to a new, unknown, and distant galaxy..."
+    : (blackHoleEndingReason || "Ship destroyed.");
+  const bodyBottom = wrapCanvasText(body, VIEW.w / 2, layout.y + 92, layout.w - 80, 20, "center");
+
+  if (blackHoleEndingResult !== "success") {
+    const ready = getBlackHoleReadiness();
+    ctx.fillStyle = "rgba(150,205,255,0.82)";
+    ctx.font = "12px Consolas, monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      `Needed: 45000 energy, ${ready.requiredShields} Event horizon Shields, 1 Stabilizer, 1 Quantum computer`,
+      VIEW.w / 2,
+      bodyBottom + 28
+    );
+    ctx.fillText(
+      `You had: ${Math.floor(res.energy || 0)} energy, ${ready.eventShields} shields, ${ready.stabilizer ? "Stabilizer OK" : "no Stabilizer"}, ${ready.quantum ? "Quantum OK" : "no Quantum"}`,
+      VIEW.w / 2,
+      bodyBottom + 46
+    );
+  }
+
+  if (blackHoleEndingResult === "success") {
+    drawBtn("Download result", layout.downloadButton.x, layout.downloadButton.y, layout.downloadButton.w, layout.downloadButton.h, false);
+    drawBtn("Continue", layout.continueButton.x, layout.continueButton.y, layout.continueButton.w, layout.continueButton.h, true);
+  } else {
+    const autosaveLabel = `Load Autosave [${formatAutosaveAge(readSaveSlot("auto"))}]`;
+    drawBtn(autosaveLabel, layout.loadAutosaveButton.x, layout.loadAutosaveButton.y, layout.loadAutosaveButton.w, layout.loadAutosaveButton.h, hasAutosaveSlot());
+  }
+  drawBtn("Quit game", layout.quitButton.x, layout.quitButton.y, layout.quitButton.w, layout.quitButton.h, false);
+}
+
+function handleBlackHoleEndingClick(mx, my) {
+  const layout = getBlackHoleEndingLayout();
+  if (blackHoleEndingResult === "success" &&
+      mx >= layout.downloadButton.x && mx <= layout.downloadButton.x + layout.downloadButton.w &&
+      my >= layout.downloadButton.y && my <= layout.downloadButton.y + layout.downloadButton.h) {
+    promptAndDownloadBlackHoleResult();
+    return true;
+  }
+  if (blackHoleEndingResult === "success" &&
+      mx >= layout.continueButton.x && mx <= layout.continueButton.x + layout.continueButton.w &&
+      my >= layout.continueButton.y && my <= layout.continueButton.y + layout.continueButton.h) {
+    continueAfterBlackHoleEnding();
+    return true;
+  }
+  if (blackHoleEndingResult !== "success" &&
+      mx >= layout.loadAutosaveButton.x && mx <= layout.loadAutosaveButton.x + layout.loadAutosaveButton.w &&
+      my >= layout.loadAutosaveButton.y && my <= layout.loadAutosaveButton.y + layout.loadAutosaveButton.h) {
+    openAutosaveChoiceDialog();
+    return true;
+  }
+  if (mx >= layout.quitButton.x && mx <= layout.quitButton.x + layout.quitButton.w &&
+      my >= layout.quitButton.y && my <= layout.quitButton.y + layout.quitButton.h) {
+    quitAfterBlackHoleEnding();
+    return true;
+  }
+  return true;
+}
+
+function wrapCanvasText(value, x, y, maxWidth, lineHeight, align = "left") {
+  const words = String(value || "").split(/\s+/);
+  let line = "";
+  ctx.textAlign = align;
+
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line, x, y);
+      y += lineHeight;
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+
+  if (line) ctx.fillText(line, x, y);
+  return y;
+}
+
+function promptAndDownloadBlackHoleResult() {
+  const entered = window.prompt("Name for the result image", blackHoleResultPlayerName || "Player");
+  if (entered === null) return;
+  blackHoleResultPlayerName = entered.trim() || "Player";
+  downloadBlackHoleResultImage(blackHoleResultPlayerName);
+}
+
+function drawResultShipModule(targetCtx, module, com, scale, centerX, centerY) {
+  const grid = CONFIG.GRID_SIZE * scale;
+  const center = getModuleCenter(module);
+  const rel = {
+    x: (center.x - com.x) * grid,
+    y: (center.y - com.y) * grid
+  };
+  const rot = module.rot || 0;
+  const drawSize = getDrawSize(module.w || 1, module.h || 1, rot);
+  const sw = drawSize.w * grid;
+  const sh = drawSize.h * grid;
+  const spriteName = module.type === "Main Thruster" || module.type === "RCS Thruster"
+    ? module.type + " Off"
+    : module.type;
+  const sprite = loadedImages[spriteName] || loadedImages[getBuildMenuIconName(spriteName)];
+
+  targetCtx.save();
+  targetCtx.translate(centerX + rel.x, centerY + rel.y);
+  targetCtx.rotate(rot * Math.PI / 2);
+  if (sprite?.image?.complete && sprite.image.naturalWidth > 0) {
+    const frameW = sprite.image.width / (sprite.frames || 1);
+    targetCtx.drawImage(sprite.image, 0, 0, frameW, sprite.image.height, -sw / 2, -sh / 2, sw, sh);
+  } else {
+    targetCtx.fillStyle = module.type === "Computer" ? "#66ffff" : "rgba(45,58,86,0.95)";
+    targetCtx.fillRect(-sw / 2, -sh / 2, sw, sh);
+    targetCtx.strokeStyle = "rgba(170,205,255,0.72)";
+    targetCtx.strokeRect(-sw / 2, -sh / 2, sw, sh);
+  }
+  targetCtx.restore();
+}
+
+function downloadBlackHoleResultImage(playerName) {
+  const out = document.createElement("canvas");
+  out.width = 1400;
+  out.height = 900;
+  const outCtx = out.getContext("2d");
+  outCtx.imageSmoothingEnabled = false;
+
+  const bg = outCtx.createLinearGradient(0, 0, out.width, out.height);
+  bg.addColorStop(0, "#060814");
+  bg.addColorStop(0.55, "#111735");
+  bg.addColorStop(1, "#210d38");
+  outCtx.fillStyle = bg;
+  outCtx.fillRect(0, 0, out.width, out.height);
+
+  for (let i = 0; i < 260; i++) {
+    const x = (Math.sin(i * 127.1) * 0.5 + 0.5) * out.width;
+    const y = (Math.cos(i * 91.7) * 0.5 + 0.5) * out.height;
+    outCtx.fillStyle = `rgba(255,255,255,${0.28 + (i % 5) * 0.12})`;
+    outCtx.fillRect(x, y, i % 7 === 0 ? 3 : 2, i % 7 === 0 ? 3 : 2);
+  }
+
+  outCtx.fillStyle = "white";
+  outCtx.font = "bold 34px Consolas, monospace";
+  outCtx.textAlign = "center";
+  outCtx.textBaseline = "top";
+  outCtx.fillText(`Congratulations! ${playerName} has finished the game.`, out.width / 2, 38);
+
+  const com = getCenterOfMass();
+  const shipW = Math.max(1, ...placedModules.map(module => module.x + (module.w || 1))) - Math.min(...placedModules.map(module => module.x));
+  const shipH = Math.max(1, ...placedModules.map(module => module.y + (module.h || 1))) - Math.min(...placedModules.map(module => module.y));
+  const scale = Math.min(4.4, 430 / Math.max(shipW, shipH, 1) / CONFIG.GRID_SIZE);
+  for (const module of placedModules) drawResultShipModule(outCtx, module, com, scale, out.width / 2, out.height / 2);
+
+  outCtx.fillStyle = "rgba(255,255,255,0.92)";
+  outCtx.font = "bold 25px Consolas, monospace";
+  outCtx.textAlign = "left";
+  outCtx.textBaseline = "bottom";
+  outCtx.fillText(`Time ${formatWorldPlayTime(worldPlayTime)}`, 42, out.height - 44);
+
+  outCtx.textAlign = "right";
+  outCtx.textBaseline = "top";
+  outCtx.fillText(`Enemy ships destroyed: ${enemyShipsDestroyed}`, out.width - 42, 92);
+
+  const logoW = 250;
+  const logoH = 82;
+  if (logoImage.complete && logoImage.naturalWidth > 0) {
+    const scaleLogo = Math.min(logoW / logoImage.naturalWidth, logoH / logoImage.naturalHeight);
+    const w = logoImage.naturalWidth * scaleLogo;
+    const h = logoImage.naturalHeight * scaleLogo;
+    outCtx.drawImage(logoImage, out.width - w - 42, out.height - 176, w, h);
+  } else {
+    outCtx.font = "bold 28px Consolas, monospace";
+    outCtx.fillText("Space Industry", out.width - 42, out.height - 170);
+  }
+
+  const date = new Date().toLocaleDateString();
+  outCtx.font = "18px Consolas, monospace";
+  outCtx.fillStyle = "rgba(255,255,255,0.78)";
+  outCtx.textAlign = "right";
+  outCtx.fillText(`${date} - ${text("game.version")}`, out.width - 42, out.height - 84);
+  outCtx.fillText("by Eirikrson", out.width - 42, out.height - 56);
+
+  const link = document.createElement("a");
+  link.download = `Space-Industry-result-${playerName.replace(/[^a-z0-9_-]+/gi, "_")}.png`;
+  link.href = out.toDataURL("image/png");
+  link.click();
+}
+
 function loadSavePayload(payload) {
   if (!payload) return false;
 
@@ -438,6 +978,21 @@ function loadSavePayload(payload) {
     setNormalWorldSeed(payload.seed ?? payload.seedLabel ?? 42);
   }
   resetGeneratedWorld();
+  dysonSpheres = stripRuntimeState(payload.dysonSpheres || {});
+  if (currentWorldIsEnd && Object.keys(dysonSpheres).length === 0) {
+    for (const systemIndex of [1, 2]) {
+      if (!solarSystems[systemIndex]) continue;
+      const cost = getDysonSphereCost();
+      dysonSpheres[systemIndex] = {
+        progress: 1,
+        resources: Object.fromEntries(Object.entries(cost).map(([key, amount]) => [key, amount]))
+      };
+    }
+  }
+  blackHoleCompleted = !!payload.blackHoleCompleted || blackHoleCompleted;
+  if (blackHoleCompleted) localStorage.setItem("spaceIndustryBlackHoleCompleted", "1");
+  enemyShipsDestroyed = payload.enemyShipsDestroyed || 0;
+  endRobotDiscoveryShown = !!payload.endRobotDiscoveryShown;
 
   Object.keys(res).forEach(key => delete res[key]);
   Object.assign(res, JSON.parse(JSON.stringify(INITIAL_RESOURCES)), payload.res || {});
@@ -559,7 +1114,7 @@ function formatSaveDate(iso) {
 function autosaveIfNeeded() {
   if (appState !== "playing") return;
   const now = performance.now();
-  if (now - lastAutosaveAt < 10000) return;
+  if (now - lastAutosaveAt < 60000) return;
   lastAutosaveAt = now;
   writeSaveSlot("auto", createSavePayload(currentSaveName || "Autosave"));
 }
@@ -788,7 +1343,7 @@ function drawLogoCentered(centerX, y, maxW, maxH) {
   }
 
   ctx.fillStyle = "white";
-  ctx.font = "bold 34px Arial";
+  ctx.font = "bold 34px Consolas, monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(text("game.title"), centerX, y + maxH / 2);
@@ -861,11 +1416,30 @@ function drawStartMenu() {
   drawBtn("Play", layout.play.x, layout.play.y, layout.play.w, layout.play.h, true);
 
   ctx.fillStyle = "rgba(255,255,255,0.72)";
-  ctx.font = "12px Arial";
+  ctx.font = "12px Consolas, monospace";
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
   ctx.fillText(text("game.version"), VIEW.w - 16, VIEW.h - 36);
   ctx.fillText(text("game.credits"), VIEW.w - 16, VIEW.h - 17);
+
+  if (blackHoleCompleted) {
+    const cx = VIEW.w - 58;
+    const cy = VIEW.h - 78;
+    const r = 28;
+    const g = ctx.createRadialGradient(cx, cy, 4, cx, cy, r);
+    g.addColorStop(0, "rgba(0,0,0,1)");
+    g.addColorStop(0.58, "rgba(0,0,0,0.98)");
+    g.addColorStop(0.72, "rgba(120,70,255,0.65)");
+    g.addColorStop(1, "rgba(255,190,90,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(160,110,255,0.75)";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r * 1.15, r * 0.32, -0.45, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 }
 
 function getStartButtonAt(mx, my) {
@@ -884,15 +1458,22 @@ function drawSaveSlot(rect, save, active = false) {
   ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
 
   ctx.fillStyle = "white";
-  ctx.font = "13px Arial";
+  ctx.font = "13px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  const title = save ? save.name || text("menu.unnamedSave") : rect.slot === "auto" ? text("menu.autosaveEmpty") : text("menu.emptySlot");
+  const autosaves = rect.slot === "auto" ? getAutosaveEntries() : [];
+  const title = save
+    ? save.name || text("menu.unnamedSave")
+    : rect.slot === "auto" && autosaves.length > 0 ? "Autosaves"
+    : rect.slot === "auto" ? text("menu.autosaveEmpty")
+    : text("menu.emptySlot");
   ctx.fillText(title, rect.x + 10, rect.y + 17);
 
   ctx.fillStyle = "rgba(255,255,255,0.58)";
-  ctx.font = "10px Arial";
-  const detail = save
+  ctx.font = "10px Consolas, monospace";
+  const detail = rect.slot === "auto" && autosaves.length > 0
+    ? autosaves.map(entry => `vor ${formatAutosaveAge(entry.save)}`).join("  |  ")
+    : save
     ? `${formatSaveDate(save.savedAt)}${adminSave ? "  ADMIN" : ""}`
     : rect.slot === "auto" ? text("menu.lastAutomaticSave") : text("menu.clickToStart");
   ctx.fillText(detail, rect.x + 10, rect.y + 35);
@@ -908,7 +1489,7 @@ function drawGameTitlePanel(subtitle) {
 
   const logoBottom = drawLogoCentered(VIEW.w / 2, layout.y + 24, 330, 78);
 
-  ctx.font = "13px Arial";
+  ctx.font = "13px Consolas, monospace";
   ctx.fillStyle = "rgba(255,255,255,0.72)";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -926,7 +1507,7 @@ function drawMainMenu() {
   }
 
   ctx.fillStyle = "rgba(255,255,255,0.72)";
-  ctx.font = "12px Arial";
+  ctx.font = "12px Consolas, monospace";
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
   ctx.fillText(text("game.version"), VIEW.w - 16, VIEW.h - 36);
@@ -963,7 +1544,7 @@ function drawSeedDialog() {
   ctx.strokeRect(layout.x, layout.y, layout.w, layout.h);
 
   ctx.fillStyle = "white";
-  ctx.font = "bold 15px Arial";
+  ctx.font = "bold 15px Consolas, monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("World seed", VIEW.w / 2, layout.y + 28);
@@ -973,7 +1554,7 @@ function drawSeedDialog() {
   ctx.strokeStyle = "#66aaff";
   ctx.strokeRect(layout.input.x, layout.input.y, layout.input.w, layout.input.h);
 
-  ctx.font = "13px Arial";
+  ctx.font = "13px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.fillStyle = pendingSeedInput ? "white" : "rgba(255,255,255,0.42)";
   ctx.fillText(pendingSeedInput || "Leer lassen fuer zufaelligen Seed", layout.input.x + 10, layout.input.y + layout.input.h / 2);
@@ -992,10 +1573,15 @@ function getSeedDialogButtonAt(mx, my) {
 }
 
 function getUiDialogLayout() {
-  const w = Math.min(420, VIEW.w - 48);
+  const w = Math.min(uiDialog?.width || 420, VIEW.w - 48);
   const fieldCount = uiDialog?.fields?.length || 0;
-  const bodyLines = uiDialog?.body ? Math.ceil(String(uiDialog.body).length / 48) : 0;
-  const h = Math.max(180, 120 + fieldCount * 58 + bodyLines * 22);
+  const bodyLines = uiDialog?.body
+    ? String(uiDialog.body).split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 48)), 0)
+    : 0;
+  const h = Math.min(
+    VIEW.h - 48,
+    Math.max(uiDialog?.height || 180, 130 + fieldCount * 58 + bodyLines * 22)
+  );
   const x = VIEW.w / 2 - w / 2;
   const y = VIEW.h / 2 - h / 2;
   const buttons = uiDialog?.buttons || [];
@@ -1003,8 +1589,8 @@ function getUiDialogLayout() {
     x, y, w, h,
     fields: (uiDialog?.fields || []).map((field, index) => ({ x: x + 35, y: y + 66 + index * 58, w: w - 70, h: 34 })),
     buttons: buttons.map((button, index) => {
-      const bw = buttons.length === 1 ? 120 : 135;
-      const gap = 18;
+      const gap = buttons.length > 2 ? 10 : 18;
+      const bw = buttons.length === 1 ? 120 : Math.min(135, (w - 70 - (buttons.length - 1) * gap) / buttons.length);
       const total = buttons.length * bw + (buttons.length - 1) * gap;
       return { id: button.id, x: x + w / 2 - total / 2 + index * (bw + gap), y: y + h - 50, w: bw, h: 34 };
     })
@@ -1013,25 +1599,32 @@ function getUiDialogLayout() {
 
 function drawWrappedDialogText(body, x, y, maxWidth) {
   if (!body) return y;
-  ctx.font = "13px Arial";
+  ctx.font = "13px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.fillStyle = "rgba(255,255,255,0.78)";
-  const words = String(body).split(/\s+/);
-  let line = "";
-  for (const word of words) {
-    const next = line ? `${line} ${word}` : word;
-    if (ctx.measureText(next).width > maxWidth && line) {
+  const paragraphs = String(body).split(/\n/);
+  for (const paragraph of paragraphs) {
+    if (!paragraph.trim()) {
+      y += 20;
+      continue;
+    }
+    const words = paragraph.split(/\s+/);
+    let line = "";
+    for (const word of words) {
+      const next = line ? `${line} ${word}` : word;
+      if (ctx.measureText(next).width > maxWidth && line) {
+        ctx.fillText(line, x, y);
+        y += 20;
+        line = word;
+      } else {
+        line = next;
+      }
+    }
+    if (line) {
       ctx.fillText(line, x, y);
       y += 20;
-      line = word;
-    } else {
-      line = next;
     }
-  }
-  if (line) {
-    ctx.fillText(line, x, y);
-    y += 20;
   }
   return y;
 }
@@ -1115,7 +1708,7 @@ function deleteDialogFieldForward(field) {
 
 function getDialogCursorFromMouse(field, rect, mx) {
   ensureDialogFieldState(field);
-  ctx.font = "13px Arial";
+  ctx.font = "13px Consolas, monospace";
   const textX = rect.x + 10;
   const localX = Math.max(0, mx - textX);
   let best = 0;
@@ -1144,7 +1737,7 @@ function drawUiDialog() {
   ctx.strokeRect(layout.x, layout.y, layout.w, layout.h);
 
   ctx.fillStyle = "white";
-  ctx.font = "bold 15px Arial";
+  ctx.font = "bold 15px Consolas, monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(uiDialog.title || "", VIEW.w / 2, layout.y + 28);
@@ -1159,11 +1752,11 @@ function drawUiDialog() {
     ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
     ctx.strokeStyle = i === activeDialogField ? "#ccf6ff" : "#66aaff";
     ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-    ctx.font = "10px Arial";
+    ctx.font = "10px Consolas, monospace";
     ctx.textAlign = "left";
     ctx.fillStyle = "rgba(255,255,255,0.62)";
     ctx.fillText(field.label, rect.x, rect.y - 8);
-    ctx.font = "13px Arial";
+    ctx.font = "13px Consolas, monospace";
     const textX = rect.x + 10;
     const textY = rect.y + rect.h / 2;
     const displayText = field.value || field.placeholder || "";
@@ -1215,6 +1808,7 @@ function submitUiDialog(buttonId = "ok") {
     return;
   }
   const values = Object.fromEntries((dialog.fields || []).map(field => [field.id, field.value || ""]));
+  values.__buttonId = buttonId;
   uiDialog = null;
   if (typeof dialog.onSubmit === "function") dialog.onSubmit(values);
 }
@@ -1293,13 +1887,13 @@ function drawMenuSaveActionDialog() {
   ctx.strokeRect(layout.x, layout.y, layout.w, layout.h);
 
   ctx.fillStyle = "white";
-  ctx.font = "bold 14px Arial";
+  ctx.font = "bold 14px Consolas, monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(save ? save.name || text("menu.unnamedSave") : text("menu.emptySaveSlot"), layout.x + layout.w / 2, layout.y + 25);
 
   ctx.fillStyle = "rgba(255,255,255,0.58)";
-  ctx.font = "10px Arial";
+  ctx.font = "10px Consolas, monospace";
   ctx.fillText(save ? formatSaveDate(save.savedAt) : text("menu.importOrStart"), layout.x + layout.w / 2, layout.y + 43);
 
   drawBtn(text("buttons.play"), layout.play.x, layout.play.y, layout.play.w, layout.play.h, true);
@@ -1309,7 +1903,7 @@ function drawMenuSaveActionDialog() {
   ctx.fillStyle = "rgba(150, 24, 34, 0.9)";
   ctx.fillRect(layout.del.x, layout.del.y, layout.del.w, layout.del.h);
   ctx.fillStyle = "white";
-  ctx.font = "11px Arial";
+  ctx.font = "11px Consolas, monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(text("buttons.delete"), layout.del.x + layout.del.w / 2, layout.del.y + layout.del.h / 2);
@@ -1342,7 +1936,7 @@ function drawPauseMenu() {
   ctx.strokeRect(layout.x, layout.y, layout.panelW, layout.panelH);
 
   ctx.fillStyle = "white";
-  ctx.font = "bold 28px Arial";
+  ctx.font = "bold 28px Consolas, monospace";
   ctx.textAlign = "center";
   ctx.fillText(text("pause.title"), VIEW.w / 2, layout.y + 52);
 
@@ -1360,7 +1954,7 @@ function drawPauseMenu() {
     }
   } else {
     ctx.fillStyle = "rgba(255,255,255,0.68)";
-    ctx.font = "13px Arial";
+    ctx.font = "13px Consolas, monospace";
     ctx.textAlign = "center";
     ctx.fillText(text("pause.resumeHint"), VIEW.w / 2, layout.y + 150);
   }
@@ -1383,7 +1977,7 @@ function drawInactiveWindowOverlay() {
   ctx.fillStyle = "rgba(0,0,0,0.38)";
   ctx.fillRect(0, 0, VIEW.w, VIEW.h);
   ctx.fillStyle = "rgba(255,255,255,0.82)";
-  ctx.font = "bold 16px Arial";
+  ctx.font = "bold 16px Consolas, monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("PAUSED", VIEW.w / 2, VIEW.h / 2);
@@ -1391,6 +1985,10 @@ function drawInactiveWindowOverlay() {
 
 function handleGameInterfaceClick(mx, my) {
   if (handleUiDialogClick(mx, my)) return true;
+
+  if (appState === "blackHoleEnd") {
+    return handleBlackHoleEndingClick(mx, my);
+  }
 
   if (appState === "start") {
     if (getStartButtonAt(mx, my) === "play") {
@@ -1459,6 +2057,11 @@ function handleGameInterfaceClick(mx, my) {
 
     const rect = getSaveSlotAt(mx, my);
     if (!rect) return false;
+
+    if (rect.slot === "auto") {
+      openAutosaveChoiceDialog();
+      return true;
+    }
 
     selectedMenuSaveSlot = rect.slot;
     return true;
@@ -1534,6 +2137,14 @@ function loop(now) {
 
   updateMenuThrusterSound(false);
 
+  if (appState === "blackHoleEnd") {
+    blackHoleEndingTimer += dt;
+    drawBlackHoleEnding();
+    drawUiDialog();
+    requestAnimationFrame(loop);
+    return;
+  }
+
   ctx.fillStyle = buildMode ? "#0e2a5f" : "#14162a";
   ctx.fillRect(0, 0, VIEW.w, VIEW.h);
 
@@ -1564,12 +2175,14 @@ function loop(now) {
       drawStar(star);
     }
 
+    drawDysonSpheres(activeSystems);
+
     // Asteroid belts
     for (const sys of activeSystems) {
-      sys.innerBelt.update(stepDt);
-      sys.innerBelt.draw();
-      sys.outerBelt.update(stepDt);
-      sys.outerBelt.draw();
+      for (const belt of getSystemBelts(sys)) {
+        belt.update(stepDt);
+        belt.draw();
+      }
     }
 
     if (gameplayActive) updateDynamicBeltAsteroids();
@@ -1616,6 +2229,7 @@ function loop(now) {
     updatePlayerTurrets(dt);
     updateLaserTurretBeams(dt);
     updateEnemyShips(dt);
+    updateDysonSphereAttacks(dt);
     updateCombatBullets(dt);
     cleanupPlayerShipDamage();
     updateSmallShips(dt);
@@ -1633,6 +2247,8 @@ function loop(now) {
   drawCombatBullets();
   drawUI();
   drawResourceUI();
+  drawDysonBuildButton();
+  drawDysonPanel();
   drawOrbitIndicator();
   if (mapVisible) syncMapWorldPositionsIfNeeded(worldPlayTime);
   drawMapOverlay();

@@ -6,6 +6,30 @@ class Camera {
   }
 }
 
+function randomInt(min, max) {
+  return Math.floor(min + Math.random() * (max - min + 1));
+}
+
+function createAsteroidContents(kind = "rock") {
+  const contents = {};
+
+  if (kind === "ice") {
+    contents.water = randomInt(30, 45);
+    return contents;
+  }
+
+  for (const def of ASTEROID_RESOURCE_TABLE) {
+    const amount = randomInt(def.min, def.max);
+    if (amount > 0) contents[def.key] = amount;
+  }
+
+  return contents;
+}
+
+function getAsteroidTotal(contents) {
+  return Object.values(contents).reduce((sum, value) => sum + value, 0);
+}
+
 class Ship {
   constructor() {
     this.x = CONFIG.GALAXY_CENTER_X;
@@ -438,8 +462,7 @@ function createAmbientSystemAsteroid(star, maxRadius, kind = "rock") {
 function spawnAmbientSystemAsteroids(system, count) {
   if (!system || !system.star) return;
   const maxRadius = Math.max(
-    system.outerBelt?.outerR || 0,
-    system.innerBelt?.outerR || 0,
+    ...getSystemBelts(system).map(belt => belt.outerR || 0),
     ...system.planets.map(planet => planet.orbitRadius + planet.radius)
   ) * 1.04;
 
@@ -520,6 +543,7 @@ const PLANET_ORBIT_PERIOD_MIN = 60 * 60;
 const PLANET_ORBIT_PERIOD_MAX = 3 * 60 * 60;
 const SYSTEM_ORBIT_PERIOD_MIN = 3 * 60 * 60;
 const SYSTEM_ORBIT_PERIOD_MAX = 5 * 60 * 60;
+const NORMAL_SYSTEM_COUNT = 8;
 const WORLD_CHUNK_SIZE = CONFIG.GRID_SIZE * 1800;
 const ACTIVE_CHUNK_RADIUS = 1;
 
@@ -587,13 +611,33 @@ function isPointInActiveChunks(x, y, chunks) {
   return chunks.has(getWorldChunkKey(x, y));
 }
 
+function isCircleInActiveChunks(x, y, radius, chunks) {
+  const minX = getWorldChunkCoord(x - radius);
+  const maxX = getWorldChunkCoord(x + radius);
+  const minY = getWorldChunkCoord(y - radius);
+  const maxY = getWorldChunkCoord(y + radius);
+
+  for (let cx = minX; cx <= maxX; cx++) {
+    for (let cy = minY; cy <= maxY; cy++) {
+      if (chunks.has(`${cx},${cy}`)) return true;
+    }
+  }
+
+  return false;
+}
+
 function getSystemActivityRadius(system) {
   if (!system) return 0;
   return Math.max(
-    system.outerBelt?.outerR || 0,
-    system.innerBelt?.outerR || 0,
+    ...getSystemBelts(system).map(belt => belt.outerR || 0),
     ...((system.planets || []).map(planet => planet.orbitRadius + planet.radius))
   );
+}
+
+function getSystemBelts(system) {
+  if (!system) return [];
+  if (Array.isArray(system.belts)) return system.belts.filter(Boolean);
+  return [system.innerBelt, system.outerBelt].filter(Boolean);
 }
 
 function isSystemNearActiveFocus(system, focusPoints) {
@@ -632,9 +676,9 @@ function syncVisibleWorldPositions(timeSeconds = worldPlayTime) {
 
 let lastMapWorldSyncSecond = -1;
 function syncMapWorldPositionsIfNeeded(timeSeconds = worldPlayTime) {
-  const second = Math.floor(timeSeconds || 0);
-  if (lastMapWorldSyncSecond === second) return;
-  lastMapWorldSyncSecond = second;
+  const tick = Math.floor((timeSeconds || 0) * 20);
+  if (lastMapWorldSyncSecond === tick) return;
+  lastMapWorldSyncSecond = tick;
   syncVisibleWorldPositions(timeSeconds);
 }
 
@@ -765,7 +809,7 @@ class GalaxyPlanet {
     // Label when close enough
     if (r > 30) {
       ctx.fillStyle = "rgba(255,255,255,0.7)";
-      ctx.font = `${Math.min(14, Math.max(9, r * 0.07))}px Arial`;
+      ctx.font = `${Math.min(14, Math.max(9, r * 0.07))}px Consolas, monospace`;
       ctx.textAlign = "center"; ctx.textBaseline = "top";
       ctx.fillText(this.def.name, p.x, p.y + r + 4);
     }
@@ -843,7 +887,7 @@ class BlackHole {
 
     if (r > 20) {
       ctx.fillStyle = "rgba(200,100,255,0.8)";
-      ctx.font = "bold 13px Arial";
+      ctx.font = "bold 13px Consolas, monospace";
       ctx.textAlign = "center"; ctx.textBaseline = "top";
       ctx.fillText("BLACK HOLE", p.x, p.y + r * 1.1 + 5);
     }
@@ -1050,7 +1094,7 @@ class GalaxyStar {
 
     if (r > 15) {
       ctx.fillStyle = "rgba(255,240,180,0.75)";
-      ctx.font = `${Math.min(13, Math.max(8, r * 0.05))}px Arial`;
+      ctx.font = `${Math.min(13, Math.max(8, r * 0.05))}px Consolas, monospace`;
       ctx.textAlign = "center"; ctx.textBaseline = "top";
       ctx.fillText(st.name, p.x, p.y + r + 3);
     }
@@ -1072,9 +1116,8 @@ function generateGalaxy() {
   // Black hole at center
   blackHole = new BlackHole(CX, CY);
 
-  // 10 solar systems evenly spread + some randomness
-  for (let si = 0; si < CONFIG.SYSTEM_COUNT; si++) {
-    const angleBase = (si / CONFIG.SYSTEM_COUNT) * Math.PI * 2;
+  for (let si = 0; si < NORMAL_SYSTEM_COUNT; si++) {
+    const angleBase = (si / NORMAL_SYSTEM_COUNT) * Math.PI * 2;
     const angle = angleBase + (rng() - 0.5) * 0.22;
     const ring = si % 2;
     const dist = CONFIG.GALAXY_RADIUS * (ring === 0 ? 0.55 + rng() * 0.08 : 0.82 + rng() * 0.08);
@@ -1086,25 +1129,22 @@ function generateGalaxy() {
     const star = new GalaxyStar(sx, sy, starRadius, starTypeIdx);
     worldStars.push(star);
 
-    // 10 planets per system
     const systemPlanets = [];
     const usedTypes = [];
     let nextOrbit = starRadius + PLANET_ORBIT_GAP;
+    const planetCount = 3 + Math.floor(rng() * 7);
     const maxOrbitBeforeBlackHole = Math.max(
       starRadius + PLANET_ORBIT_GAP,
       dist - blackHole.radius - SYSTEM_EDGE_PADDING
     );
-    for (let pi = 0; pi < 10; pi++) {
-      // Pick planet type: gas giants tend to be outer
+    for (let pi = 0; pi < planetCount; pi++) {
       let typeKey;
-      if (pi < 3) {
-        // Inner: rocky types
+      const progress = planetCount <= 1 ? 0 : pi / (planetCount - 1);
+      if (progress < 0.34) {
         typeKey = ["lava","desert","metal","radioactive"][Math.floor(rng() * 4)];
-      } else if (pi < 7) {
-        // Mid: varied
+      } else if (progress < 0.75) {
         typeKey = PLANET_TYPE_KEYS[Math.floor(rng() * PLANET_TYPE_KEYS.length)];
       } else {
-        // Outer: gas/ice/water
         typeKey = ["gas","ice","water","jungle"][Math.floor(rng() * 4)];
       }
       usedTypes.push(typeKey);
@@ -1133,17 +1173,22 @@ function generateGalaxy() {
     }
 
     beltSlots.sort((a, b) => b.width - a.width);
+    const fallbackInnerPlanet = sortedPlanets[Math.max(0, Math.min(1, sortedPlanets.length - 1))];
     const firstSlot = beltSlots[0] || {
-      innerEdge: sortedPlanets[3].orbitRadius + sortedPlanets[3].radius + CONFIG.GRID_SIZE * 45,
-      outerEdge: sortedPlanets[4].orbitRadius - sortedPlanets[4].radius - CONFIG.GRID_SIZE * 45
+      innerEdge: fallbackInnerPlanet.orbitRadius + fallbackInnerPlanet.radius + CONFIG.GRID_SIZE * 65,
+      outerEdge: fallbackInnerPlanet.orbitRadius + fallbackInnerPlanet.radius + ASTEROID_BELT_WIDTH * 1.25
     };
-    const fallbackOuterPlanet = sortedPlanets[Math.min(7, sortedPlanets.length - 1)];
+    const fallbackOuterPlanet = sortedPlanets[Math.max(0, Math.min(sortedPlanets.length - 1, Math.floor(sortedPlanets.length * 0.72)))];
     const fallbackSecondSlot = {
       innerEdge: fallbackOuterPlanet.orbitRadius + fallbackOuterPlanet.radius + CONFIG.GRID_SIZE * 70,
       outerEdge: fallbackOuterPlanet.orbitRadius + fallbackOuterPlanet.radius + ASTEROID_BELT_WIDTH * 1.55
     };
-    const secondSlot = beltSlots.find(slot => Math.abs(slot.index - firstSlot.index) >= 2) || beltSlots[1] || fallbackSecondSlot;
-    const orderedSlots = [firstSlot, secondSlot].sort((a, b) => a.innerEdge - b.innerEdge);
+    const beltCount = rng() < 0.58 ? 1 : 2;
+    const selectedSlots = [firstSlot];
+    if (beltCount > 1) {
+      selectedSlots.push(beltSlots.find(slot => Math.abs((slot.index || 0) - (firstSlot.index || 0)) >= 2) || beltSlots[1] || fallbackSecondSlot);
+    }
+    const orderedSlots = selectedSlots.sort((a, b) => a.innerEdge - b.innerEdge);
 
     function makeBelt(slot, count, kind) {
       const center = (slot.innerEdge + slot.outerEdge) / 2;
@@ -1151,20 +1196,22 @@ function generateGalaxy() {
       return new AsteroidBelt(star, center - halfWidth, center + halfWidth, count, kind);
     }
 
-    const innerBelt = makeBelt(orderedSlots[0], 90, "inner");
-    const outerBelt = makeBelt(orderedSlots[1], 75, "outer");
+    const belts = orderedSlots.map((slot, index) => makeBelt(slot, index === 0 ? 90 : 75, index === 0 ? "inner" : "outer"));
+    const innerBelt = belts[0] || null;
+    const outerBelt = belts[1] || null;
 
-    solarSystems.push({ star, planets: systemPlanets, innerBelt, outerBelt });
+    solarSystems.push({ star, planets: systemPlanets, belts, innerBelt, outerBelt });
   }
 
   for (const system of solarSystems) {
-    const beltCount = (system.innerBelt?.rocks.length || 0) + (system.outerBelt?.rocks.length || 0);
+    const beltCount = getSystemBelts(system).reduce((sum, belt) => sum + (belt.rocks.length || 0), 0);
     spawnAmbientSystemAsteroids(system, Math.max(8, Math.floor(beltCount / 10)));
   }
-  spawnAmbientGalaxyAsteroids(Math.max(20, Math.floor(CONFIG.SYSTEM_COUNT * 8)));
+  spawnAmbientGalaxyAsteroids(Math.max(20, NORMAL_SYSTEM_COUNT * 8));
 
-  // Player starts near system 0
-  const startStar = solarSystems[0].star;
+  // Player spawn is seed-driven, so two seeds can begin in different systems.
+  const startSystemIndex = Math.min(solarSystems.length - 1, Math.floor(rng() * solarSystems.length));
+  const startStar = solarSystems[startSystemIndex].star;
   STAR = startStar; // set global STAR for solar panel calculations
   ship.x = startStar.x + startStar.radius * 4;
   ship.y = startStar.y;
@@ -1255,13 +1302,24 @@ function generateEndGalaxy(rng) {
       "outer"
     );
 
-    solarSystems.push({ star, planets: systemPlanets, innerBelt, outerBelt });
+    solarSystems.push({ star, planets: systemPlanets, belts: [innerBelt, outerBelt], innerBelt, outerBelt });
   }
 
   for (const system of solarSystems) {
-    const beltCount = (system.innerBelt?.rocks.length || 0) + (system.outerBelt?.rocks.length || 0);
+    const beltCount = getSystemBelts(system).reduce((sum, belt) => sum + (belt.rocks.length || 0), 0);
     spawnAmbientSystemAsteroids(system, Math.max(12, Math.floor(beltCount / 10)));
   }
+
+  dysonSpheres = {};
+  for (const systemIndex of [1, 2]) {
+    if (!solarSystems[systemIndex]) continue;
+    const cost = getDysonSphereCost();
+    dysonSpheres[systemIndex] = {
+      progress: 1,
+      resources: Object.fromEntries(Object.entries(cost).map(([key, amount]) => [key, amount]))
+    };
+  }
+
   spawnAmbientGalaxyAsteroids(36);
 
   const startStar = solarSystems[0].star;

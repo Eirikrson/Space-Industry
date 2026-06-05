@@ -22,8 +22,9 @@ function drawParallaxStarfield() {
 }
 
 function getCachedMapLayout() {
+  if (mapVisible) syncMapWorldPositionsIfNeeded(worldPlayTime);
   const focusKey = mapFocusSystem ? solarSystems.indexOf(mapFocusSystem) : -1;
-  const key = `${VIEW.w}:${VIEW.h}:${focusKey}:${Math.floor(worldPlayTime)}`;
+  const key = `${VIEW.w}:${VIEW.h}:${focusKey}:${worldPlayTime.toFixed(3)}`;
   if (!mapFrameCache || mapFrameCacheKey !== key) {
     mapFrameCache = getMapLayout();
     mapFrameCacheKey = key;
@@ -188,7 +189,7 @@ function drawModules() {
       ctx.strokeStyle = "rgba(150,180,255,0.4)";
       ctx.strokeRect(-sw / 2, -sh / 2, sw, sh);
       ctx.fillStyle = "rgba(200,220,255,0.8)";
-      ctx.font = `${Math.max(8, Math.min(12, sw / 6))}px Arial`;
+      ctx.font = `${Math.max(8, Math.min(12, sw / 6))}px Consolas, monospace`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(m.type, 0, 0);
@@ -215,7 +216,7 @@ function drawModules() {
 
     if (m.tankContent && buildMode) {
       ctx.fillStyle = "rgba(0,200,255,0.9)";
-      ctx.font = "10px Arial";
+      ctx.font = "10px Consolas, monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(m.tankContent, p.x, p.y);
@@ -282,7 +283,7 @@ function drawSmallShipNameBadge(smallShip, p) {
   const cargoCap = Math.max(1, getSmallShipCargoCap(smallShip));
   const label = `${smallShip.name}  ${cargoUsed}/${cargoCap}`;
 
-  ctx.font = "11px Arial";
+  ctx.font = "11px Consolas, monospace";
   ctx.textBaseline = "middle";
   const width = Math.max(86, ctx.measureText(label).width + 18);
   const height = 22;
@@ -513,7 +514,7 @@ function getMapLayout() {
   const centerX = focused ? mapFocusSystem.star.x : CONFIG.GALAXY_CENTER_X;
   const centerY = focused ? mapFocusSystem.star.y : CONFIG.GALAXY_CENTER_Y;
   const worldRadius = focused
-    ? Math.max(mapFocusSystem.outerBelt?.outerR || 1, ...mapFocusSystem.planets.map(planet => planet.orbitRadius + planet.radius)) * 1.18
+    ? Math.max(1, ...getSystemBelts(mapFocusSystem).map(belt => belt.outerR || 0), ...mapFocusSystem.planets.map(planet => planet.orbitRadius + planet.radius)) * 1.18
     : Math.max(CONFIG.WORLD_WIDTH, CONFIG.WORLD_HEIGHT) / 2;
   const scale = Math.min(w, h) / (worldRadius * 2);
 
@@ -527,14 +528,20 @@ function worldToMap(map, worldX, worldY) {
   };
 }
 
+function mapToWorld(map, screenX, screenY) {
+  return {
+    x: map.centerX + (screenX - map.cx) / map.scale,
+    y: map.centerY + (screenY - map.cy) / map.scale
+  };
+}
+
 function getMapSystemForPoint(worldX, worldY) {
   let best = null;
   let bestDist = Infinity;
 
   for (const system of solarSystems) {
     const radius = Math.max(
-      system.outerBelt?.outerR || 0,
-      system.innerBelt?.outerR || 0,
+      ...getSystemBelts(system).map(belt => belt.outerR || 0),
       ...system.planets.map(planet => planet.orbitRadius + planet.radius)
     );
     const dx = worldX - system.star.x;
@@ -595,7 +602,7 @@ function drawGalaxySystemOnMap(map, system) {
   const starP = worldToMap(map, star.x, star.y);
 
   const systemRadius = Math.max(
-    system.outerBelt?.outerR || 0,
+    ...getSystemBelts(system).map(belt => belt.outerR || 0),
     ...system.planets.map(planet => planet.orbitRadius + planet.radius)
   ) * map.scale;
 
@@ -605,8 +612,9 @@ function drawGalaxySystemOnMap(map, system) {
     drawMapCircle(map, star.x, star.y, planet.orbitRadius, "rgba(120,170,255,0.14)", 1, 1);
   }
 
-  drawMapBelt(system.innerBelt, map, "rgba(150,150,150,0.22)");
-  drawMapBelt(system.outerBelt, map, "rgba(120,200,255,0.18)");
+  for (const belt of getSystemBelts(system)) {
+    drawMapBelt(belt, map, belt.kind === "outer" ? "rgba(120,200,255,0.18)" : "rgba(150,150,150,0.22)");
+  }
 
   for (let i = 0; i < system.planets.length; i++) {
     const planet = system.planets[i];
@@ -623,7 +631,7 @@ function drawMapBodyLabel(map, body, label) {
   if (p.x < map.x || p.x > map.x + map.w || p.y < map.y || p.y > map.y + map.h) return;
 
   const radius = Math.max(3, body.radius * map.scale);
-  ctx.font = "10px Arial";
+  ctx.font = "10px Consolas, monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   ctx.fillStyle = "rgba(235,245,255,0.82)";
@@ -672,8 +680,7 @@ function getMapBodyAt(mx, my) {
     const system = getSystemForBody(star);
     const systemRadius = !map.focused && system
       ? Math.max(
-          system.outerBelt?.outerR || 0,
-          system.innerBelt?.outerR || 0,
+          ...getSystemBelts(system).map(belt => belt.outerR || 0),
           ...system.planets.map(planet => planet.orbitRadius + planet.radius)
         ) * map.scale
       : 0;
@@ -698,6 +705,17 @@ function getMapBodyAt(mx, my) {
     }
   }
 
+  if (!best && map.focused && mapFocusSystem) {
+    const world = mapToWorld(map, mx, my);
+    for (const belt of getSystemBelts(mapFocusSystem)) {
+      const d = Math.hypot(world.x - belt.star.x, world.y - belt.star.y);
+      if (d >= belt.innerR && d <= belt.outerR) {
+        best = { belt, system: mapFocusSystem };
+        break;
+      }
+    }
+  }
+
   mapHitCache = { key: cacheKey, value: best };
   return best;
 }
@@ -708,10 +726,13 @@ function handleMapClick(mx, my) {
 
   if (hit.system) {
     mapFocusSystem = hit.system;
-    selectedFlightTarget = hit.planet ? { planet: hit.planet } : { star: hit.star };
-    velocityMatchTarget = selectedFlightTarget;
-    flash("System map");
-    playSound("toggle", 120);
+    notifyTutorialMapSystemClicked();
+    if (hit.planet || hit.star) {
+      selectedFlightTarget = hit.planet ? { planet: hit.planet } : { star: hit.star };
+      velocityMatchTarget = selectedFlightTarget;
+      flash("System map");
+      playSound("toggle", 120);
+    }
     return true;
   }
 
@@ -754,8 +775,10 @@ function drawMapOverlay() {
         drawMapCircle(map, system.star.x, system.star.y, planet.orbitRadius, "rgba(120,170,255,0.18)", 1, 1);
       }
 
-      drawMapBelt(system.innerBelt, map, "rgba(150,150,150,0.32)");
-      drawMapBelt(system.outerBelt, map, "rgba(120,200,255,0.28)");
+      for (const belt of getSystemBelts(system)) {
+        const color = belt.kind === "outer" ? "rgba(120,200,255,0.28)" : "rgba(150,150,150,0.32)";
+        drawMapBelt(belt, map, color);
+      }
     }
   }
 
@@ -788,8 +811,162 @@ function drawMapOverlay() {
 
   ctx.restore();
 
-  ctx.font = "13px Arial"; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillStyle = "white";
+  ctx.font = "13px Consolas, monospace"; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillStyle = "white";
   ctx.fillText(map.focused ? "SYSTEM MAP  [ESC] galaxy" : "GALAXY MAP  [M]", x + 14, y + 18);
+}
+
+function drawDysonSpheres(activeSystems = solarSystems) {
+  if (buildMode) return;
+
+  for (const system of activeSystems) {
+    const systemIndex = solarSystems.indexOf(system);
+    if (systemIndex < 0) continue;
+    if (!dysonSpheres[systemIndex]) continue;
+    const progress = getDysonSphereProgress(systemIndex);
+    if (progress <= 0) continue;
+
+    const star = system.star;
+    const p = worldToScreen(star.x, star.y);
+    const radius = Math.max(star.radius * camera.scale * 1.85, 34);
+    if (p.x + radius < -40 || p.x - radius > VIEW.w + 40 || p.y + radius < -40 || p.y - radius > VIEW.h + 40) continue;
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(performance.now() * 0.00012);
+    ctx.globalAlpha = 0.25 + progress * 0.42;
+    ctx.strokeStyle = isDysonSphereComplete(systemIndex) ? "rgba(255,225,135,0.92)" : "rgba(255,210,105,0.72)";
+    ctx.lineWidth = Math.max(1.5, 4 * camera.scale);
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+    ctx.stroke();
+
+    const bands = 5;
+    for (let i = 0; i < bands; i++) {
+      const angle = (i / bands) * Math.PI;
+      ctx.strokeStyle = `rgba(255,205,95,${0.08 + progress * 0.12})`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, radius, radius * (0.18 + i * 0.12), angle, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function getDysonBuildButtonRect() {
+  return { x: VIEW.w - 235, y: VIEW.h - 86, w: 220, h: 34 };
+}
+
+function drawDysonBuildButton() {
+  if (buildMode || mapVisible) return;
+  const star = getOrbitStarForDysonBuild();
+  if (!star) {
+    if (dysonPanelOpen) dysonPanelOpen = false;
+    return;
+  }
+
+  const systemIndex = getSystemIndexForStar(star);
+  const progress = Math.round(getDysonSphereProgress(systemIndex) * 100);
+  const rect = getDysonBuildButtonRect();
+  drawBtn(isDysonSphereComplete(systemIndex) ? "Dyson sphere complete" : `Build Dyson sphere ${progress}%`, rect.x, rect.y, rect.w, rect.h, dysonPanelOpen);
+}
+
+function handleDysonBuildButtonClick(mx, my) {
+  if (buildMode || mapVisible) return false;
+  const star = getOrbitStarForDysonBuild();
+  if (!star) return false;
+  const rect = getDysonBuildButtonRect();
+  if (mx < rect.x || mx > rect.x + rect.w || my < rect.y || my > rect.y + rect.h) return false;
+
+  const systemIndex = getSystemIndexForStar(star);
+  dysonPanelOpen = !dysonPanelOpen || dysonPanelSystemIndex !== systemIndex;
+  dysonPanelSystemIndex = systemIndex;
+  playSound("toggle", 120);
+  return true;
+}
+
+function getDysonPanelLayout() {
+  const w = 340;
+  const h = 284;
+  const x = VIEW.w - w - 15;
+  const y = Math.max(15, VIEW.h - h - 130);
+  return {
+    x, y, w, h,
+    close: { x: x + w - 34, y: y + 10, w: 22, h: 22 },
+    rowX: x + 16,
+    rowY: y + 58,
+    rowH: 31
+  };
+}
+
+function drawDysonPanel() {
+  if (!dysonPanelOpen || dysonPanelSystemIndex < 0 || !solarSystems[dysonPanelSystemIndex]) return;
+  const layout = getDysonPanelLayout();
+  const cost = getDysonSphereCost();
+  const sphere = getDysonSphere(dysonPanelSystemIndex);
+  const progress = getDysonSphereProgress(dysonPanelSystemIndex);
+
+  ctx.fillStyle = "rgba(4, 10, 30, 0.96)";
+  ctx.fillRect(layout.x, layout.y, layout.w, layout.h);
+  ctx.strokeStyle = "rgba(255,210,105,0.78)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(layout.x, layout.y, layout.w, layout.h);
+
+  ctx.fillStyle = "#ffd978";
+  ctx.font = "bold 14px Consolas, monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText("DYSON SPHERE", layout.x + 16, layout.y + 22);
+  drawBtn("X", layout.close.x, layout.close.y, layout.close.w, layout.close.h, false);
+
+  ctx.fillStyle = "rgba(255,255,255,0.72)";
+  ctx.font = "12px Consolas, monospace";
+  ctx.fillText(`Construction ${Math.round(progress * 100)}%`, layout.x + 16, layout.y + 44);
+
+  let i = 0;
+  for (const [key, needed] of Object.entries(cost)) {
+    const y = layout.rowY + i * layout.rowH;
+    const supplied = Math.floor(sphere.resources[key] || 0);
+    const available = Math.floor(res[key] || 0);
+    const done = supplied >= needed;
+    const canAdd = !done && available > 0;
+
+    ctx.fillStyle = done ? "rgba(80,190,120,0.28)" : "rgba(255,255,255,0.045)";
+    ctx.fillRect(layout.rowX, y, layout.w - 32, layout.rowH - 5);
+    ctx.strokeStyle = canAdd ? "rgba(255,210,105,0.62)" : "rgba(255,255,255,0.12)";
+    ctx.strokeRect(layout.rowX, y, layout.w - 32, layout.rowH - 5);
+
+    drawResourceIcon(key, layout.rowX + 10, y + 13, 14);
+    ctx.fillStyle = "white";
+    ctx.font = "12px Consolas, monospace";
+    ctx.textAlign = "left";
+    ctx.fillText(formatResourceName(key), layout.rowX + 32, y + 13);
+    ctx.textAlign = "right";
+    ctx.fillText(`${supplied}/${needed}  inv ${available}`, layout.x + layout.w - 24, y + 13);
+    i++;
+  }
+
+  ctx.fillStyle = isDysonSphereComplete(dysonPanelSystemIndex) ? "#77ffaa" : "rgba(255,255,255,0.64)";
+  ctx.font = "12px Consolas, monospace";
+  ctx.textAlign = "left";
+  ctx.fillText(isDysonSphereComplete(dysonPanelSystemIndex) ? "Charging ship in star orbit" : "Click a resource row to add what you have", layout.x + 16, layout.y + layout.h - 20);
+}
+
+function handleDysonPanelClick(mx, my) {
+  if (!dysonPanelOpen) return false;
+  const layout = getDysonPanelLayout();
+  if (mx < layout.x || mx > layout.x + layout.w || my < layout.y || my > layout.y + layout.h) return false;
+
+  if (mx >= layout.close.x && mx <= layout.close.x + layout.close.w && my >= layout.close.y && my <= layout.close.y + layout.close.h) {
+    dysonPanelOpen = false;
+    playSound("toggle", 120);
+    return true;
+  }
+
+  const entries = Object.keys(getDysonSphereCost());
+  const index = Math.floor((my - layout.rowY) / layout.rowH);
+  const key = entries[index];
+  if (key && contributeToDysonSphere(dysonPanelSystemIndex, key)) return true;
+  return true;
 }
 
 function formatWorldPlayTime(seconds) {
@@ -830,8 +1007,10 @@ function toggleStatusBadgeAction(action) {
     flash(repairMode ? "Repair mode on" : "Repair mode off");
   } else if (action === "map") {
     mapVisible = !mapVisible;
+    if (mapVisible) notifyTutorialActionDone("mapOpened");
     flash(mapVisible ? "Map open" : "Map closed");
   } else if (action === "orbit") {
+    notifyTutorialActionDone("orbit");
     if (getComputerLevel() < 3) {
       flash("Computer MK3 required for orbit mode");
       return true;
@@ -841,6 +1020,7 @@ function toggleStatusBadgeAction(action) {
     orbitDesiredRadius = 0;
     flash(orbitModeActive ? "Orbit Mode ON" : "Orbit Mode OFF");
   } else if (action === "landing") {
+    notifyTutorialActionDone("landing");
     landingModeActive = !landingModeActive;
     landingTarget = landingModeActive ? getBestLandingTarget() : null;
     if (landingModeActive) {
@@ -849,11 +1029,17 @@ function toggleStatusBadgeAction(action) {
     }
     flash(landingModeActive ? "Landing mode ON" : "Landing mode OFF");
   } else if (action === "autoBlueprint") {
+    notifyTutorialActionDone("autoBlueprint");
     autoBlueprintRepair = !autoBlueprintRepair;
     flash(autoBlueprintRepair ? "Auto blueprint repair on" : "Auto blueprint repair off");
   } else {
     return false;
   }
+
+  if (action === "precision") notifyTutorialActionDone("precision");
+  if (action === "recall") notifyTutorialActionDone("recall");
+  if (action === "shields") notifyTutorialActionDone("shields");
+  if (action === "repair") notifyTutorialActionDone("repair");
 
   playSound("toggle", 120);
   return true;
@@ -870,7 +1056,7 @@ function handleStatusBadgeClick(mx, my) {
 
 function drawUI() {
   statusBadgeRects.length = 0;
-  ctx.font = "15px Arial";
+  ctx.font = "15px Consolas, monospace";
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
   ctx.fillStyle = "white";
@@ -891,7 +1077,7 @@ function drawUI() {
     ctx.lineWidth = 1;
     ctx.strokeRect(x, y - height / 2, width, height);
     ctx.fillStyle = "white";
-    ctx.font = "13px Arial";
+    ctx.font = "13px Consolas, monospace";
     ctx.textAlign = "left";
     ctx.fillText(text, x + 8, y);
     if (action) statusBadgeRects.push({ x, y: y - height / 2, w: width, h: height, action });
@@ -905,7 +1091,7 @@ function drawUI() {
     ctx.lineWidth = 1;
     ctx.strokeRect(x, y - height / 2, width, height);
     ctx.fillStyle = "white";
-    ctx.font = "13px Arial";
+    ctx.font = "13px Consolas, monospace";
     ctx.textAlign = "left";
     ctx.fillText(text, x + 8, y);
   }
@@ -928,7 +1114,7 @@ function drawUI() {
   drawTurretControlWindow();
 
   if (performance.now() < flashUntil) {
-    ctx.font = "bold 16px Arial";
+    ctx.font = "bold 16px Consolas, monospace";
     ctx.textAlign = "center";
     const width = Math.max(260, ctx.measureText(flashMsg).width + 38);
     const height = 34;
@@ -955,7 +1141,7 @@ function drawUI() {
   ctx.strokeRect(menuX, menuY, menuW, menuH);
 
   ctx.fillStyle = "#88aaff";
-  ctx.font = "bold 12px Arial";
+  ctx.font = "bold 12px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText(activeSmallShipEdit ? "DRONE BUILD MENU" : "BUILD MENU", sx, menuY + 18);
@@ -969,15 +1155,18 @@ function drawUI() {
     ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
 
     ctx.save();
-    ctx.globalAlpha = rect.tab.items.length > 0 ? 1 : 0.35;
-    if (!drawImageSprite(rect.tab.icon, rect.x + 7, rect.y + 7, rect.w - 14, rect.h - 14)) {
+    ctx.globalAlpha = 1;
+    const tabIconDrawn = isTurretType(rect.tab.icon)
+      ? drawTurretIconSprite(rect.tab.icon, rect.x + 7, rect.y + 7, rect.w - 14, rect.h - 14)
+      : drawImageSprite(rect.tab.icon, rect.x + 7, rect.y + 7, rect.w - 14, rect.h - 14);
+    if (!tabIconDrawn) {
       drawResourceIcon("energy", rect.x + 12, rect.y + rect.h / 2, rect.w - 24);
     }
     ctx.restore();
   }
 
   ctx.fillStyle = "#88aaff";
-  ctx.font = "bold 13px Arial";
+  ctx.font = "bold 13px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.fillText(activeTab.name.toUpperCase(), sx, titleY);
 
@@ -998,12 +1187,12 @@ function drawUI() {
     ctx.strokeRect(sx, y, buttonW, rowH);
 
     ctx.fillStyle = "white";
-    ctx.font = "12px Arial";
+    ctx.font = "12px Consolas, monospace";
     ctx.textAlign = "left";
     ctx.fillText(item.name, sx + 8, y + rowH / 2 - 7);
 
     ctx.fillStyle = "rgba(255,255,255,0.62)";
-    ctx.font = "10px Arial";
+    ctx.font = "10px Consolas, monospace";
     ctx.fillText(`${item.size[0]}x${item.size[1]}`, sx + 8, y + rowH / 2 + 9);
 
     const iconName = getBuildMenuIconName(item.name);
@@ -1019,7 +1208,7 @@ function drawUI() {
   }
 
   ctx.fillStyle = "#ccddff";
-  ctx.font = "13px Arial";
+  ctx.font = "13px Consolas, monospace";
   ctx.textAlign = "left";
 
   const selected = importedShipGhost
@@ -1050,13 +1239,13 @@ function drawSmallShipConfigUI() {
   ctx.strokeRect(x, y, width, height);
 
   ctx.fillStyle = "#88aaff";
-  ctx.font = "bold 12px Arial";
+  ctx.font = "bold 12px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText("DRONE", x + 10, y + 16);
 
   ctx.fillStyle = "white";
-  ctx.font = "12px Arial";
+  ctx.font = "12px Consolas, monospace";
   ctx.fillText(`${smallShip.name}`, x + 10, y + 34);
   ctx.fillText(`${countModuleTiles(placedModules) + countModuleTiles(blueprints)}/${activeSmallShipEdit.capacityTiles} tiles`, x + 145, y + 34);
 
@@ -1066,7 +1255,7 @@ function drawSmallShipConfigUI() {
     ctx.strokeStyle = active ? "#ccf6ff" : "rgba(100,150,255,0.5)";
     ctx.strokeRect(x + 10, by, width - 20, rowH);
     ctx.fillStyle = "white";
-    ctx.font = "13px Arial";
+    ctx.font = "13px Consolas, monospace";
     ctx.fillText(label, x + 18, by + rowH / 2);
   }
 
@@ -1091,13 +1280,13 @@ function drawTurretControlWindow() {
   ctx.strokeRect(layout.x, layout.y, layout.width, layout.height);
 
   ctx.fillStyle = "#88aaff";
-  ctx.font = "bold 13px Arial";
+  ctx.font = "bold 13px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText("TURRET CONTROL", layout.x + 16, layout.y + 22);
 
   ctx.fillStyle = "rgba(255,255,255,0.58)";
-  ctx.font = "11px Arial";
+  ctx.font = "11px Consolas, monospace";
   ctx.textAlign = "right";
   ctx.fillText("[ESC] close", layout.x + layout.width - 16, layout.y + 22);
 
@@ -1115,14 +1304,14 @@ function drawTurretControlWindow() {
     drawTurretIconSprite(type, layout.x + 22, rowY + 6, 24, 24);
 
     ctx.fillStyle = "white";
-    ctx.font = "bold 12px Arial";
+    ctx.font = "bold 12px Consolas, monospace";
     ctx.textAlign = "left";
     ctx.fillText(`[${countBuiltTurrets(type)}x] ${type}`, layout.x + 56, rowY + 17);
 
     if (ammo) {
       const ammoX = layout.x + 292;
       ctx.fillStyle = "rgba(255,255,255,0.76)";
-      ctx.font = "11px Arial";
+      ctx.font = "11px Consolas, monospace";
       ctx.fillText(String(ammo.amount), ammoX, rowY + 17);
       drawResourceIcon(ammo.key, ammoX + 34, rowY + 17, 13);
       ctx.fillText(ammo.name, ammoX + 52, rowY + 17);
@@ -1159,13 +1348,13 @@ function drawResearchWindow() {
   ctx.strokeRect(layout.x, layout.y, layout.width, layout.height);
 
   ctx.fillStyle = "#88aaff";
-  ctx.font = "bold 12px Arial";
+  ctx.font = "bold 12px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText("LABORATORY RESEARCH", layout.x + 14, layout.y + 18);
 
   ctx.fillStyle = "rgba(255,255,255,0.55)";
-  ctx.font = "11px Arial";
+  ctx.font = "11px Consolas, monospace";
   ctx.textAlign = "right";
   ctx.fillText("[ESC] close", layout.x + layout.width - 14, layout.y + 18);
 
@@ -1177,7 +1366,7 @@ function drawResearchWindow() {
   for (const row of getResearchRows()) {
     if (row.type === "title") {
       ctx.fillStyle = "#88aaff";
-      ctx.font = "bold 11px Arial";
+      ctx.font = "bold 11px Consolas, monospace";
       ctx.textAlign = "left";
       ctx.fillText(row.text, row.x, row.y);
     } else {
@@ -1199,7 +1388,7 @@ function drawResearchWindow() {
       }
 
       ctx.fillStyle = "white";
-      ctx.font = "12px Arial";
+      ctx.font = "12px Consolas, monospace";
       ctx.textAlign = "left";
       const titleY = row.costLines === 1 ? row.y + row.h / 2 : row.y + 16;
       ctx.fillText(item.name, row.x + 32, titleY);
@@ -1220,14 +1409,14 @@ function drawResearchWindow() {
 function drawResearchCost(cost, row, firstLineX, firstLineY) {
   if (!cost) {
     ctx.fillStyle = "rgba(255,255,255,0.62)";
-    ctx.font = "11px Arial";
+    ctx.font = "11px Consolas, monospace";
     ctx.textAlign = "right";
     ctx.fillText("Unlocked", row.x + row.w - 8, row.y + row.h / 2);
     return;
   }
 
   const entries = getOrderedCostEntries(cost);
-  ctx.font = entries.length > 5 ? "10px Arial" : "11px Arial";
+  ctx.font = entries.length > 5 ? "10px Consolas, monospace" : "11px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
 
@@ -1278,13 +1467,13 @@ function drawAssemblerWindow() {
   ctx.strokeRect(layout.x, layout.y, layout.width, layout.height);
 
   ctx.fillStyle = "#88aaff";
-  ctx.font = "bold 12px Arial";
+  ctx.font = "bold 12px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText("ASSEMBLER TARGETS", layout.x + 14, layout.y + 18);
 
   ctx.fillStyle = "rgba(255,255,255,0.55)";
-  ctx.font = "11px Arial";
+  ctx.font = "11px Consolas, monospace";
   ctx.textAlign = "right";
   ctx.fillText("[ESC] close", layout.x + layout.width - 14, layout.y + 18);
 
@@ -1301,7 +1490,7 @@ function drawAssemblerWindow() {
     drawResourceIcon(row.key, layout.x + 24, y + layout.rowH / 2, 14);
 
     ctx.fillStyle = "white";
-    ctx.font = "13px Arial";
+    ctx.font = "13px Consolas, monospace";
     ctx.textAlign = "left";
     ctx.fillText(row.label, layout.x + 48, y + layout.rowH / 2);
 
@@ -1310,7 +1499,7 @@ function drawAssemblerWindow() {
   }
 }
 function drawBtn(text, x, y, w, h, active) {
-  ctx.font = "11px Arial";
+  ctx.font = "11px Consolas, monospace";
   ctx.textBaseline = "middle";
   ctx.fillStyle = active ? "rgba(80, 190, 255, 0.72)" : "rgba(4, 10, 30, 0.82)";
   ctx.fillRect(x, y, w, h);
@@ -1391,7 +1580,7 @@ function drawInventoryBox(x, y, w, h, title) {
   ctx.lineWidth = 1;
   ctx.strokeRect(x, y, w, h);
   ctx.fillStyle = "#88aaff";
-  ctx.font = "bold 11px Arial";
+  ctx.font = "bold 11px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText(title, x + 8, y + 14);
@@ -1413,7 +1602,7 @@ function drawInventoryBarRow(label, value, cap, color, net, x, y, w) {
 
   drawResourceIcon(resourceKey, x + 8, y, iconSize);
   ctx.fillStyle = "rgba(255,255,255,0.62)";
-  ctx.font = "11px Arial";
+  ctx.font = "11px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText(label, x + 26, y);
@@ -1435,7 +1624,7 @@ function drawInventoryAmountRow(label, value, net, x, y, w) {
   const resourceKey = label.toLowerCase().replace(/\s+/g, "");
   drawResourceIcon(resourceKey, x + 8, y, 12);
   ctx.fillStyle = "rgba(255,255,255,0.62)";
-  ctx.font = "11px Arial";
+  ctx.font = "11px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText(label, x + 26, y);
@@ -1499,7 +1688,7 @@ function drawSmallShipResourceUI() {
   ctx.lineWidth = 1;
   ctx.strokeRect(panelX, panelY, panelW, panelH);
 
-  ctx.font = "bold 12px Arial";
+  ctx.font = "bold 12px Consolas, monospace";
   ctx.fillStyle = "#88aaff";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
@@ -1509,7 +1698,7 @@ function drawSmallShipResourceUI() {
 
   function textLine(label, value) {
     ctx.fillStyle = "rgba(255,255,255,0.62)";
-    ctx.font = "11px Arial";
+    ctx.font = "11px Consolas, monospace";
     ctx.textAlign = "left";
     ctx.fillText(label, panelX + 10, y);
     ctx.fillStyle = "white";
@@ -1546,7 +1735,7 @@ function drawSmallShipResourceUI() {
     ctx.strokeStyle = "rgba(100,180,255,0.65)";
     ctx.strokeRect(limitX, rowY - 7, limitW, 14);
     ctx.fillStyle = "white";
-    ctx.font = "10px Arial";
+    ctx.font = "10px Consolas, monospace";
     ctx.textAlign = "center";
     ctx.fillText(String(getSmallShipLiquidLimit(smallShip, key)), limitX + limitW / 2, rowY);
     smallShipCargoLimitRects.push({ kind: "liquid", key, x: limitX, y: rowY - 7, w: limitW, h: 14 });
@@ -1557,7 +1746,7 @@ function drawSmallShipResourceUI() {
   const cargoBoxH = 32 + cargoKeys.length * rowH;
   drawInventoryBox(boxX, y, boxW, cargoBoxH, "CARGO");
   ctx.fillStyle = "white";
-  ctx.font = "bold 11px Arial";
+  ctx.font = "bold 11px Consolas, monospace";
   ctx.textAlign = "right";
   ctx.fillText(`${Math.floor(cargoUsed)}/${Math.floor(cargoCap)} slots`, boxX + boxW - 8, y + 14);
 
@@ -1573,7 +1762,7 @@ function drawSmallShipResourceUI() {
     ctx.strokeStyle = "rgba(100,180,255,0.65)";
     ctx.strokeRect(limitX, rowY - 7, limitW, 14);
     ctx.fillStyle = "white";
-    ctx.font = "10px Arial";
+    ctx.font = "10px Consolas, monospace";
     ctx.textAlign = "center";
     ctx.fillText(String(getSmallShipCargoLimit(smallShip, key)), limitX + limitW / 2, rowY);
     smallShipCargoLimitRects.push({ kind: "cargo", key, x: limitX, y: rowY - 7, w: limitW, h: 14 });
@@ -1607,41 +1796,53 @@ function drawSalvagePanel() {
   ctx.strokeRect(layout.x, layout.y, layout.width, layout.height);
 
   ctx.fillStyle = "#88aaff";
-  ctx.font = "bold 12px Arial";
+  ctx.font = "bold 12px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText("SALVAGE", layout.x + 10, layout.y + 17);
 
   ctx.fillStyle = "rgba(255,255,255,0.55)";
-  ctx.font = "10px Arial";
+  ctx.font = "10px Consolas, monospace";
   ctx.textAlign = "right";
   ctx.fillText("click or drag", layout.x + layout.width - 10, layout.y + 17);
 
   for (let i = 0; i < visible.length; i++) {
     const item = visible[i];
     const rowY = layout.y + 34 + i * layout.rowH;
+    const rowX = layout.x + 8;
+    const rowW = layout.width - 16;
+    const rowH = layout.rowH - 6;
 
     ctx.fillStyle = "rgba(255,255,255,0.07)";
-    ctx.fillRect(layout.x + 8, rowY, layout.width - 16, layout.rowH - 6);
+    ctx.fillRect(rowX, rowY, rowW, rowH);
     ctx.strokeStyle = "rgba(100,150,255,0.5)";
-    ctx.strokeRect(layout.x + 8, rowY, layout.width - 16, layout.rowH - 6);
+    ctx.strokeRect(rowX, rowY, rowW, rowH);
 
+    const iconSize = 38;
+    const iconX = rowX + 16;
+    const iconY = rowY + rowH / 2 - iconSize / 2;
     const iconDrawn = isTurretType(item.type)
-      ? drawTurretIconSprite(item.type, layout.x + 16, rowY + 5, 28, 28)
-      : drawImageSprite(item.type, layout.x + 16, rowY + 5, 28, 28);
+      ? drawTurretIconSprite(item.type, iconX, iconY, iconSize, iconSize)
+      : drawImageSprite(item.type, iconX, iconY, iconSize, iconSize);
     if (!iconDrawn) {
       ctx.fillStyle = "rgba(80,120,190,0.42)";
-      ctx.fillRect(layout.x + 16, rowY + 5, 28, 28);
+      ctx.fillRect(iconX, iconY, iconSize, iconSize);
     }
 
     ctx.fillStyle = "white";
-    ctx.font = "bold 12px Arial";
+    ctx.font = "bold 12px Consolas, monospace";
     ctx.textAlign = "left";
-    ctx.fillText(`[${item.count}x] ${item.type}`, layout.x + 52, rowY + 13);
+    ctx.textBaseline = "middle";
+    ctx.fillText(`[${item.count}x] ${item.type}`, iconX + iconSize + 12, rowY + rowH / 2);
 
     ctx.fillStyle = "rgba(255,255,255,0.58)";
-    ctx.font = "10px Arial";
-    ctx.fillText(`${item.w}x${item.h}`, layout.x + 52, rowY + 29);
+    ctx.font = "10px Consolas, monospace";
+    ctx.textAlign = "right";
+    ctx.fillText(`${item.w}x${item.h}`, layout.x + layout.width - 84, rowY + rowH / 2);
+
+    ctx.fillStyle = "#ff6666";
+    ctx.font = "bold 10px Consolas, monospace";
+    ctx.fillText("delete", layout.x + layout.width - 18, rowY + rowH / 2);
   }
 }
 
@@ -1656,7 +1857,7 @@ function drawMotherShipResourceUI(panelX, panelY) {
   ctx.lineWidth = 1;
   ctx.strokeRect(panelX, panelY, panelW, panelH);
 
-  ctx.font = "bold 12px Arial";
+  ctx.font = "bold 12px Consolas, monospace";
   ctx.fillStyle = "#88aaff";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
@@ -1694,7 +1895,7 @@ function drawMotherShipResourceUI(panelX, panelY) {
   const cargoBoxH = 32 + cargoKeys.length * rowH;
   drawInventoryBox(boxX, y, boxW, cargoBoxH, "CARGO");
   ctx.fillStyle = "white";
-  ctx.font = "bold 11px Arial";
+  ctx.font = "bold 11px Consolas, monospace";
   ctx.textAlign = "right";
   ctx.fillText(`${Math.floor(res.itemUsed || 0)}/${Math.floor(res.itemCap || 0)} slots`, boxX + boxW - 8, y + 14);
 
@@ -1708,7 +1909,7 @@ function drawMotherShipResourceUI(panelX, panelY) {
   drawInventoryBox(boxX, y, boxW, 50, "CREW");
   drawResourceIcon("crew", boxX + 8, y + 34, 12);
   ctx.fillStyle = "rgba(255,255,255,0.62)";
-  ctx.font = "11px Arial";
+  ctx.font = "11px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.fillText("Crew", boxX + 26, y + 34);
   ctx.fillStyle = "white";
@@ -1741,7 +1942,50 @@ function drawTooltip() {
   const lineH = 17;
   const imageBox = 72;
   const costEntries = cost ? getOrderedCostEntries(cost) : [];
-  const th = 95 + lines.length * lineH + costEntries.length * 18;
+  const maxTextWidth = tw - padding * 2 - imageBox - 12;
+  const titleText = `${item.name}  ${item.size[0]}x${item.size[1]}`;
+  const titleLines = [];
+  ctx.font = "bold 14px Consolas, monospace";
+  if (ctx.measureText(titleText).width <= maxTextWidth) {
+    titleLines.push(titleText);
+  } else {
+    const words = String(item.name).split(/\s+/);
+    let current = "";
+    for (const word of words) {
+      const next = current ? `${current} ${word}` : word;
+      if (ctx.measureText(next).width > maxTextWidth && current) {
+        titleLines.push(current);
+        current = word;
+      } else {
+        current = next;
+      }
+    }
+    if (current) titleLines.push(current);
+    titleLines.push(`${item.size[0]}x${item.size[1]}`);
+  }
+  const titleH = titleLines.length * 17;
+  const wrappedLines = [];
+  for (const line of lines) {
+    const isTitle = line === costTitle;
+    if (line === "" || isTitle) {
+      wrappedLines.push(line);
+      continue;
+    }
+    const words = String(line).split(/\s+/);
+    let current = "";
+    ctx.font = "11px Consolas, monospace";
+    for (const word of words) {
+      const next = current ? `${current} ${word}` : word;
+      if (ctx.measureText(next).width > maxTextWidth && current) {
+        wrappedLines.push(current);
+        current = word;
+      } else {
+        current = next;
+      }
+    }
+    if (current) wrappedLines.push(current);
+  }
+  const th = 78 + titleH + wrappedLines.length * lineH + costEntries.length * 18;
 
   let tx = mouse.x + 18;
   let ty = mouse.y - th / 2;
@@ -1760,15 +2004,13 @@ function drawTooltip() {
   ctx.stroke();
 
   // Blue bold title, with size directly after it.
-  ctx.font = "bold 14px Arial";
+  ctx.font = "bold 14px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#44aaff";
-  ctx.fillText(
-    `${item.name}  ${item.size[0]}x${item.size[1]}`,
-    tx + padding,
-    ty + padding + 10
-  );
+  for (let i = 0; i < titleLines.length; i++) {
+    ctx.fillText(titleLines[i], tx + padding, ty + padding + 10 + i * 17);
+  }
 
   // Bild oben rechts
   const previewX = tx + tw - padding - imageBox;
@@ -1813,26 +2055,25 @@ function drawTooltip() {
   }
 
   // Beschreibung weiss
-  ctx.font = "11px Arial";
+  ctx.font = "11px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.fillStyle = "white";
 
   const descX = tx + padding;
-  const descY = ty + 45;
-  const maxTextWidth = tw - padding * 2 - imageBox - 12;
+  const descY = ty + 26 + titleH;
   let y = descY;
 
-  for (let i = 0; i < lines.length; i++) {
-    const isCostTitle = lines[i] === costTitle;
+  for (let i = 0; i < wrappedLines.length; i++) {
+    const isCostTitle = wrappedLines[i] === costTitle;
     ctx.fillStyle = isCostTitle ? "#88aaff" : "white";
-    ctx.font = isCostTitle ? "bold 11px Arial" : "11px Arial";
-    ctx.fillText(lines[i], descX, y, maxTextWidth);
+    ctx.font = isCostTitle ? "bold 11px Consolas, monospace" : "11px Consolas, monospace";
+    ctx.fillText(wrappedLines[i], descX, y, maxTextWidth);
     y += lineH;
   }
 
   if (costEntries.length > 0) {
-    ctx.font = "11px Arial";
+    ctx.font = "11px Consolas, monospace";
     ctx.textBaseline = "middle";
     for (const [key, amount] of costEntries) {
       const iconY = y + 7;
@@ -1914,12 +2155,32 @@ function getHoveredStarForTooltip() {
   return best;
 }
 
+function getHoveredBeltForTooltip() {
+  if (!canShowResourceSurveyTooltip() || !mapVisible || !mapFocusSystem) return null;
+  const hit = getMapBodyAt(mouse.x, mouse.y);
+  return hit?.belt || null;
+}
+
 function canShowResourceSurveyTooltip() {
   return getComputerLevel() >= 2 && !buildMode && !uiDialog && !tutorialOverlay;
 }
 
 function getAsteroidSurveyEntries(asteroid) {
   return Object.entries(asteroid.contents || {}).filter(([, amount]) => amount > 0);
+}
+
+function getBeltSurveyEntries(belt) {
+  if (!belt) return [];
+  const resources = new Map();
+  for (const rock of belt.rocks || []) {
+    if ((rock.kind || belt.kind) === "ice") {
+      resources.set("water", 1);
+    } else {
+      for (const def of ASTEROID_RESOURCE_TABLE || []) resources.set(def.key, 1);
+    }
+  }
+  if (belt.kind === "outer") resources.set("water", 1);
+  return Array.from(resources.entries()).sort(([a], [b]) => formatResourceName(a).localeCompare(formatResourceName(b)));
 }
 
 function drawResourceSurveyTooltip(title, entries) {
@@ -1946,7 +2207,7 @@ function drawResourceSurveyTooltip(title, entries) {
   ctx.stroke();
 
   ctx.fillStyle = "#44aaff";
-  ctx.font = "bold 13px Arial";
+  ctx.font = "bold 13px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText(title, tx + padding, ty + 18);
@@ -1955,7 +2216,7 @@ function drawResourceSurveyTooltip(title, entries) {
   for (const [key] of entries) {
     drawResourceIcon(key, tx + padding, y, 14);
     ctx.fillStyle = "rgba(255,255,255,0.78)";
-    ctx.font = "12px Arial";
+    ctx.font = "12px Consolas, monospace";
     ctx.fillText(formatResourceName(key), tx + padding + 22, y);
     y += rowH;
   }
@@ -1992,6 +2253,16 @@ function drawPlanetResourceTooltip() {
         cached = {
           title: "Asteroid",
           entries: getAsteroidSurveyEntries(asteroid)
+        };
+      }
+    }
+
+    if (!cached) {
+      const belt = getHoveredBeltForTooltip();
+      if (belt) {
+        cached = {
+          title: belt.kind === "outer" ? "Outer asteroid belt" : "Inner asteroid belt",
+          entries: getBeltSurveyEntries(belt)
         };
       }
     }

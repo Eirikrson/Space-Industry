@@ -1,27 +1,3 @@
-function randomInt(min, max) {
-  return Math.floor(min + Math.random() * (max - min + 1));
-}
-
-function createAsteroidContents(kind = "rock") {
-  const contents = {};
-
-  if (kind === "ice") {
-    contents.water = randomInt(30, 45);
-    return contents;
-  }
-
-  for (const def of ASTEROID_RESOURCE_TABLE) {
-    const amount = randomInt(def.min, def.max);
-    if (amount > 0) contents[def.key] = amount;
-  }
-
-  return contents;
-}
-
-function getAsteroidTotal(contents) {
-  return Object.values(contents).reduce((sum, value) => sum + value, 0);
-}
-
 function takeAsteroidResource(asteroid) {
   const available = Object.keys(asteroid.contents).filter(key => asteroid.contents[key] > 0);
   if (available.length === 0) return null;
@@ -83,7 +59,7 @@ function getComputerLevel() {
 }
 
 function getMotherShipTileLimit() {
-  return [0, 55, 80, 120, 150][getComputerLevel()] || 55;
+  return [0, 100, 350, 500, 800][getComputerLevel()] || 100;
 }
 
 function getRequiredComputerLevelForBuilding(type) {
@@ -118,6 +94,28 @@ function getVisibleBuildTabs() {
       .filter(item => isBuildingUnlocked(item.name) && hasComputerLevelForBuilding(item.name))
   }));
 }
+
+function getBuildTabOrderIndex(itemName) {
+  if (itemName === "Laboratory") return -100;
+  const researchIndex = RESEARCH_ITEMS.findIndex(item => item.name === itemName);
+  if (researchIndex >= 0) return 1000 + researchIndex;
+  const baseUnlocked = BASE_UNLOCKED_BUILDINGS instanceof Set
+    ? BASE_UNLOCKED_BUILDINGS.has(itemName)
+    : (BASE_UNLOCKED_BUILDINGS || []).includes(itemName);
+  if (baseUnlocked) return 0;
+  return 9999;
+}
+
+function sortBuildTabItemsByUnlockOrder() {
+  for (const tab of BUILD_MENU_TABS) {
+    tab.items.sort((a, b) => {
+      const diff = getBuildTabOrderIndex(a) - getBuildTabOrderIndex(b);
+      return diff !== 0 ? diff : a.localeCompare(b);
+    });
+  }
+}
+
+sortBuildTabItemsByUnlockOrder();
 
 function getInventoryItemByName(name) {
   for (const category of INVENTORY) {
@@ -206,6 +204,19 @@ function formatRecipeResources(resources) {
 }
 
 function getBuildingDescription(name) {
+  if (name === "Quantum computer") {
+    const lines = (BUILDING_DESCRIPTIONS[name] || ["No description available."]).slice();
+    const needed = typeof getRequiredStabilizerCount === "function" ? getRequiredStabilizerCount() : 1;
+    const have = typeof getPlacedStabilizerCount === "function" ? getPlacedStabilizerCount() : 0;
+    const shieldNeed = typeof getRequiredEventHorizonShieldCount === "function" ? getRequiredEventHorizonShieldCount() : 4;
+    const shieldHave = placedModules.filter(module => module.type === "Event horizon Shield" && getModuleHealth(module) > 0).length;
+    lines.push("");
+    lines.push(`Black-hole stabilizers ${have}/${needed}`);
+    lines.push(`Event horizon Shields ${shieldHave}/${shieldNeed}`);
+    lines.push("Shield need scales with ship size.");
+    return lines;
+  }
+
   if (name !== "Assembler") return (BUILDING_DESCRIPTIONS[name] || ["No description available."]).slice();
 
   const recipes = BUILDING_STATS.Assembler?.recipes || {};
@@ -359,7 +370,7 @@ function tryResearch(item) {
   newlyUnlockedResearch.add(item.name);
   notifyTutorialResearch(item.name);
   flash(`${item.name} researched`);
-  playSound("toggle", 120);
+  playSound("labFinish", 900);
 }
 
 function openAssemblerSettings(module) {

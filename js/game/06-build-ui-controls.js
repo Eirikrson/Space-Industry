@@ -289,6 +289,10 @@ function cleanupEnemyShipDamage(enemy) {
 
   if (result.computerDestroyed || result.modules.length === 0) {
     addEnemySalvage(enemy, enemy.modules || []);
+    if (!enemy._killCounted) {
+      enemy._killCounted = true;
+      enemyShipsDestroyed++;
+    }
     enemy._dead = true;
     return;
   }
@@ -305,8 +309,8 @@ function getBuildInventoryLayout() {
   const tabs = getVisibleBuildTabs();
   let activeTab = tabs.find(tab => tab.id === activeBuildTabId) || tabs[0];
 
-  if (!activeTab || activeTab.items.length === 0) {
-    activeTab = tabs.find(tab => tab.items.length > 0) || tabs[0];
+  if (!activeTab) {
+    activeTab = tabs[0];
     activeBuildTabId = activeTab ? activeTab.id : "power";
   }
 
@@ -449,7 +453,7 @@ function openCrewManagement(cx, cy) {
   const info = document.createElement("div");
   info.style.cursor = "default";
   info.style.color = "white";
-  info.style.font = "13px Arial";
+  info.style.font = "13px Consolas, monospace";
   info.style.padding = "8px 6px 10px";
   info.textContent = `Population: ${res.crew}/${res.crewCap}`;
   ddOverlay.appendChild(info);
@@ -469,7 +473,7 @@ function openCrewManagement(cx, cy) {
     button.style.background = "rgba(4, 10, 30, 0.82)";
     button.style.border = "1px solid rgba(100,150,255,0.7)";
     button.style.color = "white";
-    button.style.font = "bold 18px Arial";
+    button.style.font = "bold 18px Consolas, monospace";
     button.style.cursor = "pointer";
     button.style.borderRadius = "0";
     button.style.padding = "0";
@@ -500,7 +504,7 @@ function openCrewManagement(cx, cy) {
   const note = document.createElement("div");
   note.style.cursor = "default";
   note.style.color = "rgba(210,225,255,0.78)";
-  note.style.font = "11px Arial";
+  note.style.font = "11px Consolas, monospace";
   note.style.lineHeight = "15px";
   note.style.padding = "4px 6px 2px";
   note.textContent = "Population affects future build speed and ship operations.";
@@ -677,7 +681,6 @@ function adminJumpForward() {
   buildCamera.y = ship.y;
   clearAsteroidsNearShip();
   flash("Admin jump");
-  playSound("toggle", 120);
 }
 
 function getDigitFromKeyEvent(e, key) {
@@ -870,6 +873,14 @@ window.addEventListener("keydown", e => {
       dragging = false;
       lastBlueprintKey = "";
 
+      if (blueprints.length === 0 && demolishSet.size === 0) {
+        flash("Build mode closed");
+        playSound("toggle", 120);
+        ship.angle = savedAngle;
+        e.preventDefault();
+        return;
+      }
+
       commitPending = true;
       commitStartTime = performance.now();
       commitSnapshot = {
@@ -995,10 +1006,23 @@ window.addEventListener("mousedown", e => {
       return;
     }
 
+    if (!buildMode && handleDysonPanelClick(mouse.x, mouse.y)) {
+      return;
+    }
+
+    if (!buildMode && handleDysonBuildButtonClick(mouse.x, mouse.y)) {
+      return;
+    }
+
     if (mapVisible && !buildMode && handleMapClick(mouse.x, mouse.y)) {
       return;
     }
     if (mapVisible && !buildMode) return;
+
+    const salvageDeleteGroup = getSalvageDeleteGroupAt(mouse.x, mouse.y);
+    if (salvageDeleteGroup && deleteSalvageGroup(salvageDeleteGroup)) {
+      return;
+    }
 
     const salvageItem = getSalvageItemAt(mouse.x, mouse.y);
     if (salvageItem && selectSalvageModule(salvageItem)) {
@@ -1069,6 +1093,12 @@ window.addEventListener("mousedown", e => {
 
       if (!buildMode && result && result.module.type === "Fusion Reactor") {
         openFusionModeDropdown(result.module, e.clientX, e.clientY);
+        playSound("toggle", 120);
+        return;
+      }
+
+      if (!buildMode && result && result.module.type === "Quantum computer") {
+        openQuantumComputerStatus();
         playSound("toggle", 120);
         return;
       }

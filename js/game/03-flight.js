@@ -413,7 +413,7 @@ function removeEmptyAsteroids() {
 
 function getBeltAtShip() {
   for (const system of solarSystems) {
-    for (const belt of [system.innerBelt, system.outerBelt]) {
+    for (const belt of getSystemBelts(system)) {
       if (!belt) continue;
       const dist = Math.hypot(ship.x - belt.star.x, ship.y - belt.star.y);
       if (dist >= belt.innerR && dist <= belt.outerR) {

@@ -99,10 +99,18 @@
           ]
         },
         {
-          "id": "battery",
-          "name": "Battery",
+          "id": "battery_mk1",
+          "name": "Battery MK1",
           "size": [
             1,
+            2
+          ]
+        },
+        {
+          "id": "battery_mk2",
+          "name": "Battery MK2",
+          "size": [
+            2,
             2
           ]
         },
@@ -291,6 +299,30 @@
             4,
             4
           ]
+        },
+        {
+          "id": "event_horizon_shield",
+          "name": "Event horizon Shield",
+          "size": [
+            2,
+            3
+          ]
+        },
+        {
+          "id": "gravitational_pull_stabilizer",
+          "name": "Gravitational pull stabilizer",
+          "size": [
+            6,
+            6
+          ]
+        },
+        {
+          "id": "quantum_computer",
+          "name": "Quantum computer",
+          "size": [
+            3,
+            3
+          ]
         }
       ]
     }
@@ -302,7 +334,8 @@
       "icon": "Energy",
       "items": [
         "Solar Panel",
-        "Battery",
+        "Battery MK1",
+        "Battery MK2",
         "Reactor",
         "Turbine",
         "Condenserturbine",
@@ -319,12 +352,21 @@
         "Asteroid Collector",
         "Drill",
         "Shield Generator",
+        "Event horizon Shield",
+        "Gravitational pull stabilizer",
         "Main Thruster",
         "RCS Thruster",
-        "Gun Turret",
         "Hangar MK1",
         "Hangar MK2",
-        "Hangar MK3",
+        "Hangar MK3"
+      ]
+    },
+    {
+      "id": "combat",
+      "name": "Combat",
+      "icon": "Gun Turret",
+      "items": [
+        "Gun Turret",
         "Cannon tower",
         "Railgun turret",
         "Missile turret",
@@ -347,11 +389,12 @@
       "name": "Production",
       "icon": "Assembler",
       "items": [
+        "Laboratory",
         "Electrolyser",
         "Fuel Processor",
         "Smelter",
         "Assembler",
-        "Laboratory",
+        "Quantum computer",
         "Life Support",
         "Farm Module",
         "Quarters"
@@ -388,8 +431,11 @@
     "Solar Panel": {
       "energyProdBase": 1
     },
-    "Battery": {
+    "Battery MK1": {
       "energyCap": 200
+    },
+    "Battery MK2": {
+      "energyCap": 5000
     },
     "Fuel Processor": {
       "hydrogenUse": 10,
@@ -505,6 +551,17 @@
     "Shield Generator": {
       "energyUse": 2,
       "impactEnergyUse": 20
+    },
+    "Event horizon Shield": {
+      "energyUse": 50,
+      "impactEnergyUse": 500
+    },
+    "Gravitational pull stabilizer": {
+      "energyUse": 20
+    },
+    "Quantum computer": {
+      "energyUse": 8,
+      "itemCap": 600
     },
     "Life Support": {
       "energyUse": 2,
@@ -643,10 +700,18 @@
     "Main Thruster": {
       "ironPlate": 40
     },
-    "Battery": {
+    "Battery MK1": {
       "copperPlate": 15,
       "ironPlate": 8,
       "nickel": 2
+    },
+    "Battery MK2": {
+      "copperPlate": 120,
+      "ironPlate": 80,
+      "circuits": 35,
+      "cables": 30,
+      "nickel": 20,
+      "silicon": 18
     },
     "Reactor": {
       "ironPlate": 60,
@@ -699,6 +764,32 @@
       "cables": 12,
       "nickel": 8,
       "silicon": 6
+    },
+    "Event horizon Shield": {
+      "ironPlate": 180,
+      "copperPlate": 120,
+      "circuits": 90,
+      "cables": 80,
+      "nickel": 55,
+      "silicon": 45,
+      "uranium": 10
+    },
+    "Gravitational pull stabilizer": {
+      "ironPlate": 500,
+      "copperPlate": 360,
+      "circuits": 220,
+      "cables": 160,
+      "nickel": 140,
+      "silicon": 120,
+      "uranium": 40
+    },
+    "Quantum computer": {
+      "ironPlate": 220,
+      "copperPlate": 180,
+      "circuits": 180,
+      "cables": 120,
+      "silicon": 160,
+      "nickel": 50
     },
     "Condenserturbine": {
       "ironPlate": 30,
@@ -849,10 +940,19 @@
           }
         },
         {
-          "name": "Battery",
+          "name": "Battery MK1",
           "cost": {
             "copperPlate": 30,
             "ironPlate": 20
+          }
+        },
+        {
+          "name": "Battery MK2",
+          "cost": {
+            "copperPlate": 120,
+            "ironPlate": 80,
+            "circuits": 35,
+            "nickel": 20
           }
         },
         {
@@ -1035,6 +1135,38 @@
             "nickel": 30,
             "silicon": 25
           }
+        },
+        {
+          "name": "Event horizon Shield",
+          "cost": {
+            "ironPlate": 180,
+            "circuits": 90,
+            "cables": 80,
+            "nickel": 55,
+            "silicon": 45,
+            "uranium": 10
+          }
+        },
+        {
+          "name": "Gravitational pull stabilizer",
+          "cost": {
+            "ironPlate": 500,
+            "copperPlate": 360,
+            "circuits": 220,
+            "nickel": 140,
+            "silicon": 120,
+            "uranium": 40
+          }
+        },
+        {
+          "name": "Quantum computer",
+          "cost": {
+            "ironPlate": 220,
+            "copperPlate": 180,
+            "circuits": 180,
+            "silicon": 160,
+            "nickel": 50
+          }
         }
       ]
     }
@@ -1152,7 +1284,7 @@
     "Computer MK2": [
       "UPGRADE Mother ship computer",
       "",
-      "- Ship size limit: 80 tiles",
+      "- Ship size limit: 350 tiles",
       "- Unlocks resource survey tooltip",
       "- Unlocks Hangar MK1",
       "- Unlocks Tier 2 research"
@@ -1160,7 +1292,7 @@
     "Computer MK3": [
       "UPGRADE Mother ship computer",
       "",
-      "- Ship size limit: 120 tiles",
+      "- Ship size limit: 500 tiles",
       "- Unlocks orbit mode",
       "- Unlocks Hangar MK2",
       "- Unlocks Tier 3 research"
@@ -1168,7 +1300,7 @@
     "Computer MK4": [
       "UPGRADE Mother ship computer",
       "",
-      "- Ship size limit: 150 tiles",
+      "- Ship size limit: 800 tiles",
       "- Unlocks Hangar MK3",
       "- Unlocks Tier 4 research"
     ],
@@ -1233,10 +1365,30 @@
       "",
       "Crew food need: 0.25 food/sec each."
     ],
-    "Battery": [
+    "Battery MK1": [
       "Stores electrical energy.",
       "",
       "Capacity Energy 200"
+    ],
+    "Battery MK2": [
+      "Stores large amounts of electrical energy.",
+      "",
+      "Capacity Energy 5000"
+    ],
+    "Event horizon Shield": [
+      "INPUT Energy        -50/sec while active",
+      "",
+      "Protects a small arc of the ship during black-hole entry."
+    ],
+    "Gravitational pull stabilizer": [
+      "INPUT Energy        -20/sec while active",
+      "",
+      "Stabilizes the ship against black-hole tidal forces."
+    ],
+    "Quantum computer": [
+      "INPUT Energy        -8/sec while active",
+      "",
+      "Required to navigate the black-hole transition."
     ],
     "Gun Turret": [
       "INPUT Ammo          -1/shot",
@@ -1260,7 +1412,7 @@
       "Homes directly toward the enemy computer."
     ],
     "Laser turret": [
-      "INPUT Energy        very high",
+      "INPUT Energy        -30/shot while firing",
       "",
       "Fires a 2 second beam, then recharges for 5 seconds."
     ]

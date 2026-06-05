@@ -88,6 +88,7 @@ function processCommit() {
 
     const dem = commitSnapshot.demolish;
     const bps = commitSnapshot.blueprints;
+    let changedAny = false;
 
     // Demolish (outermost first, same as before)
     let next = placedModules.slice();
@@ -119,6 +120,7 @@ function processCommit() {
           refundBuildCost(module);
           pendingDemolish.delete(module.id);
           removedAny = true;
+          changedAny = true;
         }
       }
     }
@@ -145,6 +147,7 @@ function processCommit() {
           next.push(builtModule);
           notifyTutorialModuleBuilt(builtModule.type);
           placedAny = true;
+          changedAny = true;
         } else {
           stillPending.push(bp);
         }
@@ -162,6 +165,7 @@ function processCommit() {
     demolishSet.clear();
     commitPending = false;
     commitSnapshot = null;
+    if (changedAny) buildWorkSoundUntil = performance.now() + 850;
     return;
   }
 
@@ -237,6 +241,7 @@ function processCommit() {
         refundBuildCost(module);
         dem.delete(module.id);
         processedOne = true;
+        buildWorkSoundUntil = performance.now() + 850;
         commitStartTime = performance.now();
         break;
       }
@@ -285,6 +290,7 @@ function processCommit() {
         placedModules.length = 0;
         placedModules.push(...current);
         processedOne = true;
+        buildWorkSoundUntil = performance.now() + 850;
         commitStartTime = performance.now();
         builtIndex = i;
         break;
@@ -308,6 +314,7 @@ function processCommit() {
           const idx = bps.indexOf(bp);
           if (idx !== -1) bps.splice(idx, 1);
           processedOne = true;
+          buildWorkSoundUntil = performance.now() + 850;
           commitStartTime = performance.now();
           break;
         }
@@ -373,6 +380,7 @@ function updateResources(dt) {
   res.itemUsed = getSolidStorageUsed();
 
   let eProd = solarEnergyProdBase * solarFactor;
+  if (typeof getDysonChargeRate === "function") eProd += getDysonChargeRate();
   let eUse = 0;
   const wasPowered = res.energy > 0;
   const hasPower = () => res.energy > 0 || eProd > eUse;
@@ -563,7 +571,7 @@ function updateResources(dt) {
 
     if (m.type === "Solar Wind Collector" && canUsePower(m)) {
       const star = findNearestStar(ship.x, ship.y, CONFIG.GRID_SIZE * 12);
-      if (star) {
+      if (star && !isStarCoveredByCompleteDysonSphere(star)) {
         eUse += stats.energyUse;
         const accepted = storeResource("helium3", stats.helium3CollectRate * dt);
         if (accepted > 0 && performance.now() - (m._lastCollectSoundAt || 0) > 1800) {
@@ -572,6 +580,11 @@ function updateResources(dt) {
         }
         m._machineActive = "collector";
       }
+    }
+
+    if ((m.type === "Event horizon Shield" || m.type === "Gravitational pull stabilizer" || m.type === "Quantum computer") && canUsePower(m)) {
+      eUse += stats.energyUse;
+      m._machineActive = "endgame";
     }
 
     if (isTurretType(m.type) && canUsePower(m)) {
@@ -624,7 +637,10 @@ function updateResources(dt) {
 
 function destroyShip(message, source) {
   if (source?.type === "blackhole" && appState === "playing") {
-    startEndWorldFromBlackHole();
+    startBlackHoleEnding(
+      canSurviveBlackHoleEntry(),
+      "The ship is torn apart before it can stabilize the gravitational pull."
+    );
     return;
   }
 
@@ -633,14 +649,8 @@ function destroyShip(message, source) {
   ship.angularVelocity = 0;
   flash(message);
 
-  if (message === "Ship destroyed" && appState === "playing") {
-    appState = "menu";
-    buildMode = false;
-    selectedMenuSaveSlot = null;
-    saveSelectionMode = null;
-    pendingSavePayload = null;
-    pendingOverwriteSlot = null;
-    stopAllLoopSounds();
+  if (appState === "playing") {
+    startGameOverEnding(message || "Ship destroyed");
   }
 }
 
@@ -888,11 +898,11 @@ function updateSpaceHazards(dt) {
   const activeWorldChunks = getActiveWorldChunks();
 
   for (const star of worldStars) {
-    if (!isPointInActiveChunks(star.x, star.y, activeWorldChunks)) continue;
+    if (!isCircleInActiveChunks(star.x, star.y, star.radius + shipRadius, activeWorldChunks)) continue;
     bodies.push({ x: star.x, y: star.y, radius: star.radius, mass: star.radius * 2300, type: "star", star });
   }
 
-  if (blackHole && isPointInActiveChunks(blackHole.x, blackHole.y, activeWorldChunks)) {
+  if (blackHole && isCircleInActiveChunks(blackHole.x, blackHole.y, blackHole.radius + shipRadius, activeWorldChunks)) {
     bodies.push({ x: blackHole.x, y: blackHole.y, radius: blackHole.radius, mass: blackHole.radius * 8000, type: "blackhole", blackHole });
   }
 
@@ -902,7 +912,7 @@ function updateSpaceHazards(dt) {
   }
 
   for (const planet of planets) {
-    if (!isPointInActiveChunks(planet.x, planet.y, activeWorldChunks)) continue;
+    if (!isCircleInActiveChunks(planet.x, planet.y, planet.radius + shipRadius, activeWorldChunks)) continue;
     bodies.push({ x: planet.x, y: planet.y, radius: planet.radius, mass: planet.radius * 2500, type: "planet", planet });
   }
 
@@ -1003,7 +1013,7 @@ function updateGameSounds() {
     || smallShips.some(smallShip => smallShip._thrusting)
     || enemyShips.some(enemy => enemy._thrusting);
 
-  const buildingActive = commitPending
+  const buildingActive = performance.now() < buildWorkSoundUntil
     || (repairMode && !!getMostDamagedModule())
     || smallShips.some(smallShip => smallShip.repairTargetModuleId || smallShip.status === "building");
 

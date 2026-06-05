@@ -58,7 +58,20 @@ const TUTORIAL_STEPS = [
     id: "map",
     title: "Galaxy map",
     body: "Press M to open the map. You can inspect the galaxy and click individual solar systems to focus on their planets and belts.",
-    waitFor: "ok"
+    waitFor: "mapOpened"
+  },
+  {
+    id: "map-system-click",
+    title: "System focus",
+    body: "You can click a solar system with the left mouse button. The map then focuses that system and shows its planets and belts.",
+    waitFor: "mapSystemClicked"
+  },
+  {
+    id: "map-return",
+    title: "Back to flight",
+    body: "Close the map when you are done. New flight tips continue only after you are back in the world.",
+    waitFor: "mapClosed",
+    triggerOnly: true
   },
   {
     id: "precision",
@@ -104,6 +117,14 @@ const TUTORIAL_EVENT_STEPS = {
   crew: {
     title: "Life support and crew",
     body: "Life Support, Farms, and Quarters work together to grow and sustain crew. More crew makes repairs faster."
+  },
+  endRobotCivilization: {
+    title: "Ancient robot civilization",
+    body: "A ship has been detected without any human life signs. It appears to belong to an ancient, highly advanced robot civilization. You have entered their galaxy."
+  },
+  quantumComputer: {
+    title: "Black-hole navigation",
+    body: ""
   }
 };
 
@@ -111,9 +132,23 @@ function shouldBlockSimulationForOverlay() {
   return !!uiDialog || !!tutorialOverlay;
 }
 
+function isTutorialFlightUiClear(options = {}) {
+  const allowMap = !!options.allowMap;
+  return appState === "playing" &&
+    !buildMode &&
+    !uiDialog &&
+    !researchWindowOpen &&
+    !assemblerWindowModule &&
+    !turretControlWindowOpen &&
+    !activeSmallShipEdit &&
+    !dysonPanelOpen &&
+    (allowMap || !mapVisible);
+}
+
 function resetTutorialForNewWorld() {
-  tutorialSkipped = localStorage.getItem(TUTORIAL_SKIP_KEY) === "1";
-  tutorialActive = !tutorialSkipped;
+  localStorage.removeItem(TUTORIAL_SKIP_KEY);
+  tutorialSkipped = false;
+  tutorialActive = true;
   tutorialOverlay = null;
   tutorialStepIndex = 0;
   tutorialMoveTime = 0;
@@ -121,6 +156,9 @@ function resetTutorialForNewWorld() {
   tutorialAsteroidsMined = 0;
   tutorialMapTimer = 0;
   tutorialPrecisionTimer = 0;
+  tutorialWorldReturnTimer = 0;
+  tutorialStepDelayTimer = 0;
+  pendingTutorialEvent = null;
   tutorialSeen.clear();
   if (tutorialActive) showTutorialStep(0);
 }
@@ -132,12 +170,25 @@ function showTutorialStep(index) {
     return;
   }
   tutorialStepIndex = index;
-  tutorialOverlay = TUTORIAL_STEPS[index].triggerOnly ? null : TUTORIAL_STEPS[index];
+  tutorialStepDelayTimer = 0;
+  const step = TUTORIAL_STEPS[index];
+  const allowMap = step.waitFor === "mapSystemClicked" || step.waitFor === "mapClosed";
+  tutorialOverlay = step.triggerOnly || !isTutorialFlightUiClear({ allowMap }) ? null : step;
 }
 
 function advanceTutorial() {
+  if (tutorialOverlay?.source === "event") {
+    tutorialOverlay = null;
+    return;
+  }
+
   tutorialOverlay = null;
   const current = TUTORIAL_STEPS[tutorialStepIndex];
+  if (current && current.waitFor === "ok") {
+    tutorialSeen.add(current.id);
+    tutorialStepDelayTimer = 0;
+    return;
+  }
   if (!current || current.waitFor === "ok" || tutorialSeen.has(current.id) || tutorialSeen.has(current.waitFor)) {
     showTutorialStep(tutorialStepIndex + 1);
   }
@@ -147,15 +198,18 @@ function skipTutorial() {
   tutorialSkipped = true;
   tutorialActive = false;
   tutorialOverlay = null;
-  localStorage.setItem(TUTORIAL_SKIP_KEY, "1");
 }
 
 function tutorialEvent(id) {
   if (tutorialSkipped || tutorialSeen.has(id)) return;
   const step = TUTORIAL_EVENT_STEPS[id];
   if (!step) return;
+  if (id !== "endRobotCivilization" && !isTutorialFlightUiClear()) {
+    pendingTutorialEvent = id;
+    return;
+  }
   tutorialSeen.add(id);
-  tutorialOverlay = { ...step, waitFor: "ok" };
+  tutorialOverlay = { ...step, source: "event", waitFor: "ok" };
 }
 
 function notifyTutorialModuleBuilt(type) {
@@ -167,6 +221,7 @@ function notifyTutorialModuleBuilt(type) {
   if (type === "Assembler") tutorialEvent("assembler");
   if (type === "Quarters") tutorialEvent("quarters");
   if (type === "Life Support" || type === "Farm Module" || type === "Quarters") tutorialEvent("crew");
+  if (type === "Quantum computer") notifyTutorialQuantumComputerBuilt();
 }
 
 function notifyTutorialResearch(type) {
@@ -181,16 +236,68 @@ function notifyTutorialBuildOpened() {
   if (tutorialSkipped || tutorialSeen.has("buildOpened")) return;
   tutorialSeen.add("buildOpened");
   tutorialStepIndex = Math.max(tutorialStepIndex, 7);
-  tutorialOverlay = TUTORIAL_STEPS[7];
+  pendingTutorialEvent = null;
+  tutorialOverlay = isTutorialFlightUiClear() ? TUTORIAL_STEPS[7] : null;
+}
+
+function notifyTutorialMapSystemClicked() {
+  tutorialSeen.add("mapSystemClicked");
+}
+
+function notifyTutorialActionDone(id) {
+  if (!id) return;
+  tutorialSeen.add(id);
+}
+
+function getPlacedStabilizerCount() {
+  return placedModules.filter(module => module.type === "Gravitational pull stabilizer" && getModuleHealth(module) > 0).length;
+}
+
+function getRequiredStabilizerCount() {
+  return 1;
+}
+
+function notifyTutorialQuantumComputerBuilt() {
+  if (tutorialSkipped || tutorialSeen.has("quantumComputer")) return;
+  const have = getPlacedStabilizerCount();
+  const need = getRequiredStabilizerCount();
+  const ready = getBlackHoleReadiness();
+  tutorialSeen.add("quantumComputer");
+  tutorialOverlay = {
+    ...TUTORIAL_EVENT_STEPS.quantumComputer,
+    source: "event",
+    body: `Quantum navigation is installed. For black-hole travel you need ${need} Gravitational pull stabilizer. Current stabilizers: ${have}/${need}. Event horizon Shields depend on ship size: ${ready.eventShields}/${ready.requiredShields}. You also need 45000 stored energy.`,
+    waitFor: "ok"
+  };
 }
 
 function updateTutorial(dt) {
   if (!tutorialActive || tutorialSkipped || tutorialOverlay || appState !== "playing") return;
 
+  if (pendingTutorialEvent && isTutorialFlightUiClear()) {
+    const id = pendingTutorialEvent;
+    pendingTutorialEvent = null;
+    tutorialEvent(id);
+    return;
+  }
+
+  if (currentWorldIsEnd) return;
+
   const step = TUTORIAL_STEPS[tutorialStepIndex];
   if (!step) return;
 
+  const allowMapStep = step.waitFor === "mapSystemClicked" || step.waitFor === "mapClosed" || step.waitFor === "mapOpened";
+  if (!isTutorialFlightUiClear({ allowMap: allowMapStep })) return;
+
+  if (step.waitFor === "ok" && tutorialSeen.has(step.id)) {
+    if (mapVisible || buildMode) return;
+    tutorialStepDelayTimer += dt;
+    if (tutorialStepDelayTimer >= 5) showTutorialStep(tutorialStepIndex + 1);
+    return;
+  }
+
   if (step.waitFor === "move10") {
+    if (mapVisible || buildMode) return;
     if (keys.w || keys.a || keys.s || keys.d) tutorialMoveTime += dt;
     if (tutorialMoveTime >= 10) showTutorialStep(tutorialStepIndex + 1);
     return;
@@ -202,14 +309,43 @@ function updateTutorial(dt) {
       tutorialSeen.add("buildOpened");
       tutorialOverlay = step;
     }
+    return;
   }
 
-  tutorialFlightTime += dt;
-  if (tutorialFlightTime > 60 && tutorialStepIndex < 9) {
-    showTutorialStep(9);
+  if (step.waitFor === "mapOpened") {
+    if (tutorialSeen.has("mapOpened") && !mapVisible) {
+      showTutorialStep(tutorialStepIndex + 3);
+      return;
+    }
+    if (!mapVisible) return;
+    tutorialMapTimer += dt;
+    if (tutorialMapTimer >= 2) showTutorialStep(tutorialStepIndex + 1);
+    return;
   }
-  if (tutorialFlightTime > 70 && tutorialStepIndex < 10) {
-    showTutorialStep(10);
+
+  if (step.waitFor === "mapSystemClicked") {
+    if (!mapVisible && tutorialSeen.has("mapOpened")) {
+      showTutorialStep(tutorialStepIndex + 2);
+      return;
+    }
+    if (tutorialSeen.has("mapSystemClicked")) showTutorialStep(tutorialStepIndex + 1);
+    return;
+  }
+
+  if (step.waitFor === "mapClosed") {
+    if (mapVisible || buildMode) return;
+    tutorialWorldReturnTimer += dt;
+    if (tutorialWorldReturnTimer >= 2) showTutorialStep(tutorialStepIndex + 1);
+    return;
+  }
+
+  if (mapVisible || buildMode) return;
+  tutorialFlightTime += dt;
+  if (tutorialFlightTime > 60 && tutorialStepIndex < 11) {
+    showTutorialStep(11);
+  }
+  if (tutorialFlightTime > 70 && tutorialStepIndex < 12) {
+    showTutorialStep(12);
   }
 }
 
@@ -257,10 +393,10 @@ function drawTutorialOverlay() {
   ctx.fillStyle = "white";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
-  ctx.font = "bold 20px Arial";
+  ctx.font = "bold 20px Consolas, monospace";
   ctx.fillText(tutorialOverlay.title, layout.x + 28, layout.y + 26);
 
-  ctx.font = "15px Arial";
+  ctx.font = "15px Consolas, monospace";
   const lines = wrapTutorialText(tutorialOverlay.body, layout.w - 56);
   let y = layout.y + 68;
   for (const line of lines) {

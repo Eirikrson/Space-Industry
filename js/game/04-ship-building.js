@@ -414,6 +414,7 @@ const LEGACY_MODULE_NAME_MAP = {
   "Missile Turret": "Missile turret",
   "Laser Turret": "Laser turret",
   "Storage Tray": "Warehouse MK1",
+  "Battery": "Battery MK1",
   "Warehouse": "Warehouse MK2",
   "Small Tank": "Tank MK1",
   "Big Tank": "Tank MK2",
@@ -562,7 +563,7 @@ const ENEMY_SHIP_DESIGNS = [
     modules: [
       enemyModule(-1, 0, "Solar Panel"),
       enemyModule(1, 0, "Solar Panel"),
-      enemyModule(0, 1, "Battery", 1, 2, 2),
+      enemyModule(0, 1, "Battery MK1", 1, 2, 2),
       enemyModule(0, -1, "Tank MK1", 1, 1, 0, { tankContent: "fuel", tankCap: 100 }),
       enemyModule(0, -3, "RCS Thruster", 1, 2, 2),
       enemyModule(1, 1, "RCS Thruster", 1, 2, 0),
@@ -581,7 +582,7 @@ const ENEMY_SHIP_DESIGNS = [
     resources: { fuel: 100, water: 0, uranium: 0 },
     modules: [
       enemyModule(-1, 0, "Solar Panel"),
-      enemyModule(0, 1, "Battery", 1, 2, 2),
+      enemyModule(0, 1, "Battery MK1", 1, 2, 2),
       enemyModule(0, -1, "Tank MK1", 1, 1, 0, { tankContent: "fuel", tankCap: 100 }),
       enemyModule(0, -3, "RCS Thruster", 1, 2, 2),
       enemyModule(1, 1, "RCS Thruster", 1, 2, 0),
@@ -607,7 +608,7 @@ const ENEMY_SHIP_DESIGNS = [
     resources: { fuel: 100, water: 0, uranium: 0 },
     modules: [
       enemyModule(-1, 0, "Solar Panel"),
-      enemyModule(0, 1, "Battery", 1, 2, 2),
+      enemyModule(0, 1, "Battery MK1", 1, 2, 2),
       enemyModule(0, -1, "Tank MK1", 1, 1, 0, { tankContent: "fuel", tankCap: 100 }),
       enemyModule(0, -3, "RCS Thruster", 1, 2, 2),
       enemyModule(1, 1, "RCS Thruster", 1, 2, 0),
@@ -645,7 +646,7 @@ const ENEMY_SHIP_DESIGNS = [
     resources: { fuel: 120, water: 0, uranium: 0 },
     modules: [
       ...enemySolarSpine(-5, 5),
-      enemyModule(0, 1, "Battery", 1, 2, 2),
+      enemyModule(0, 1, "Battery MK1", 1, 2, 2),
       enemyModule(0, 3, "Shield Generator", 1, 2, 0),
       enemyModule(0, -1, "Tank MK1", 1, 1, 0, { tankContent: "fuel", tankCap: 100 }),
       enemyModule(1, 2, "RCS Thruster", 1, 2, 0),
@@ -674,7 +675,7 @@ const ENEMY_SHIP_DESIGNS = [
     resources: { fuel: 140, water: 120, uranium: 0, food: 80 },
     modules: [
       ...enemySolarSpine(-6, 5),
-      enemyModule(0, 1, "Battery", 1, 2, 2),
+      enemyModule(0, 1, "Battery MK1", 1, 2, 2),
       enemyModule(1, 0, "Quarters", 2, 2, 0),
       enemyModule(-2, 0, "Life Support", 2, 2, 0),
       enemyModule(-1, -2, "Farm Module", 3, 1, 1),

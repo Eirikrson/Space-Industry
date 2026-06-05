@@ -92,8 +92,12 @@
       "src": "Graphics/ItemIcons/Water.png",
       "frames": 1
     },
-    "Battery": {
-      "src": "Graphics/Machines/Battery.png",
+    "Battery MK1": {
+      "src": "Graphics/Machines/BatteryMK1.png",
+      "frames": 1
+    },
+    "Battery MK2": {
+      "src": "Graphics/Machines/BatteryMK2.png",
       "frames": 1
     },
     "Asteroid Collector": {
@@ -155,6 +159,11 @@
       "frames": 2,
       "speed": 1000
     },
+    "Quantum computer": {
+      "src": "Graphics/Machines/Computer.png",
+      "frames": 2,
+      "speed": 1000
+    },
     "Electrolyser": {
       "src": "Graphics/Machines/Electrolyser.png",
       "frames": 4,
@@ -186,6 +195,15 @@
     "Shield Generator": {
       "src": "Graphics/Machines/ShieldGenerator.png",
       "frames": 1
+    },
+    "Event horizon Shield": {
+      "src": "Graphics/Machines/ShieldGenerator.png",
+      "frames": 1
+    },
+    "Gravitational pull stabilizer": {
+      "src": "Graphics/Machines/Reactor.png",
+      "frames": 4,
+      "speed": 300
     },
     "Hangar MK1": {
       "src": "Graphics/Machines/HangarMK1.png",
@@ -311,7 +329,8 @@
     "turretTurn": 1,
     "turretShot": 1,
     "explosion": 1,
-    "drill": 1
+    "drill": 1,
+    "labFinish": 1
   },
   "SOUND_FILES": {
     "thruster": "Sounds/Thruster.mp3",
@@ -328,6 +347,7 @@
     "turretTurn": "Sounds/TurretTurn.mp3",
     "turretShot": "Sounds/TurretShot.mp3",
     "explosion": "Sounds/Explosion.mp3",
-    "drill": "Sounds/Drill.mp3"
+    "drill": "Sounds/Drill.mp3",
+    "labFinish": "Sounds/LabFinish.mp3"
   }
 }

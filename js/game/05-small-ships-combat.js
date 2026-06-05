@@ -369,7 +369,8 @@ function getSmallShipEnergyCap(smallShip) {
   let cap = 0;
 
   for (const module of smallShip.modules) {
-    if (module.type === "Battery") cap += 200;
+    if (module.type === "Battery MK1") cap += 200;
+    if (module.type === "Battery MK2") cap += 5000;
   }
 
   return cap;
@@ -1038,7 +1039,8 @@ function getEnemyResourceCaps(enemy) {
   const caps = { fuel: 80, water: 0, steam: 0, energy: 40, uranium: 0, food: 0 };
 
   for (const module of enemy.modules) {
-    if (module.type === "Battery") caps.energy += 200;
+    if (module.type === "Battery MK1") caps.energy += 200;
+    if (module.type === "Battery MK2") caps.energy += 5000;
     if (module.type === "Quarters") caps.food += 100;
     if (TANK_OPTIONS[module.type] && module.tankContent) {
       caps[module.tankContent] = (caps[module.tankContent] || 0) + (module.tankCap || 600);
@@ -1139,7 +1141,12 @@ function spawnEnemyFleet(fleet = chooseEnemyFleetDesign()) {
     createEnemyShip(fleet.ships[i], pos.x, pos.y, fleetId, offset, Math.sin(i) * CONFIG.GRID_SIZE * 2);
   }
 
-  flash(`Enemy fleet detected: ${formatDirectionFromPlayer(pos)}`);
+  if (currentWorldIsEnd && !endRobotDiscoveryShown) {
+    endRobotDiscoveryShown = true;
+    tutorialEvent("endRobotCivilization");
+  }
+
+  flash(currentWorldIsEnd ? `Ancient robot ships detected: ${formatDirectionFromPlayer(pos)}` : `Enemy fleet detected: ${formatDirectionFromPlayer(pos)}`);
   playSound("enemyDetected", 500);
 }
 
@@ -1214,6 +1221,34 @@ function getSalvageItemAt(mx, my) {
   if (mx < layout.x || mx > layout.x + layout.width || my < layout.y + 34 || my > layout.y + layout.height) return null;
   const index = Math.floor((my - layout.y - 34) / layout.rowH);
   return getGroupedSalvageItems()[index] || null;
+}
+
+function getSalvageDeleteGroupAt(mx, my) {
+  if (!isMouseOverSalvagePanel(mx, my)) return null;
+  const layout = getSalvagePanelLayout();
+  if (my < layout.y + 34 || my > layout.y + layout.height) return null;
+  const index = Math.floor((my - layout.y - 34) / layout.rowH);
+  const group = getGroupedSalvageItems()[index] || null;
+  if (!group) return null;
+  const deleteX = layout.x + layout.width - 70;
+  const deleteW = 52;
+  const rowY = layout.y + 34 + index * layout.rowH;
+  if (mx >= deleteX && mx <= deleteX + deleteW && my >= rowY && my <= rowY + layout.rowH - 6) return group;
+  return null;
+}
+
+function deleteSalvageGroup(group) {
+  if (!group) return false;
+  let deleted = 0;
+  for (let i = salvageModules.length - 1; i >= 0; i--) {
+    if (salvageModules[i].type === group.type) {
+      salvageModules.splice(i, 1);
+      deleted++;
+    }
+  }
+  flash(`Deleted ${deleted} ${group.type}`);
+  playSound("toggle", 120);
+  return true;
 }
 
 function selectSalvageModule(item) {
@@ -1483,6 +1518,75 @@ function updateEnemyTurrets(enemy, dt) {
   }
 }
 
+function damageDysonSphere(systemIndex, amount) {
+  const sphere = getDysonSphere(systemIndex);
+  const cost = getDysonSphereCost();
+  let remaining = amount;
+
+  const entries = Object.keys(cost)
+    .filter(key => (sphere.resources[key] || 0) > 0)
+    .sort((a, b) => (sphere.resources[b] || 0) - (sphere.resources[a] || 0));
+
+  for (const key of entries) {
+    if (remaining <= 0) break;
+    const loss = Math.min(sphere.resources[key] || 0, remaining);
+    sphere.resources[key] -= loss;
+    remaining -= loss;
+  }
+
+  getDysonSphereProgress(systemIndex);
+}
+
+function getEnemyDysonAttackTarget(enemy) {
+  let best = null;
+  let bestDist = Infinity;
+
+  for (let i = 0; i < solarSystems.length; i++) {
+    if (!dysonSpheres[i]) continue;
+    if (getDysonSphereProgress(i) <= 0) continue;
+    const star = solarSystems[i].star;
+    const dx = star.x - enemy.x;
+    const dy = star.y - enemy.y;
+    const dist = dx * dx + dy * dy;
+    if (dist < bestDist) {
+      best = { systemIndex: i, star };
+      bestDist = dist;
+    }
+  }
+
+  return best;
+}
+
+function updateDysonSphereAttacks(dt) {
+  if (!dysonSpheres || enemyShips.length === 0) return;
+  const attackRange = CONFIG.GRID_SIZE * 18;
+  const attackRangeSq = attackRange * attackRange;
+
+  for (const enemy of enemyShips) {
+    if (enemy._dead) continue;
+    enemy._dysonThinkTimer = Math.max(0, (enemy._dysonThinkTimer || 0) - dt);
+    if (enemy._dysonThinkTimer > 0) continue;
+    enemy._dysonThinkTimer = 0.5;
+
+    const target = getEnemyDysonAttackTarget(enemy);
+    if (!target) continue;
+
+    const dx = target.star.x - enemy.x;
+    const dy = target.star.y - enemy.y;
+    const distSq = dx * dx + dy * dy;
+    if (distSq > attackRangeSq) {
+      moveEnemyToward(enemy, target.star.x, target.star.y, 0.5, attackRange * 0.65);
+      continue;
+    }
+
+    damageDysonSphere(target.systemIndex, 6);
+    if (performance.now() - (target.star._lastDysonAttackFlashAt || 0) > 2400) {
+      target.star._lastDysonAttackFlashAt = performance.now();
+      flash("Dyson sphere under attack");
+    }
+  }
+}
+
 function updatePlayerTurrets(dt) {
   if (buildMode) return;
 
@@ -1664,6 +1768,10 @@ function updateEnemyShips(dt) {
     }
 
     if (!enemy.modules.some(module => module.type === "Computer" && getModuleHealth(module) > 0)) {
+      if (!enemy._killCounted) {
+        enemy._killCounted = true;
+        enemyShipsDestroyed++;
+      }
       enemy._dead = true;
     }
   }
@@ -1714,7 +1822,9 @@ function drawEnemyShipModule(enemy, module, com) {
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.rotate((enemy.angle || 0) + rot * Math.PI / 2);
-  ctx.strokeStyle = "rgba(255,40,40,0.95)";
+  ctx.strokeStyle = currentWorldIsEnd ? "rgba(190,80,255,0.98)" : "rgba(255,40,40,0.95)";
+  ctx.shadowColor = currentWorldIsEnd ? "rgba(180,80,255,0.8)" : "transparent";
+  ctx.shadowBlur = currentWorldIsEnd ? Math.max(4, 8 * camera.scale) : 0;
   ctx.lineWidth = Math.max(2, 3 * camera.scale);
   ctx.strokeRect(-sw / 2 - 2, -sh / 2 - 2, sw + 4, sh + 4);
   ctx.restore();
@@ -1732,17 +1842,17 @@ function drawEnemyShips() {
 
     const p = worldToScreen(enemy.x, enemy.y);
     const radius = getEnemyShipRadius(enemy) * camera.scale;
-    const label = `ENEMY ${enemy.name}`;
-    ctx.font = "11px Arial";
+    const label = currentWorldIsEnd ? `ANCIENT ROBOT ${enemy.name}` : `ENEMY ${enemy.name}`;
+    ctx.font = "11px Consolas, monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     const width = Math.max(110, ctx.measureText(label).width + 18);
     const x = p.x - width / 2;
     const y = p.y - radius - 30;
 
-    ctx.fillStyle = "rgba(40,0,0,0.88)";
+    ctx.fillStyle = currentWorldIsEnd ? "rgba(28,0,48,0.9)" : "rgba(40,0,0,0.88)";
     ctx.fillRect(x, y, width, 22);
-    ctx.strokeStyle = "rgba(255,60,60,0.9)";
+    ctx.strokeStyle = currentWorldIsEnd ? "rgba(190,80,255,0.92)" : "rgba(255,60,60,0.9)";
     ctx.strokeRect(x, y, width, 22);
     ctx.fillStyle = "white";
     ctx.fillText(label, p.x, y + 11);
