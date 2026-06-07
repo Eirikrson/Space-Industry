@@ -102,13 +102,46 @@ const loadedImages = {};
 const soundCache = {};
 const loopSounds = {};
 const lastSoundAt = {};
+const activeBackgroundSounds = new Set();
+const activeLayeredSounds = {};
+const nextLayeredSoundAt = {};
+let nextBackgroundSoundAt = 0;
+const USER_VOLUME_STORAGE_KEY = "spaceIndustry.masterVolume";
+const SOUND_OUTPUT_GAIN = 0.25;
+const storedUserMasterVolumeRaw = localStorage.getItem(USER_VOLUME_STORAGE_KEY);
+const storedUserMasterVolume = Number(storedUserMasterVolumeRaw);
+let userMasterVolume = storedUserMasterVolumeRaw !== null && Number.isFinite(storedUserMasterVolume)
+  ? Math.max(0, Math.min(1, storedUserMasterVolume))
+  : 0.5;
+let volumeSliderDragging = false;
 let audioUnlocked = false;
 let menuThrusterSound = null;
 const logoImage = new Image();
 logoImage.src = "Graphics/Logo.png";
 
 function getSoundVolume(name) {
-  return MASTER_SOUND_VOLUME * (SOUND_VOLUMES[name] ?? 1);
+  const individualFactor = Math.max(0, Number(SOUND_VOLUMES[name]) || 0);
+  return Math.max(0, Math.min(1, MASTER_SOUND_VOLUME * userMasterVolume * SOUND_OUTPUT_GAIN * individualFactor));
+}
+
+function setUserMasterVolume(value) {
+  userMasterVolume = Math.max(0, Math.min(1, Number(value) || 0));
+  localStorage.setItem(USER_VOLUME_STORAGE_KEY, String(userMasterVolume));
+
+  for (const name in soundCache) {
+    soundCache[name].volume = getSoundVolume(name);
+  }
+  for (const audio of activeBackgroundSounds) {
+    audio.volume = getSoundVolume("background");
+  }
+  for (const name in activeLayeredSounds) {
+    for (const audio of activeLayeredSounds[name]) {
+      audio.volume = Math.max(0, Math.min(1, getSoundVolume(name) * (audio._volumeVariation || 1)));
+    }
+  }
+  if (menuThrusterSound) {
+    menuThrusterSound.volume = Math.max(0, Math.min(1, MASTER_SOUND_VOLUME * userMasterVolume * 0.045));
+  }
 }
 
 function getSound(name) {
@@ -126,10 +159,11 @@ function getSound(name) {
 function unlockAudio() {
   if (audioUnlocked || typeof Audio === "undefined") return;
   audioUnlocked = true;
-  updateLoopSound("background", true);
+  updateBackgroundSound(true);
 }
 
 function playSound(name, minInterval = 80) {
+  if (buildMode && name !== "mouse") return;
   const now = performance.now();
   if ((lastSoundAt[name] || 0) + minInterval > now) return;
   lastSoundAt[name] = now;
@@ -164,10 +198,72 @@ function updateLoopSound(name, active) {
   }
 }
 
+function stopLayeredSound(name) {
+  const sounds = activeLayeredSounds[name];
+  if (sounds) {
+    for (const audio of sounds) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    sounds.clear();
+  }
+  nextLayeredSoundAt[name] = 0;
+}
+
+function updateLayeredSound(name, active, restartMs) {
+  if (!active || !audioUnlocked || typeof Audio === "undefined" || !SOUND_FILES[name]) {
+    stopLayeredSound(name);
+    return;
+  }
+
+  if (!activeLayeredSounds[name]) activeLayeredSounds[name] = new Set();
+  if (activeLayeredSounds[name].size >= 2) return;
+  const now = performance.now();
+  if ((nextLayeredSoundAt[name] || 0) > now) return;
+
+  const audio = new Audio(SOUND_FILES[name]);
+  audio.loop = false;
+  audio.preload = "auto";
+  audio._volumeVariation = 0.92 + Math.random() * 0.16;
+  audio.volume = Math.max(0, Math.min(1, getSoundVolume(name) * audio._volumeVariation));
+  activeLayeredSounds[name].add(audio);
+  audio.addEventListener("ended", () => activeLayeredSounds[name].delete(audio), { once: true });
+  audio.play().catch(() => activeLayeredSounds[name].delete(audio));
+  nextLayeredSoundAt[name] = now + restartMs;
+}
+
+function updateBackgroundSound(active) {
+  if (!active || !audioUnlocked || typeof Audio === "undefined" || !SOUND_FILES.background) {
+    for (const audio of activeBackgroundSounds) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    activeBackgroundSounds.clear();
+    nextBackgroundSoundAt = 0;
+    return;
+  }
+
+  const now = performance.now();
+  if (nextBackgroundSoundAt > now) return;
+
+  const audio = new Audio(SOUND_FILES.background);
+  audio.loop = false;
+  audio.volume = getSoundVolume("background");
+  audio.preload = "auto";
+  activeBackgroundSounds.add(audio);
+  audio.addEventListener("ended", () => activeBackgroundSounds.delete(audio), { once: true });
+  audio.play().catch(() => activeBackgroundSounds.delete(audio));
+
+  nextBackgroundSoundAt = now + 5000;
+}
+
 function stopAllLoopSounds() {
   for (const name in SOUND_FILES) {
+    if (name === "background") continue;
     updateLoopSound(name, false);
   }
+  for (const name in activeLayeredSounds) stopLayeredSound(name);
+  updateBackgroundSound(false);
   updateMenuThrusterSound(false);
 }
 
@@ -180,7 +276,7 @@ function updateMenuThrusterSound(active) {
     menuThrusterSound.preload = "auto";
   }
 
-  menuThrusterSound.volume = MASTER_SOUND_VOLUME * 0.045;
+  menuThrusterSound.volume = Math.max(0, Math.min(1, MASTER_SOUND_VOLUME * userMasterVolume * 0.045));
 
   if (active) {
     if (menuThrusterSound.paused) {
@@ -296,6 +392,9 @@ let tutorialMapTimer = 0;
 let tutorialPrecisionTimer = 0;
 let tutorialWorldReturnTimer = 0;
 let tutorialStepDelayTimer = 0;
+let tutorialTypewriterKey = "";
+let tutorialTypewriterTime = 0;
+let tutorialTypewriterDone = false;
 let pendingTutorialEvent = null;
 const tutorialSeen = new Set();
 let saveSelectionMode = null;

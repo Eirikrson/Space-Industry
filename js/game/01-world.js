@@ -451,7 +451,7 @@ function createAmbientSystemAsteroid(star, maxRadius, kind = "rock") {
     asteroid._beltStar = star;
     asteroid._beltDist = dist;
     asteroid._beltAngle = angle;
-    asteroid._beltOrbitSpeed = (0.000015 + worldRand() * 0.000025) * (worldRand() < 0.5 ? 1 : -1) * (CONFIG.GRID_SIZE * 400 / Math.max(dist, 1));
+    asteroid._beltOrbitSpeed = (0.000002 + worldRand() * 0.000004) * (worldRand() < 0.5 ? 1 : -1) * (CONFIG.GRID_SIZE * 400 / Math.max(dist, 1));
     asteroid._ambientSystemAsteroid = true;
     return asteroid;
   }
@@ -968,7 +968,7 @@ class AsteroidBelt {
     this.innerR = innerR;
     this.outerR = outerR;
     this.kind = kind; // "inner" or "outer"
-    this.orbitSpeed = 0.000015 + worldRand() * 0.00001;
+    this.orbitSpeed = 0.000003 + worldRand() * 0.000002;
     this.orbitAngle = 0;
     this.rocks = [];
 
@@ -978,7 +978,7 @@ class AsteroidBelt {
       const dist = innerR + rng() * (outerR - innerR);
       const size = 6 + rng() * 22;
       const isIce = kind === "outer" && rng() < 0.1;
-      const speed = (0.00003 + rng() * 0.00004) * (1000 / Math.max(dist, 500));
+      const speed = (0.000004 + rng() * 0.000006) * (1000 / Math.max(dist, 500));
       const dir = rng() < 0.5 ? 1 : -1;
       this.rocks.push({ angle, dist, size, isIce, orbitSpeed: speed * dir });
     }

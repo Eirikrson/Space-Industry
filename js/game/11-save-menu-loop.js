@@ -137,6 +137,7 @@ function createSavePayload(name) {
     buildCamera: stripRuntimeState(buildCamera),
     res: stripRuntimeState(res),
     placedModules: stripRuntimeState(placedModules),
+    salvageModules: stripRuntimeState(salvageModules),
     smallShips: stripRuntimeState(smallShips),
     enemyShips: stripRuntimeState(enemyShips),
     combatBullets: [],
@@ -255,6 +256,7 @@ function resetGameRuntime() {
   enemyShipsDestroyed = 0;
   endRobotDiscoveryShown = false;
   blueprints.length = 0;
+  salvageModules.length = 0;
   demolishSet.clear();
   combatBullets.length = 0;
   for (const key in keys) keys[key] = false;
@@ -689,10 +691,8 @@ function getBlackHoleEndingLayout() {
 }
 
 function getAutosaveAgeSeconds(save = readSaveSlot("auto")) {
-  if (!save?.savedAt) return 0;
-  const savedAt = Date.parse(save.savedAt);
-  if (!Number.isFinite(savedAt)) return 0;
-  return Math.max(0, Math.floor((Date.now() - savedAt) / 1000));
+  if (!save) return 0;
+  return Math.max(0, Math.floor((worldPlayTime || 0) - (save.worldPlayTime || 0)));
 }
 
 function formatAutosaveAge(save) {
@@ -1008,6 +1008,14 @@ function loadSavePayload(payload) {
   const normalizeSavedModule = module => normalizeModuleShape({ ...module, type: normalizeModuleType(module.type) });
   placedModules.length = 0;
   placedModules.push(...(payload.placedModules || []).map(normalizeSavedModule));
+  salvageModules.length = 0;
+  salvageModules.push(...(payload.salvageModules || []).map(item => ({
+    ...item,
+    type: normalizeModuleType(item.type),
+    w: Math.max(1, Number(item.w) || 1),
+    h: Math.max(1, Number(item.h) || 1),
+    rot: Number(item.rot) || 0
+  })));
   smallShips.length = 0;
   smallShips.push(...(payload.smallShips || []).map(smallShip => ({
     ...smallShip,
@@ -2104,6 +2112,7 @@ function loop(now) {
     stopAllLoopSounds();
     if (!inactiveOverlayDrawn) {
       drawInactiveWindowOverlay();
+      drawGlobalVolumeControl();
       inactiveOverlayDrawn = true;
     }
     requestAnimationFrame(loop);
@@ -2123,14 +2132,18 @@ function loop(now) {
 
   if (appState === "start") {
     updateMenuThrusterSound(true);
+    updateBackgroundSound(audioUnlocked);
     drawStartMenu();
+    drawGlobalVolumeControl();
     requestAnimationFrame(loop);
     return;
   }
 
   if (appState === "menu") {
     updateMenuThrusterSound(true);
+    updateBackgroundSound(audioUnlocked);
     drawMainMenu();
+    drawGlobalVolumeControl();
     requestAnimationFrame(loop);
     return;
   }
@@ -2141,6 +2154,7 @@ function loop(now) {
     blackHoleEndingTimer += dt;
     drawBlackHoleEnding();
     drawUiDialog();
+    drawGlobalVolumeControl();
     requestAnimationFrame(loop);
     return;
   }
@@ -2236,7 +2250,15 @@ function loop(now) {
     autosaveIfNeeded();
     updateGameSounds();
   } else {
-    stopAllLoopSounds();
+    updateBackgroundSound(false);
+    updateLayeredSound("thruster", false, 7000);
+    updateLoopSound("building", false);
+    updateLoopSound("assembler", false);
+    updateLoopSound("turbine", false);
+    updateLayeredSound("smelter", false, 1000);
+    updateLayeredSound("drill", false, 1000);
+    updateLoopSound("turretTurn", false);
+    if (buildMode) updateLoopSound("tutorial", false);
   }
 
   drawModules();
@@ -2261,6 +2283,7 @@ function loop(now) {
   }
 
   drawUiDialog();
+  drawGlobalVolumeControl();
 
   requestAnimationFrame(loop);
 }

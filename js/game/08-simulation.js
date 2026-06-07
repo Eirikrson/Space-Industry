@@ -66,7 +66,8 @@ function updateBuildMode() {
       rot: rotation,
       tankContent: heldItem.tankContent,
       tankCap: heldItem.tankCap,
-      freeBuild: !!heldItem.freeBuild
+      freeBuild: !!heldItem.freeBuild,
+      salvageSource: heldItem.salvageSource ? { ...heldItem.salvageSource } : undefined
     });
 
     lastBlueprintKey = key;
@@ -135,7 +136,10 @@ function processCommit() {
       placedAny = false;
       const stillPending = [];
       for (const bp of pending) {
-        if (!canPlaceModule(bp.x, bp.y, bp.w, bp.h, next)) continue;
+        if (!canPlaceModule(bp.x, bp.y, bp.w, bp.h, next)) {
+          returnSalvageBlueprint(bp);
+          continue;
+        }
         const testModule = { id: -1, x: bp.x, y: bp.y, type: bp.type, w: bp.w, h: bp.h, rot: bp.rot || 0 };
         if (isConnected(next.concat(testModule))) {
           if (!bp.freeBuild && !payCost(BUILD_COSTS[bp.type])) {
@@ -155,6 +159,7 @@ function processCommit() {
       pending = stillPending;
     }
     if (pending.length > 0) {
+      returnSalvageBlueprints(pending);
       flash(`${pending.length} blueprint(s) not reachable - skipped`);
     }
 
@@ -534,10 +539,6 @@ function updateResources(dt) {
         if (m._drillTarget !== target) {
           m._drillTarget = target;
           m._drillProgress = 0;
-          if (m._lastDrillSoundTarget !== target) {
-            playSound("drill", 500);
-            m._lastDrillSoundTarget = target;
-          }
         }
 
         m._drillProgress = (m._drillProgress || 0) + dt;
@@ -546,7 +547,6 @@ function updateResources(dt) {
         if (m._drillProgress >= stats.drillTime) {
           harvestAsteroid(target);
           m._drillTarget = null;
-          m._lastDrillSoundTarget = null;
           m._drillProgress = 0;
         }
       } else {
@@ -1007,7 +1007,30 @@ function updateTurretGuns(dt) {
 }
 
 function updateGameSounds() {
-  updateLoopSound("background", audioUnlocked);
+  const audioPaused = appState !== "playing"
+    || buildMode
+    || mapVisible
+    || researchWindowOpen
+    || !!assemblerWindowModule
+    || turretControlWindowOpen
+    || !!activeSmallShipEdit
+    || dysonPanelOpen
+    || !!uiDialog
+    || !!tutorialOverlay;
+
+  if (audioPaused) {
+    updateBackgroundSound(false);
+    updateLayeredSound("thruster", false, 7000);
+    updateLoopSound("building", false);
+    updateLoopSound("assembler", false);
+    updateLoopSound("turbine", false);
+    updateLayeredSound("smelter", false, 1000);
+    updateLayeredSound("drill", false, 1000);
+    updateLoopSound("turretTurn", false);
+    return;
+  }
+
+  updateBackgroundSound(audioUnlocked);
 
   const thrusterActive = placedModules.some(module => module._thrustActive)
     || smallShips.some(smallShip => smallShip._thrusting)
@@ -1017,11 +1040,12 @@ function updateGameSounds() {
     || (repairMode && !!getMostDamagedModule())
     || smallShips.some(smallShip => smallShip.repairTargetModuleId || smallShip.status === "building");
 
-  updateLoopSound("thruster", thrusterActive);
+  updateLayeredSound("thruster", thrusterActive, 7000);
   updateLoopSound("building", buildingActive);
   updateLoopSound("assembler", placedModules.some(module => module._machineActive === "assembler"));
   updateLoopSound("turbine", placedModules.some(module => module._machineActive === "turbine"));
-  updateLoopSound("smelter", placedModules.some(module => module._machineActive === "smelter"));
-  updateLoopSound("drill", false);
+  updateLayeredSound("smelter", placedModules.some(module => module._machineActive === "smelter"), 1000);
+  const drillActive = shipLanded || placedModules.some(module => module._machineActive === "drill");
+  updateLayeredSound("drill", drillActive, 1000);
   updateLoopSound("turretTurn", placedModules.some(module => isTurretType(module.type) && module._turning));
 }

@@ -278,9 +278,12 @@ function getReachableBlueprints(sourceBlueprints = blueprints) {
 
 function pruneUnreachableBlueprints() {
   const reachable = getReachableBlueprints();
-  const removed = blueprints.length - reachable.length;
+  const reachableIds = new Set(reachable.map(blueprint => blueprint.id));
+  const removedBlueprints = blueprints.filter(blueprint => !reachableIds.has(blueprint.id));
+  const removed = removedBlueprints.length;
 
   if (removed > 0) {
+    returnSalvageBlueprints(removedBlueprints);
     blueprints.length = 0;
     blueprints.push(...reachable);
     flash(`${removed} disconnected blueprint(s) removed`);

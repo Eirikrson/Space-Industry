@@ -36,6 +36,10 @@
 - Enthaelt Bild-Sprites mit Dateipfad, Frame-Anzahl und Animationsgeschwindigkeit.
 - Enthaelt Sound-Dateipfade und Lautstaerke-Faktoren.
 - Enthaelt `labFinish` fuer den Sound `Sounds/LabFinish.mp3`, der bei abgeschlossener Forschung abgespielt wird.
+- Enthaelt `tutorial` fuer den geloopten Sound `Sounds/Tutorial.mp3`, der nur waehrend des Typewriter-Texts laeuft.
+- Die individuellen `SOUND_VOLUMES` werden mit einem festen Grundpegel multipliziert: Ein Faktor `2` ist doppelt so laut wie `1`, ohne die anderen Sounds zu veraendern.
+- Startet den Background-Sound alle 5 Sekunden als neue Instanz, sodass ein leicht laengerer vorheriger Durchlauf weich ausklingen kann.
+- Startet Thruster alle 7 Sekunden sowie Smelter und Drill jede Sekunde ueberlappend neu; aktive Instanzen erhalten eine kleine Lautstaerkevariation und sind pro Sound auf zwei begrenzt.
 - Maschinen mit mehreren Groessen nutzen MK-Namen und passende Dateinamen wie `TankMK1.png` oder `HangarMK3.png`.
 - Turret-Vorschau-Sprites verweisen auf vorhandene Basis- oder Off-Sprites; aktive Varianten werden im Kampfsystem separat ausgewaehlt.
 - Trennt Asset-Daten von der Spiellogik.
@@ -197,13 +201,17 @@
 - Zeichnet Dyson-Sphaeren um Sterne, den Orbit-Button `Build Dyson sphere` und das Baupanel unten rechts.
 - Zeichnet Turret-Tab-Icons inklusive Oberteil statt nur der Basis.
 - Zeichnet lange Tooltip-Beschreibungen mit Zeilenumbruch, damit Texte nicht gequetscht werden.
-- Das Salvage-Panel zentriert Icon und Titel vertikal, zeigt die Modulgroesse rechts und bietet pro Typ eine rote `delete`-Aktion.
+- Das Salvage-Panel zentriert Icon und Titel vertikal und bietet pro Typ eine rote `delete`-Aktion.
+- Salvage-Module werden unabhaengig von ihrer Drehung gestapelt; die separate graue Groessenanzeige wurde entfernt und Icons sind kompakter.
+- Automatisch oder manuell entfernte Salvage-Blaupausen geben ihr kostenloses Modul an das Salvage-Panel zurueck. Normale unbezahlte Blaupausen bleiben unveraendert.
 - Enthaelt die meisten Canvas-Ausgabefunktionen.
 - Sollte erweitert werden, wenn neue sichtbare Panels oder Anzeigen dazukommen.
 
 ### `js/game/08-simulation.js`
 - Aktualisiert Build-Kamera, Build-Commit, Ressourcen und Gefahren.
 - Enthaelt Produktionslogik fuer Maschinen und Crew-Reparaturen.
+- Spielt den Drill-Sound als Loop, solange ein Bohrer arbeitet oder das Mutterschiff auf einem Planeten gelandet ist.
+- Stoppt Gameplay- und Background-Sounds in pausierenden Ansichten wie Baumodus, Hangar, Map, Labor, Maschinenfenstern und Dialogen; Maus-Klicks bleiben im Baumodus hoerbar.
 - Prueft Weltraumgefahren nur in den aktiven Welt-Chunks um Mutterschiff und Flotte.
 - Prueft grosse Koerper ueber ihre Kreisflaeche gegen aktive Chunks, damit Kollisionen mit Planeten, Sternen und schwarzem Loch auch an der Oberflaeche erkannt werden.
 - Nutzt guenstigere quadratische Distanzvergleiche in Kollisionspfaden, wenn keine echte Distanz gebraucht wird.
@@ -230,6 +238,7 @@
 - Tutorial-Hinweise warten auf die passende Spieleraktion und kurze Ausprobierzeiten, statt direkt den naechsten Text zu zeigen.
 - Map-Tutorials erscheinen nur in der normalen Welt und nicht im Baumodus; nach 2 Sekunden Kartenansicht folgt ein eigener Linksklick-Hinweis fuer Sonnensysteme.
 - Tutorial-Fenster erscheinen nur im normalen Flug ohne Labor-, Assembler-, Turret-, Dyson-, Dialog- oder Bauansicht; die Map-Ausnahme gilt nur fuer den System-Klick-Hinweis.
+- Tutorial-Texte werden mit Typewriter-Effekt eingeblendet; ein Klick auf `Ok` zeigt erst den ganzen Text und bestaetigt erst beim naechsten Klick.
 - Bereits ausgefuehrte Aktionen wie Map oeffnen oder Toggles verhindern, dass der passende Tutorial-Hinweis spaeter nachtraeglich erscheint.
 - Quantum-computer-Hinweise zeigen den aktuellen Fortschritt fuer benoetigte Gravitational-pull-Stabilizer.
 - Sollte erweitert werden, wenn neue gefuehrte Einstiegsschritte dazukommen.
@@ -241,13 +250,17 @@
 - Speichert und laedt die laufende Spielzeit, die in der UI angezeigt wird.
 - Alte Saves starten nicht automatisch mit Admin-Build, neue Saves behalten die bewusst gespeicherte Einstellung.
 - Enthaelt den Hauptloop, der Update- und Draw-Funktionen in der richtigen Reihenfolge aufruft.
+- Zeichnet den globalen Lautstaerkeregler als oberste UI-Ebene in allen Spiel-, Karten-, Bau-, Dialog- und Menuezustaenden.
+- Speichert die eingestellte Gesamtlautstaerke unter `spaceIndustry.masterVolume` in den Browserdaten.
 - Aktualisiert und zeichnet im normalen Flug nur aktive Sonnensysteme und Asteroidenbereiche.
 - Synchronisiert alle Stern- und Planetenpositionen nur dann auf die aktuelle Spielzeit, wenn die Galaxy Map geoeffnet ist.
 - Speichert und laedt Dyson-Sphaeren sowie den Black-Hole-Abschlussstatus.
+- Speichert und laedt die noch nicht verbauten Module aus dem Salvage-Fenster.
 - Zeigt das Black-Hole-Ende als eigenen Spielzustand mit Verlust- oder Erfolgsmeldung, Download-Result-Button, Continue-Button fuer die Welt `End` und Quit-Button zum Homescreen.
 - Zeigt bei Black-Hole-Verlust die fehlenden Anforderungen an: Energie, Event-horizon-Shields, Stabilizer und Quantum computer.
 - Nutzt denselben Game-Over-Zustand auch fuer andere Todesursachen und bietet `Load Autosave [Sekunden]` direkt im Verlustfenster an.
 - Autosaves rotieren minuetlich durch die letzten drei Staende; Ladebildschirm und Game-Over-Auswahl lassen den Spieler einen dieser drei Staende auswaehlen.
+- Autosave-Alter wird aus der Spielzeit berechnet, nicht aus echter Uhrzeit, damit Timer im Homescreen oder nach Game Over nicht weiterlaufen.
 - Der Quantum computer kann im Schiff angeklickt werden und zeigt Energie-, Stabilizer-, Quantum- und dynamische Shield-Anforderungen fuer das schwarze Loch.
 - Erstellt beim Download ein PNG mit Mutterschiff, Spielzeit, zerstoerten Gegnern, Datum, Version, Logo und Spielernamen.
 - Die Endwelt enthaelt zwei fertige Dyson-Sphaeren an Sternen, die Energie liefern und Gegnerangriffe provozieren.

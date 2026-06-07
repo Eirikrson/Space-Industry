@@ -397,7 +397,8 @@ function removeBlueprintAt(grid) {
   );
 
   if (index !== -1) {
-    blueprints.splice(index, 1);
+    const [removed] = blueprints.splice(index, 1);
+    returnSalvageBlueprint(removed);
     return true;
   }
 
@@ -414,8 +415,17 @@ function getImageSprite(name) {
   return data;
 }
 
+function getThumbnailSpriteName(name) {
+  if (getImageSprite(name)) return name;
+  if (name === "Main Thruster" && getImageSprite("Main Thruster Off")) return "Main Thruster Off";
+  if (name === "RCS Thruster" && getImageSprite("RCS Thruster Off")) return "RCS Thruster Off";
+  if (name.startsWith("Computer MK") && getImageSprite("Computer")) return "Computer";
+  if (name === "Quantum computer" && getImageSprite("Computer")) return "Computer";
+  return name;
+}
+
 function drawImageSprite(name, x, y, w, h) {
-  const data = getImageSprite(name);
+  const data = getImageSprite(getThumbnailSpriteName(name));
   if (!data) return false;
 
   const img = data.image;
@@ -507,7 +517,7 @@ function openCrewManagement(cx, cy) {
   note.style.font = "11px Consolas, monospace";
   note.style.lineHeight = "15px";
   note.style.padding = "4px 6px 2px";
-  note.textContent = "Population affects future build speed and ship operations.";
+  note.textContent = "Population affects build and repair speed.";
   ddOverlay.appendChild(note);
 
   ddOverlay.style.left = cx + "px";
@@ -988,6 +998,10 @@ window.addEventListener("mousedown", e => {
   unlockAudio();
   canvas.focus();
   updateMouseFromEvent(e);
+  if (e.button === 0 && handleGlobalVolumeSliderMouseDown(mouse.x, mouse.y)) {
+    e.preventDefault();
+    return;
+  }
   playSound("mouse", 40);
 
   if (handleTutorialClick(mouse.x, mouse.y)) return;
@@ -1161,6 +1175,7 @@ window.addEventListener("mousedown", e => {
 
 window.addEventListener("mouseup", e => {
   if (e.button === 0) {
+    volumeSliderDragging = false;
     mouseDown = false;
     dragging = false;
     lastBlueprintKey = "";
@@ -1181,6 +1196,11 @@ function updateMouseFromEvent(e) {
 
   mouse.x = e.clientX - rect.left;
   mouse.y = e.clientY - rect.top;
+
+  if (volumeSliderDragging) {
+    updateGlobalVolumeSlider(mouse.x);
+    return;
+  }
 
   hoveredGrid = screenToGrid(mouse.x, mouse.y);
   hoveredInventoryItem = buildMode ? getInventoryButtonAt(mouse.x, mouse.y) : null;

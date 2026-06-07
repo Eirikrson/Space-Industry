@@ -1818,7 +1818,7 @@ function drawSalvagePanel() {
     ctx.strokeStyle = "rgba(100,150,255,0.5)";
     ctx.strokeRect(rowX, rowY, rowW, rowH);
 
-    const iconSize = 38;
+    const iconSize = 30;
     const iconX = rowX + 16;
     const iconY = rowY + rowH / 2 - iconSize / 2;
     const iconDrawn = isTurretType(item.type)
@@ -1830,19 +1830,32 @@ function drawSalvagePanel() {
     }
 
     ctx.fillStyle = "white";
-    ctx.font = "bold 12px Consolas, monospace";
+    ctx.font = "bold 11px Consolas, monospace";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
+    const titleX = iconX + iconSize + 10;
+    const deleteButtonX = layout.x + layout.width - 70;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(titleX, rowY, Math.max(20, deleteButtonX - titleX - 6), rowH);
+    ctx.clip();
     ctx.fillText(`[${item.count}x] ${item.type}`, iconX + iconSize + 12, rowY + rowH / 2);
+    ctx.restore();
 
-    ctx.fillStyle = "rgba(255,255,255,0.58)";
-    ctx.font = "10px Consolas, monospace";
-    ctx.textAlign = "right";
-    ctx.fillText(`${item.w}x${item.h}`, layout.x + layout.width - 84, rowY + rowH / 2);
+    const deleteY = rowY + 6;
+    const deleteW = 52;
+    const deleteH = rowH - 12;
+    ctx.fillStyle = "rgba(150, 24, 34, 0.18)";
+    ctx.fillRect(deleteButtonX, deleteY, deleteW, deleteH);
+    ctx.strokeStyle = "rgba(255,80,80,0.95)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(deleteButtonX, deleteY, deleteW, deleteH);
 
     ctx.fillStyle = "#ff6666";
     ctx.font = "bold 10px Consolas, monospace";
-    ctx.fillText("delete", layout.x + layout.width - 18, rowY + rowH / 2);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("delete", deleteButtonX + deleteW / 2, deleteY + deleteH / 2);
   }
 }
 
@@ -2272,6 +2285,57 @@ function drawPlanetResourceTooltip() {
 
   if (!cached || cached === false) return;
   drawResourceSurveyTooltip(cached.title, cached.entries);
+}
+
+function getGlobalVolumeSliderLayout() {
+  return {
+    x: 15,
+    y: VIEW.h - 62,
+    w: 132,
+    h: 26,
+    trackX: 48,
+    trackY: VIEW.h - 49,
+    trackW: 86
+  };
+}
+
+function drawGlobalVolumeControl() {
+  const slider = getGlobalVolumeSliderLayout();
+  ctx.save();
+  ctx.fillStyle = "rgba(4, 10, 30, 0.9)";
+  ctx.fillRect(slider.x, slider.y, slider.w, slider.h);
+  ctx.strokeStyle = "rgba(100,150,255,0.65)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(slider.x, slider.y, slider.w, slider.h);
+
+  ctx.fillStyle = "white";
+  ctx.font = "11px Consolas, monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText("VOL", slider.x + 8, slider.trackY);
+
+  ctx.fillStyle = "rgba(255,255,255,0.18)";
+  ctx.fillRect(slider.trackX, slider.trackY - 3, slider.trackW, 6);
+  ctx.fillStyle = "#55bfff";
+  ctx.fillRect(slider.trackX, slider.trackY - 3, slider.trackW * userMasterVolume, 6);
+
+  const knobX = slider.trackX + slider.trackW * userMasterVolume;
+  ctx.fillStyle = "#e8f7ff";
+  ctx.fillRect(knobX - 3, slider.trackY - 7, 6, 14);
+  ctx.restore();
+}
+
+function updateGlobalVolumeSlider(mx) {
+  const slider = getGlobalVolumeSliderLayout();
+  setUserMasterVolume((mx - slider.trackX) / slider.trackW);
+}
+
+function handleGlobalVolumeSliderMouseDown(mx, my) {
+  const slider = getGlobalVolumeSliderLayout();
+  if (mx < slider.x || mx > slider.x + slider.w || my < slider.y || my > slider.y + slider.h) return false;
+  volumeSliderDragging = true;
+  updateGlobalVolumeSlider(mx);
+  return true;
 }
 
 function roundRect(x, y, w, h, r) {

@@ -174,15 +174,23 @@ function showTutorialStep(index) {
   const step = TUTORIAL_STEPS[index];
   const allowMap = step.waitFor === "mapSystemClicked" || step.waitFor === "mapClosed";
   tutorialOverlay = step.triggerOnly || !isTutorialFlightUiClear({ allowMap }) ? null : step;
+  resetTutorialTypewriter();
 }
 
 function advanceTutorial() {
+  if (tutorialOverlay && !tutorialTypewriterDone) {
+    finishTutorialTypewriter();
+    return;
+  }
+
   if (tutorialOverlay?.source === "event") {
     tutorialOverlay = null;
+    resetTutorialTypewriter();
     return;
   }
 
   tutorialOverlay = null;
+  resetTutorialTypewriter();
   const current = TUTORIAL_STEPS[tutorialStepIndex];
   if (current && current.waitFor === "ok") {
     tutorialSeen.add(current.id);
@@ -198,6 +206,7 @@ function skipTutorial() {
   tutorialSkipped = true;
   tutorialActive = false;
   tutorialOverlay = null;
+  resetTutorialTypewriter();
 }
 
 function tutorialEvent(id) {
@@ -210,6 +219,7 @@ function tutorialEvent(id) {
   }
   tutorialSeen.add(id);
   tutorialOverlay = { ...step, source: "event", waitFor: "ok" };
+  resetTutorialTypewriter();
 }
 
 function notifyTutorialModuleBuilt(type) {
@@ -238,6 +248,7 @@ function notifyTutorialBuildOpened() {
   tutorialStepIndex = Math.max(tutorialStepIndex, 7);
   pendingTutorialEvent = null;
   tutorialOverlay = isTutorialFlightUiClear() ? TUTORIAL_STEPS[7] : null;
+  resetTutorialTypewriter();
 }
 
 function notifyTutorialMapSystemClicked() {
@@ -269,6 +280,41 @@ function notifyTutorialQuantumComputerBuilt() {
     body: `Quantum navigation is installed. For black-hole travel you need ${need} Gravitational pull stabilizer. Current stabilizers: ${have}/${need}. Event horizon Shields depend on ship size: ${ready.eventShields}/${ready.requiredShields}. You also need 45000 stored energy.`,
     waitFor: "ok"
   };
+  resetTutorialTypewriter();
+}
+
+function resetTutorialTypewriter() {
+  tutorialTypewriterKey = "";
+  tutorialTypewriterTime = 0;
+  tutorialTypewriterDone = false;
+  drawTutorialOverlay._lastAt = performance.now();
+  updateLoopSound("tutorial", false);
+}
+
+function finishTutorialTypewriter() {
+  if (!tutorialOverlay) return;
+  tutorialTypewriterKey = `${tutorialOverlay.title || ""}|${tutorialOverlay.body || ""}`;
+  tutorialTypewriterTime = 9999;
+  tutorialTypewriterDone = true;
+  updateLoopSound("tutorial", false);
+}
+
+function getTutorialTypewriterText(fullText) {
+  const key = `${tutorialOverlay?.title || ""}|${fullText || ""}`;
+  if (tutorialTypewriterKey !== key) {
+    tutorialTypewriterKey = key;
+    tutorialTypewriterTime = 0;
+    tutorialTypewriterDone = false;
+  }
+
+  tutorialTypewriterTime += Math.min(0.05, Math.max(0, (performance.now() - (drawTutorialOverlay._lastAt || performance.now())) / 1000));
+  drawTutorialOverlay._lastAt = performance.now();
+
+  const charsPerSecond = 34;
+  const shown = Math.min(String(fullText || "").length, Math.floor(tutorialTypewriterTime * charsPerSecond));
+  tutorialTypewriterDone = shown >= String(fullText || "").length;
+  updateLoopSound("tutorial", !tutorialTypewriterDone);
+  return String(fullText || "").slice(0, shown);
 }
 
 function updateTutorial(dt) {
@@ -379,7 +425,10 @@ function wrapTutorialText(textValue, maxWidth) {
 }
 
 function drawTutorialOverlay() {
-  if (!tutorialOverlay) return;
+  if (!tutorialOverlay) {
+    updateLoopSound("tutorial", false);
+    return;
+  }
   const layout = getTutorialLayout();
 
   ctx.fillStyle = "rgba(0,0,0,0.52)";
@@ -397,7 +446,8 @@ function drawTutorialOverlay() {
   ctx.fillText(tutorialOverlay.title, layout.x + 28, layout.y + 26);
 
   ctx.font = "15px Consolas, monospace";
-  const lines = wrapTutorialText(tutorialOverlay.body, layout.w - 56);
+  const visibleBody = getTutorialTypewriterText(tutorialOverlay.body);
+  const lines = wrapTutorialText(visibleBody, layout.w - 56);
   let y = layout.y + 68;
   for (const line of lines) {
     ctx.fillText(line, layout.x + 28, y);

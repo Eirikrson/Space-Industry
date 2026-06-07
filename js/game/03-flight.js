@@ -433,7 +433,7 @@ function isAsteroidInBelt(asteroid, belt) {
 
 function createDynamicBeltAsteroid(belt, maxTiles = 50) {
   const shipEdgeRadius = getShipCollisionRadius();
-  const minRadius = shipEdgeRadius + CONFIG.GRID_SIZE * 12;
+  const minRadius = shipEdgeRadius + CONFIG.GRID_SIZE * 20;
   const maxRadius = shipEdgeRadius + CONFIG.GRID_SIZE * maxTiles;
 
   for (let tries = 0; tries < 30; tries++) {
@@ -451,7 +451,7 @@ function createDynamicBeltAsteroid(belt, maxTiles = 50) {
     asteroid._beltStar = belt.star;
     asteroid._beltDist = dist;
     asteroid._beltAngle = Math.atan2(y - belt.star.y, x - belt.star.x);
-    asteroid._beltOrbitSpeed = (belt.kind === "inner" ? 0.00055 : 0.00022) * (Math.random() < 0.5 ? 1 : -1) * (belt.innerR / Math.max(dist, 1));
+    asteroid._beltOrbitSpeed = (belt.kind === "inner" ? 0.000045 : 0.000018) * (Math.random() < 0.5 ? 1 : -1) * (belt.innerR / Math.max(dist, 1));
     asteroid.size *= belt.kind === "inner" ? 0.9 : 1.1;
     return asteroid;
   }
@@ -461,7 +461,7 @@ function createDynamicBeltAsteroid(belt, maxTiles = 50) {
 
 function updateDynamicBeltAsteroids() {
   const activeBelt = getBeltAtShip();
-  const keepRadius = getShipCollisionRadius() + CONFIG.GRID_SIZE * 50;
+  const keepRadius = getShipCollisionRadius() + CONFIG.GRID_SIZE * 65;
 
   for (let i = asteroids.length - 1; i >= 0; i--) {
     const asteroid = asteroids[i];
@@ -486,7 +486,7 @@ function updateDynamicBeltAsteroids() {
   ).length;
 
   for (let i = localCount; i < targetLocalCount; i++) {
-    const asteroid = createDynamicBeltAsteroid(activeBelt, 50);
+    const asteroid = createDynamicBeltAsteroid(activeBelt, 65);
     if (asteroid) asteroids.push(asteroid);
   }
 }

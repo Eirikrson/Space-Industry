@@ -313,15 +313,15 @@
       "frames": 1
     }
   },
-  "MASTER_SOUND_VOLUME": 0.34,
+  "MASTER_SOUND_VOLUME": 1,
   "SOUND_VOLUMES": {
-    "thruster": 2,
+    "thruster": 1,
     "building": 1,
-    "mouse": 2,
+    "mouse": 2.5,
     "toggle": 0.4,
-    "items": 1,
-    "background": 1,
-    "enemyDetected": 1,
+    "items": 0.5,
+    "background": 0.5,
+    "enemyDetected": 0.5,
     "assembler": 1,
     "turbine": 1,
     "smelter": 1,
@@ -330,7 +330,8 @@
     "turretShot": 1,
     "explosion": 1,
     "drill": 1,
-    "labFinish": 1
+    "labFinish": 1,
+    "tutorial": 4
   },
   "SOUND_FILES": {
     "thruster": "Sounds/Thruster.mp3",
@@ -348,6 +349,7 @@
     "turretShot": "Sounds/TurretShot.mp3",
     "explosion": "Sounds/Explosion.mp3",
     "drill": "Sounds/Drill.mp3",
-    "labFinish": "Sounds/LabFinish.mp3"
+    "labFinish": "Sounds/LabFinish.mp3",
+    "tutorial": "Sounds/Tutorial.mp3"
   }
 }

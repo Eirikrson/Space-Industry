@@ -1174,14 +1174,31 @@ function getSalvagePanelLayout() {
 }
 
 function getSalvageGroupKey(item) {
+  const width = item.w || 1;
+  const height = item.h || 1;
+  const shortSide = Math.min(width, height);
+  const longSide = Math.max(width, height);
   return [
     item.type,
-    item.w || 1,
-    item.h || 1,
-    item.rot || 0,
+    shortSide,
+    longSide,
     item.tankContent || "",
     item.tankCap || ""
   ].join("|");
+}
+
+function returnSalvageBlueprint(blueprint) {
+  if (!blueprint?.freeBuild || !blueprint.salvageSource) return false;
+  salvageModules.push({ ...blueprint.salvageSource });
+  return true;
+}
+
+function returnSalvageBlueprints(blueprintList) {
+  let returned = 0;
+  for (const blueprint of blueprintList || []) {
+    if (returnSalvageBlueprint(blueprint)) returned++;
+  }
+  return returned;
 }
 
 function getGroupedSalvageItems() {
@@ -1233,7 +1250,10 @@ function getSalvageDeleteGroupAt(mx, my) {
   const deleteX = layout.x + layout.width - 70;
   const deleteW = 52;
   const rowY = layout.y + 34 + index * layout.rowH;
-  if (mx >= deleteX && mx <= deleteX + deleteW && my >= rowY && my <= rowY + layout.rowH - 6) return group;
+  const rowH = layout.rowH - 6;
+  const deleteY = rowY + 6;
+  const deleteH = rowH - 12;
+  if (mx >= deleteX && mx <= deleteX + deleteW && my >= deleteY && my <= deleteY + deleteH) return group;
   return null;
 }
 
@@ -1254,15 +1274,20 @@ function deleteSalvageGroup(group) {
 function selectSalvageModule(item) {
   if (!item) return false;
   const source = item.items?.[0] || item;
+  const sourceRot = source.rot || 0;
+  const baseSize = sourceRot % 2 === 0
+    ? [source.w || 1, source.h || 1]
+    : [source.h || 1, source.w || 1];
   heldItem = {
     id: `salvage_${source.id}`,
     name: source.type,
-    size: [source.w, source.h],
+    size: baseSize,
     freeBuild: true,
     tankContent: source.tankContent,
     tankCap: source.tankCap,
     salvageSource: { ...source }
   };
+  rotation = sourceRot;
   const index = salvageModules.indexOf(source);
   if (index !== -1) salvageModules.splice(index, 1);
   openBuildMode();
@@ -1274,11 +1299,12 @@ function selectSalvageModule(item) {
 function takeMatchingSalvageModule(held) {
   if (!held?.freeBuild || !held.salvageSource) return false;
   const source = held.salvageSource;
+  const sourceShortSide = Math.min(source.w || 1, source.h || 1);
+  const sourceLongSide = Math.max(source.w || 1, source.h || 1);
   const index = salvageModules.findIndex(item =>
     item.type === source.type &&
-    (item.w || 1) === (source.w || 1) &&
-    (item.h || 1) === (source.h || 1) &&
-    (item.rot || 0) === (source.rot || 0) &&
+    Math.min(item.w || 1, item.h || 1) === sourceShortSide &&
+    Math.max(item.w || 1, item.h || 1) === sourceLongSide &&
     (item.tankContent || "") === (source.tankContent || "") &&
     (item.tankCap || "") === (source.tankCap || "")
   );
@@ -1287,6 +1313,11 @@ function takeMatchingSalvageModule(held) {
   const next = salvageModules.splice(index, 1)[0];
   held.salvageSource = { ...next };
   held.id = `salvage_${next.id}`;
+  const nextRot = next.rot || 0;
+  held.size = nextRot % 2 === 0
+    ? [next.w || 1, next.h || 1]
+    : [next.h || 1, next.w || 1];
+  rotation = nextRot;
   return true;
 }
 
