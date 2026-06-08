@@ -51,6 +51,7 @@ class Ship {
 
   update(dt) {
     if (buildMode) return;
+    const autopilotControlsFlight = orbitModeActive || landingModeActive;
 
     for (const m of placedModules) {
       const stats = BUILDING_STATS[m.type];
@@ -71,12 +72,15 @@ class Ship {
       const right = Math.abs(normalizeAngle(shipLocalDir)) < 0.5;
 
       let active = false;
-      if (up && keys.w) active = true;
-      if (down && keys.s) active = true;
-      if (left && keys.q) active = true;
-      if (right && keys.e) active = true;
+      if (!autopilotControlsFlight) {
+        if (up && keys.w) active = true;
+        if (down && keys.s) active = true;
+        if (left && keys.q) active = true;
+        if (right && keys.e) active = true;
+      }
 
       if (active) {
+        this._orbitExitCoast = false;
         const thrustScale = precisionThrust ? 0.2 : 1;
         const massFactor = getMassAccelerationFactor(placedModules);
         const worldDir = shipLocalDir + this.angle;
@@ -101,7 +105,7 @@ class Ship {
       }
     }
 
-    if (keys[" "]) {
+    if (keys[" "] && !autopilotControlsFlight) {
       if (!velocityAssistActive) {
         precisionBeforeAssist = precisionThrust;
         lockedApproachTarget = selectedFlightTarget || getMouseFlightObject();
@@ -117,7 +121,7 @@ class Ship {
       }
     }
 
-    this.updateRotation(dt);
+    this.updateRotation(dt, autopilotControlsFlight);
 
     clampVelocity(this);
 
@@ -128,8 +132,12 @@ class Ship {
     updateOrbitMode(dt);
     updateLandingMode(dt);
 
-    this.x += this.vx;
-    this.y += this.vy;
+    // A stable orbit positions the ship directly on its circular path.
+    // Applying velocity again here would move it away from the drawn orbit.
+    if (!landingModeActive && !(orbitModeActive && orbitPhase === "free")) {
+      this.x += this.vx;
+      this.y += this.vy;
+    }
 
     this.x = Math.max(0, Math.min(CONFIG.WORLD_WIDTH, this.x));
     this.y = Math.max(0, Math.min(CONFIG.WORLD_HEIGHT, this.y));
@@ -147,6 +155,13 @@ class Ship {
 
     velocityMatchTarget = liveTarget;
     if (!velocityMatchTarget || res.fuel <= 0) return;
+
+    // Nase automatisch zum Feind drehen; bei Himmelskörpern/Asteroiden nicht.
+    if (velocityMatchTarget.enemy) {
+      matchRotateNose = true;
+    } else {
+      matchRotateNose = false;
+    }
 
     const dx = velocityMatchTarget.x - this.x;
     const dy = velocityMatchTarget.y - this.y;
@@ -210,14 +225,14 @@ class Ship {
     this.angularVelocity += Math.max(-1, Math.min(1, diff * 4.0)) * strength * turnScale * dt;
   }
 
-  updateRotation(dt) {
+  updateRotation(dt, ignorePlayerInput = false) {
     const turnScale = precisionThrust ? 0.2 : 1;
     const hasRCS = placedModules.some(m => m.type === "RCS Thruster");
 
     if (hasRCS && res.fuel > 0) {
       let turnInput = 0;
-      if (keys.a) turnInput -= 1;
-      if (keys.d) turnInput += 1;
+      if (!ignorePlayerInput && keys.a) turnInput -= 1;
+      if (!ignorePlayerInput && keys.d) turnInput += 1;
 
       if (turnInput !== 0) {
         this.angularVelocity += turnInput * 1.2 * turnScale * dt;
@@ -284,10 +299,8 @@ class Asteroid {
     this.kind = kind;
     this.size = kind === "ice" ? 35 + worldRand() * 70 : 30 + worldRand() * 60;
     this.angle = worldRand() * Math.PI * 2;
-    const driftAngle = worldRand() * Math.PI * 2;
-    const driftSpeed = 1.8 + worldRand() * (MAX_ASTEROID_DRIFT_SPEED - 1.8);
-    this.vx = Math.cos(driftAngle) * driftSpeed;
-    this.vy = Math.sin(driftAngle) * driftSpeed;
+    this.vx = 0; // Asteroiden sind stationär
+    this.vy = 0;
     this.spin = (worldRand() - 0.5) * 0.01;
     this.contents = createAsteroidContents(this.kind);
     this.totalItems = getAsteroidTotal(this.contents);
@@ -304,25 +317,8 @@ class Asteroid {
   }
 
   update(dt) {
-    if (this._beltStar) {
-      this._beltAngle += this._beltOrbitSpeed * dt;
-      const oldX = this.x;
-      const oldY = this.y;
-      this.x = this._beltStar.x + Math.cos(this._beltAngle) * this._beltDist;
-      this.y = this._beltStar.y + Math.sin(this._beltAngle) * this._beltDist;
-      this.vx = (this.x - oldX) / Math.max(dt * 60, 0.001);
-      this.vy = (this.y - oldY) / Math.max(dt * 60, 0.001);
-    } else {
-      this.x += this.vx * dt * 60;
-      this.y += this.vy * dt * 60;
-    }
-
+    // Asteroiden sind stationär – nur visuelle Eigenrotation
     this.angle += this.spin * dt * 60;
-
-    if (this.x < 0) this.x += CONFIG.WORLD_WIDTH;
-    if (this.x > CONFIG.WORLD_WIDTH) this.x -= CONFIG.WORLD_WIDTH;
-    if (this.y < 0) this.y += CONFIG.WORLD_HEIGHT;
-    if (this.y > CONFIG.WORLD_HEIGHT) this.y -= CONFIG.WORLD_HEIGHT;
   }
 
   draw() {
@@ -708,9 +704,8 @@ class GalaxyPlanet {
   }
 
   update(dt) {
-    this.orbitAngle += this.orbitSpeed * this.orbitDir * dt;
-    this.setPositionFromAngle(this.orbitAngle);
-    this.spinAngle += this.spinSpeed * dt;
+    // Position bleibt fest (orbitAngle wird nicht fortgeschrieben)
+    this.spinAngle += this.spinSpeed * dt; // nur visuelles Spin
   }
 
   setPositionFromAngle(angle) {
@@ -720,7 +715,7 @@ class GalaxyPlanet {
   }
 
   setPositionAt(timeSeconds) {
-    this.setPositionFromAngle(getOrbitAngleAt(this.baseOrbitAngle, this.orbitSpeed, this.orbitDir, timeSeconds));
+    // Celestial bodies are stationary. Keep the generated position unchanged.
   }
 
   get gravity() { return this.radius * 0.018; }
@@ -911,10 +906,8 @@ class EndTwinPlanet {
   }
 
   update(dt) {
-    this.angle += dt * 0.006;
-    this.spinAngle += dt * 0.012;
-    this.x = this.centerX + Math.cos(this.angle) * this.orbitRadius;
-    this.y = this.centerY + Math.sin(this.angle) * this.orbitRadius;
+    // Position bleibt fest
+    this.spinAngle += dt * 0.012; // nur visuelles Spin
   }
 
   get gravity() { return this.radius * 0.035; }
@@ -985,9 +978,7 @@ class AsteroidBelt {
   }
 
   update(dt) {
-    for (const r of this.rocks) {
-      r.angle += r.orbitSpeed * dt;
-    }
+    // The asteroid belt is stationary.
   }
 
   draw() {
@@ -1051,9 +1042,8 @@ class GalaxyStar {
   }
 
   update(dt) {
-    this.orbitAngle += this.orbitSpeed * this.orbitDir * dt;
-    this.setPositionFromAngle(this.orbitAngle);
-    this.pulseT += dt * 0.4;
+    // Position bleibt fest (orbitAngle wird nicht fortgeschrieben)
+    this.pulseT += dt * 0.4; // nur visuelles Pulsieren
   }
 
   setPositionFromAngle(angle) {
@@ -1063,7 +1053,7 @@ class GalaxyStar {
   }
 
   setPositionAt(timeSeconds) {
-    this.setPositionFromAngle(getOrbitAngleAt(this.baseOrbitAngle, this.orbitSpeed, this.orbitDir, timeSeconds));
+    // Celestial bodies are stationary. Keep the generated position unchanged.
   }
 
   get gravity() { return this.radius * 0.008; }
@@ -1377,6 +1367,7 @@ function applyVelocityDamping(dt) {
   if (buildMode) return;
   if (shouldSkipGravity()) return; // no damping when landed
   if (orbitModeActive) return;     // no damping in orbit
+  if (ship._orbitExitCoast) return;
   if (placedModules.some(module => module._thrustActive)) return;
 
   const speed = Math.hypot(ship.vx, ship.vy);
@@ -1439,12 +1430,6 @@ function applyGravity(dt) {
 // ─────────────────────────────────────────────────────────────────────────
 
 const ORBIT_SPEED = 2.0;  // world-units per second along the circle (visual speed)
-const ORBIT_APPROACH_ACCEL_FACTOR = 0.006; // how aggressively we close to orbit radius
-
-let orbitPhase = "approach"; // "approach" | "free"
-let orbitEllipse = null;     // [{x,y}] – drawn orbit circle points
-let _orbitAngle  = 0;        // current angle on the circle (radians)
-
 function updateOrbitMode(dt) {
   if (!orbitModeActive) { orbitEllipse = null; return; }
 
@@ -1588,27 +1573,7 @@ function getOrbitDirection(body) {
   return body.orbitDir || 1;
 }
 
-function getOrbitBodyVelocity(body) {
-  if (body instanceof GalaxyPlanet && body.star) {
-    const tangent = body.orbitAngle + Math.PI / 2;
-    const speed = body.orbitRadius * body.orbitSpeed * body.orbitDir;
-    return {
-      x: Math.cos(tangent) * speed,
-      y: Math.sin(tangent) * speed
-    };
-  }
-
-  if (body instanceof GalaxyStar) {
-    const tangent = body.orbitAngle + Math.PI / 2;
-    const speed = body.orbitRadius * body.orbitSpeed * body.orbitDir;
-    return {
-      x: Math.cos(tangent) * speed,
-      y: Math.sin(tangent) * speed
-    };
-  }
-
-  return { x: 0, y: 0 };
-}
+// getOrbitBodyVelocity ist in 09-landing.js definiert (gibt immer {x:0,y:0} zurück)
 
 function getBestLandingTarget() {
   const selected = selectedFlightTarget || getMouseFlightObject();
@@ -1642,6 +1607,7 @@ function getNearestStar() {
 function getSolarEfficiency() {
   const star = getNearestStar();
   if (!star) return 0.05;
+  if (isStarCoveredByCompleteDysonSphere(star)) return 0;
   const dist = Math.hypot(star.x - ship.x, star.y - ship.y);
   const maxDist = star.radius * 25;
   return Math.max(0.05, Math.min(1.0, 1 - dist / maxDist));

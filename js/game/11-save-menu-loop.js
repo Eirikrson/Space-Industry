@@ -436,7 +436,49 @@ function getAdminGiveResourceKey(name) {
 
 function runAdminCommand(command) {
   const textValue = String(command || "").trim();
+  const killAllMatch = textValue.match(/^\/kill\s+enemy$/i);
+  const killNearestMatch = textValue.match(/^\/kill\s+enemy\s+nearest$/i);
+  const summonEnemyMatch = textValue.match(/^\/summon\s+enemy(?:\s+(\d+))?(?:\s+(\d+))?$/i);
   const giveMatch = textValue.match(/^\/give\s+(.+?)\s+(-?\d+(?:\.\d+)?)$/i);
+
+  if (killAllMatch) {
+    const count = enemyShips.length;
+    enemyShips.length = 0;
+    flash(count > 0 ? `Deleted ${count} enemy ship(s)` : "No enemy found");
+    return;
+  }
+
+  if (killNearestMatch) {
+    let nearest = null;
+    let nearestDistance = Infinity;
+    for (const enemy of enemyShips) {
+      const distance = Math.hypot(enemy.x - ship.x, enemy.y - ship.y);
+      if (distance < nearestDistance) {
+        nearest = enemy;
+        nearestDistance = distance;
+      }
+    }
+    if (!nearest) {
+      flash("No enemy found");
+      return;
+    }
+    const index = enemyShips.indexOf(nearest);
+    if (index >= 0) enemyShips.splice(index, 1);
+    flash("Nearest enemy deleted");
+    return;
+  }
+
+  if (summonEnemyMatch) {
+    const type = Number(summonEnemyMatch[1] || 1);
+    const count = Number(summonEnemyMatch[2] || 1);
+    const spawned = spawnEnemyShipsByType(type, count);
+    if (spawned <= 0) {
+      flash(`Enemy type must be 1-${ENEMY_SHIP_DESIGNS.length}`);
+      return;
+    }
+    flash(`Spawned ${spawned} enemy ship(s), type ${type}`);
+    return;
+  }
 
   if (!giveMatch) {
     flash("Unknown admin command");
@@ -461,7 +503,7 @@ function openAdminCommandDialog() {
 
   uiDialog = {
     title: "Admin command",
-    fields: [{ id: "command", label: "Command", value: "/", placeholder: "/give cannonballs 30", type: "text" }],
+    fields: [{ id: "command", label: "Command", value: "/", placeholder: "/summon enemy 1 3", type: "text" }],
     buttons: [
       { id: "cancel", text: "Cancel" },
       { id: "ok", text: "Enter", primary: true }
@@ -539,6 +581,11 @@ function isDysonSphereComplete(systemIndex) {
 function isStarCoveredByCompleteDysonSphere(star) {
   const systemIndex = getSystemIndexForStar(star);
   return systemIndex >= 0 && !!dysonSpheres[systemIndex] && isDysonSphereComplete(systemIndex);
+}
+
+function getDysonSphereWorldRadius(star) {
+  if (!star) return 0;
+  return star.radius * 1.28;
 }
 
 function contributeToDysonSphere(systemIndex, key) {

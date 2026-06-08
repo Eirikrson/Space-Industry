@@ -556,7 +556,12 @@ function updateResources(dt) {
     }
 
     if (m.type === "Scooper" && canUsePower(m)) {
-      const planet = findNearestGasPlanet(ship.x, ship.y, CONFIG.GRID_SIZE * 8);
+      const orbitPlanet = orbitModeActive
+        && orbitPhase === "free"
+        && orbitTarget?.typeKey === "gas"
+        ? orbitTarget
+        : null;
+      const planet = orbitPlanet || findNearestGasPlanet(ship.x, ship.y, CONFIG.GRID_SIZE * 8);
       if (planet) {
         eUse += stats.energyUse;
         const acceptedHydrogen = storeResource("hydrogen", stats.gasCollectRate * 0.8 * dt);
@@ -570,10 +575,21 @@ function updateResources(dt) {
     }
 
     if (m.type === "Solar Wind Collector" && canUsePower(m)) {
-      const star = findNearestStar(ship.x, ship.y, CONFIG.GRID_SIZE * 12);
-      if (star && !isStarCoveredByCompleteDysonSphere(star)) {
+      const orbitStar = orbitModeActive
+        && orbitPhase === "free"
+        && orbitTarget instanceof GalaxyStar
+        ? orbitTarget
+        : null;
+      const orbitGasPlanet = orbitModeActive
+        && orbitPhase === "free"
+        && orbitTarget?.typeKey === "gas"
+        ? orbitTarget
+        : null;
+      const star = orbitStar || findNearestStar(ship.x, ship.y, CONFIG.GRID_SIZE * 12);
+      if ((star && !isStarCoveredByCompleteDysonSphere(star)) || orbitGasPlanet) {
         eUse += stats.energyUse;
-        const accepted = storeResource("helium3", stats.helium3CollectRate * dt);
+        const rateFactor = orbitGasPlanet ? 0.6 : 1;
+        const accepted = storeResource("helium3", stats.helium3CollectRate * rateFactor * dt);
         if (accepted > 0 && performance.now() - (m._lastCollectSoundAt || 0) > 1800) {
           playSound("items", 1600);
           m._lastCollectSoundAt = performance.now();

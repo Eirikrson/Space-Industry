@@ -827,26 +827,69 @@ function drawDysonSpheres(activeSystems = solarSystems) {
 
     const star = system.star;
     const p = worldToScreen(star.x, star.y);
-    const radius = Math.max(star.radius * camera.scale * 1.85, 34);
+    const radius = getDysonSphereWorldRadius(star) * camera.scale;
     if (p.x + radius < -40 || p.x - radius > VIEW.w + 40 || p.y + radius < -40 || p.y - radius > VIEW.h + 40) continue;
 
     ctx.save();
     ctx.translate(p.x, p.y);
-    ctx.rotate(performance.now() * 0.00012);
-    ctx.globalAlpha = 0.25 + progress * 0.42;
-    ctx.strokeStyle = isDysonSphereComplete(systemIndex) ? "rgba(255,225,135,0.92)" : "rgba(255,210,105,0.72)";
-    ctx.lineWidth = Math.max(1.5, 4 * camera.scale);
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
-    ctx.stroke();
+    const complete = isDysonSphereComplete(systemIndex);
 
-    const bands = 5;
-    for (let i = 0; i < bands; i++) {
-      const angle = (i / bands) * Math.PI;
-      ctx.strokeStyle = `rgba(255,205,95,${0.08 + progress * 0.12})`;
+    if (complete) {
+      const shell = ctx.createRadialGradient(
+        -radius * 0.32, -radius * 0.36, radius * 0.05,
+        0, 0, radius
+      );
+      shell.addColorStop(0, "#d5dbe0");
+      shell.addColorStop(0.42, "#89939c");
+      shell.addColorStop(0.78, "#4d565e");
+      shell.addColorStop(1, "#252b30");
       ctx.beginPath();
-      ctx.ellipse(0, 0, radius, radius * (0.18 + i * 0.12), angle, 0, Math.PI * 2);
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.fillStyle = shell;
+      ctx.fill();
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.lineWidth = Math.max(1, radius * 0.018);
+      for (let i = -4; i <= 4; i++) {
+        ctx.beginPath();
+        ctx.ellipse(0, i * radius * 0.22, radius * 1.05, radius * 0.12, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = i % 2 === 0 ? "rgba(30,35,40,0.5)" : "rgba(220,230,235,0.16)";
+        ctx.stroke();
+      }
+      for (let i = 0; i < 12; i++) {
+        const angle = (i / 12) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+        ctx.strokeStyle = "rgba(25,30,34,0.38)";
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(210,225,235,0.8)";
+      ctx.lineWidth = Math.max(1.5, radius * 0.025);
       ctx.stroke();
+    } else {
+      ctx.rotate(performance.now() * 0.00012);
+      ctx.globalAlpha = 0.35 + progress * 0.45;
+      ctx.strokeStyle = "rgba(155,170,180,0.9)";
+      ctx.lineWidth = Math.max(1.5, radius * 0.035);
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+      ctx.stroke();
+
+      for (let i = 0; i < 5; i++) {
+        const angle = (i / 5) * Math.PI;
+        ctx.strokeStyle = `rgba(120,135,145,${0.12 + progress * 0.2})`;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, radius, radius * (0.2 + i * 0.12), angle, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
     ctx.restore();
   }
@@ -1015,19 +1058,53 @@ function toggleStatusBadgeAction(action) {
       flash("Computer MK3 required for orbit mode");
       return true;
     }
+    if (landingModeActive) {
+      flash("Landed – depart first before entering orbit");
+      return true;
+    }
     orbitModeActive = !orbitModeActive;
-    orbitTarget = orbitModeActive ? getBestOrbitTarget() : null;
-    orbitDesiredRadius = 0;
-    flash(orbitModeActive ? "Orbit Mode ON" : "Orbit Mode OFF");
+    if (orbitModeActive) {
+      orbitTarget  = getBestOrbitTarget();
+      orbitPhase   = "approach";
+      orbitApproachPoint = null;
+      orbitLockedSpeed = 0;
+      orbitEllipse = null;
+      flash(orbitTarget
+        ? `Entering orbit around ${orbitTarget.def?.name || orbitTarget.type || "body"}`
+        : "No orbit target found");
+    } else {
+      ship._orbitExitCoast = orbitPhase === "free";
+      orbitApproachPoint = null;
+      orbitLockedSpeed = 0;
+      orbitEllipse = null;
+      flash("Orbit disengaged");
+    }
   } else if (action === "landing") {
     notifyTutorialActionDone("landing");
-    landingModeActive = !landingModeActive;
-    landingTarget = landingModeActive ? getBestLandingTarget() : null;
     if (landingModeActive) {
-      orbitModeActive = false;
-      orbitTarget = null;
+      departLandingToOrbit();
+      return true;
     }
-    flash(landingModeActive ? "Landing mode ON" : "Landing mode OFF");
+    if (!orbitModeActive) {
+      flash("Enter orbit first (O), then press L to land");
+      return true;
+    }
+    if (orbitPhase !== "free") {
+      flash("Wait for stable orbit, then press L to land");
+      return true;
+    }
+    const lt = getBestLandingTarget();
+    if (!lt) {
+      flash("No landable body – select a planet or asteroid");
+      return true;
+    }
+    landingTarget     = lt;
+    landingModeActive = true;
+    landingPhase      = "none";
+    orbitModeActive   = false;
+    orbitApproachPoint = null;
+    orbitEllipse      = null;
+    flash("Initiating landing sequence …");
   } else if (action === "autoBlueprint") {
     notifyTutorialActionDone("autoBlueprint");
     autoBlueprintRepair = !autoBlueprintRepair;

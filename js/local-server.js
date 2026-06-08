@@ -14,7 +14,10 @@ const mimeTypes = {
 };
 
 function send(res, status, body, type = "text/plain; charset=utf-8") {
-  res.writeHead(status, { "Content-Type": type });
+  res.writeHead(status, {
+    "Content-Type": type,
+    "Cache-Control": "no-store"
+  });
   res.end(body);
 }
 
@@ -28,7 +31,10 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  res.writeHead(200, { "Content-Type": mimeTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream" });
+  res.writeHead(200, {
+    "Content-Type": mimeTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream",
+    "Cache-Control": "no-store"
+  });
   fs.createReadStream(filePath).pipe(res);
 });
 

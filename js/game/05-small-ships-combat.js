@@ -1150,6 +1150,31 @@ function spawnEnemyFleet(fleet = chooseEnemyFleetDesign()) {
   playSound("enemyDetected", 500);
 }
 
+function spawnEnemyShipsByType(designId, count = 1) {
+  const design = ENEMY_SHIP_DESIGNS.find(candidate => candidate.id === designId);
+  if (!design) return 0;
+
+  const amount = Math.max(1, Math.min(50, Math.floor(count) || 1));
+  const pos = getEnemySpawnPosition();
+  const fleetId = nextEnemyFleetId++;
+  const spacing = CONFIG.GRID_SIZE * 7;
+
+  for (let i = 0; i < amount; i++) {
+    const row = Math.floor(i / 8);
+    const column = i % 8;
+    createEnemyShip(
+      designId,
+      pos.x,
+      pos.y,
+      fleetId,
+      (column - Math.min(7, amount - 1) / 2) * spacing,
+      row * spacing
+    );
+  }
+
+  return amount;
+}
+
 function addEnemySalvage(enemy, modules) {
   for (const module of modules || []) {
     if (module.type === "Computer" || getModuleHealth(module) <= 0) continue;
@@ -1595,21 +1620,17 @@ function updateDysonSphereAttacks(dt) {
 
   for (const enemy of enemyShips) {
     if (enemy._dead) continue;
-    enemy._dysonThinkTimer = Math.max(0, (enemy._dysonThinkTimer || 0) - dt);
-    if (enemy._dysonThinkTimer > 0) continue;
-    enemy._dysonThinkTimer = 0.5;
-
     const target = getEnemyDysonAttackTarget(enemy);
     if (!target) continue;
 
     const dx = target.star.x - enemy.x;
     const dy = target.star.y - enemy.y;
     const distSq = dx * dx + dy * dy;
-    if (distSq > attackRangeSq) {
-      moveEnemyToward(enemy, target.star.x, target.star.y, 0.5, attackRange * 0.65);
-      continue;
-    }
+    if (distSq > attackRangeSq) continue;
 
+    enemy._dysonAttackTimer = Math.max(0, (enemy._dysonAttackTimer || 0) - dt);
+    if (enemy._dysonAttackTimer > 0) continue;
+    enemy._dysonAttackTimer = 0.5;
     damageDysonSphere(target.systemIndex, 6);
     if (performance.now() - (target.star._lastDysonAttackFlashAt || 0) > 2400) {
       target.star._lastDysonAttackFlashAt = performance.now();
@@ -1783,7 +1804,11 @@ function updateEnemyShips(dt) {
     const playerDist = Math.hypot(ship.x - enemy.x, ship.y - enemy.y);
     const attackRange = CONFIG.GRID_SIZE * 16;
 
-    if (playerDist < CONFIG.GRID_SIZE * 35 || enemy.role === "patrol") {
+    const dysonTarget = getEnemyDysonAttackTarget(enemy);
+
+    if (dysonTarget && playerDist >= CONFIG.GRID_SIZE * 35) {
+      moveEnemyToward(enemy, dysonTarget.star.x, dysonTarget.star.y, dt, CONFIG.GRID_SIZE * 18 * 0.65);
+    } else if (playerDist < CONFIG.GRID_SIZE * 35 || enemy.role === "patrol") {
       moveEnemyToward(enemy, ship.x, ship.y, dt, attackRange * 0.75);
     } else if (enemy.role === "miner") {
       updateEnemyMining(enemy, dt);
@@ -1791,6 +1816,9 @@ function updateEnemyShips(dt) {
       enemy.patrolAngle += dt * 0.2;
       moveEnemyToward(enemy, enemy.x + Math.cos(enemy.patrolAngle) * CONFIG.GRID_SIZE * 8, enemy.y + Math.sin(enemy.patrolAngle) * CONFIG.GRID_SIZE * 8, dt, CONFIG.GRID_SIZE * 2);
     }
+
+    damageEnemyFromCelestialCollision(enemy, dt);
+    if (enemy._dead) continue;
 
     enemy._turretThinkTimer = Math.max(0, (enemy._turretThinkTimer || 0) - dt);
     if (enemy._turretThinkTimer <= 0) {
@@ -1923,6 +1951,27 @@ function drawCombatBullets() {
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
   }
+}
+
+function damageEnemyFromCelestialCollision(enemy, dt) {
+  const enemyRadius = getEnemyShipRadius(enemy);
+  let damage = 0;
+
+  for (const star of worldStars) {
+    if (Math.hypot(enemy.x - star.x, enemy.y - star.y) < star.radius + enemyRadius * 0.45) {
+      damage = Math.max(damage, 3.5 * dt);
+    }
+  }
+
+  for (const planet of planets) {
+    if (Math.hypot(enemy.x - planet.x, enemy.y - planet.y) < planet.radius + enemyRadius * 0.45) {
+      damage = Math.max(damage, 1.4 * dt);
+    }
+  }
+
+  if (damage <= 0) return;
+  for (const module of enemy.modules) damageModule(module, damage);
+  cleanupEnemyShipDamage(enemy);
 }
 function getSmallShipConfigLayout() {
   const width = 235;
