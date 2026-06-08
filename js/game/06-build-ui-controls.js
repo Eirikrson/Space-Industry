@@ -461,7 +461,7 @@ function getThumbnailSpriteName(name) {
   if (name === "Main Thruster" && getImageSprite("Main Thruster Off")) return "Main Thruster Off";
   if (name === "RCS Thruster" && getImageSprite("RCS Thruster Off")) return "RCS Thruster Off";
   if (name.startsWith("Computer MK") && getImageSprite("Computer")) return "Computer";
-  if (name === "Quantum computer" && getImageSprite("Computer")) return "Computer";
+  if (name === "Quantum Computer" && getImageSprite("Computer")) return "Computer";
   return name;
 }
 
@@ -1154,7 +1154,7 @@ window.addEventListener("mousedown", e => {
         return;
       }
 
-      if (!buildMode && result && result.module.type === "Quantum computer") {
+      if (!buildMode && result && result.module.type === "Quantum Computer") {
         openQuantumComputerStatus();
         playSound("toggle", 120);
         return;
@@ -1177,6 +1177,7 @@ window.addEventListener("mousedown", e => {
     if (!buildMode && !isMouseOverInventory()) {
       const flightObj = getMouseFlightObject();
       if (flightObj) {
+        if (flightObj.enemy) setTurretPriorityEnemy(flightObj.enemy);
         selectedFlightTarget = flightObj;
         lockedApproachTarget = flightObj;
         velocityMatchTarget = flightObj;

@@ -143,9 +143,6 @@ function drawModules() {
       drawShieldArcAt(p.x, p.y, outDir, buildMode);
     }
 
-    if (isTurretType(m.type) && (buildMode || !mapVisible)) {
-      drawTurretRangeAt(p.x, p.y, true, m.type, ship.angle + (m.rot || 0) * Math.PI / 2 - Math.PI / 2);
-    }
   }
 
   for (const m of placedModules) {
@@ -278,6 +275,40 @@ function drawSmallShipModule(smallShip, module, com) {
   ctx.restore();
 }
 
+function getHoveredTurretRangeSource() {
+  if (heldItem !== AIR || importedShipGhost || isMouseOverInventory()) return null;
+
+  if (buildMode) {
+    if (!hoveredGrid) return null;
+    const blueprint = blueprints.find(bp =>
+      hoveredGrid.x >= bp.x &&
+      hoveredGrid.x < bp.x + bp.w &&
+      hoveredGrid.y >= bp.y &&
+      hoveredGrid.y < bp.y + bp.h
+    );
+    if (blueprint && isTurretType(blueprint.type)) return blueprint;
+    const result = getModuleAtCell(hoveredGrid.x, hoveredGrid.y);
+    return result && isTurretType(result.module.type) ? result.module : null;
+  }
+
+  const result = getModuleAtScreen(mouse.x, mouse.y);
+  return result && isTurretType(result.module.type) ? result.module : null;
+}
+
+function drawHoveredTurretRange() {
+  const turret = getHoveredTurretRangeSource();
+  if (!turret) return;
+  const world = moduleWorldCenter(turret);
+  const p = worldToScreen(world.x, world.y);
+  drawTurretRangeAt(
+    p.x,
+    p.y,
+    true,
+    turret.type,
+    ship.angle + (turret.rot || 0) * Math.PI / 2 - Math.PI / 2
+  );
+}
+
 function drawSmallShipNameBadge(smallShip, p) {
   const cargoUsed = getSmallShipCargoUsed(smallShip);
   const cargoCap = Math.max(1, getSmallShipCargoCap(smallShip));
@@ -340,10 +371,6 @@ function drawBlueprints() {
       drawShieldArcAt(p.x, p.y, outDir, true);
     }
 
-    if (isTurretType(bp.type)) {
-      drawTurretRangeAt(p.x, p.y, true, bp.type, ship.angle + (bp.rot || 0) * Math.PI / 2 - Math.PI / 2);
-    }
-
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.rotate(ship.angle + (bp.rot || 0) * Math.PI / 2);
@@ -378,6 +405,7 @@ function drawImportedShipGhost() {
   const grid = CONFIG.GRID_SIZE;
   const com = getCenterOfMass();
 
+  let turretRangeDrawn = false;
   for (const module of modules) {
     const ghost = {
       x: module.x + offset.x,
@@ -397,8 +425,9 @@ function drawImportedShipGhost() {
       drawShieldArcAt(p.x, p.y, outDir, canPlace);
     }
 
-    if (isTurretType(module.type)) {
+    if (isTurretType(module.type) && !turretRangeDrawn) {
       drawTurretRangeAt(p.x, p.y, canPlace, module.type, ship.angle + (module.rot || 0) * Math.PI / 2 - Math.PI / 2);
+      turretRangeDrawn = true;
     }
 
     ctx.save();
@@ -1177,6 +1206,7 @@ function drawUI() {
   }
 
   drawInfoBadge(`Time ${formatWorldPlayTime(worldPlayTime)}`, 15, VIEW.h - 18, 132);
+  drawInfoBadge(`FPS ${performanceHudFps}  TPS ${performanceHudTps}`, 15, VIEW.h - 49, 132);
 
   if (!buildMode) {
     drawStatusBadge("[G] Precision thrust", 25, precisionThrust, "precision");
@@ -1618,7 +1648,7 @@ function getResourceIconName(resource) {
     circuits: "Circuits",
     copper: "CopperPlate",
     copperplate: "CopperPlate",
-    copperore: "Copper",
+    copperore: "CopperOre",
     crew: "Crew",
     deuterium: "Deuterium",
     energy: "Energy",
@@ -1630,13 +1660,13 @@ function getResourceIconName(resource) {
     hydrogen: "Hydrogen",
     iron: "IronPlate",
     ironplate: "IronPlate",
-    ironore: "Iron",
+    ironore: "IronOre",
     nickel: "Nickel",
     oxygen: "Oxygen",
     railgunrods: "RailgunRods",
     rocketammunition: "RocketAmmunition",
     silicon: "Silicon",
-    siliconore: "Silicon",
+    siliconore: "SiliconOre",
     steam: "Steam",
     tritium: "Tritium",
     uranium: "Uranium",
@@ -1725,15 +1755,15 @@ function drawInventoryAmountRow(label, value, net, x, y, w) {
 }
 function formatResourceName(key) {
   const names = {
-    cannonBalls: "Cannon balls",
-    ironOre: "Iron ore",
-    copperOre: "Copper ore",
-    siliconOre: "Silicon ore",
-    ironPlate: "Iron plate",
-    copperPlate: "Copper plate",
+    cannonBalls: "Cannon Balls",
+    ironOre: "Iron Ore",
+    copperOre: "Copper Ore",
+    siliconOre: "Silicon Ore",
+    ironPlate: "Iron Plate",
+    copperPlate: "Copper Plate",
     helium3: "Helium-3",
-    railgunRods: "Railgun rods",
-    rocketAmmunition: "Rocket ammunition",
+    railgunRods: "Railgun Rods",
+    rocketAmmunition: "Rocket Ammunition",
     food: "Food"
   };
 
@@ -2114,7 +2144,7 @@ function drawTooltip() {
     ctx.fillText(titleLines[i], tx + padding, ty + padding + 10 + i * 17);
   }
 
-  // Bild oben rechts
+  // Item preview.
   const previewX = tx + tw - padding - imageBox;
   const previewY = ty + padding;
 
@@ -2156,7 +2186,7 @@ function drawTooltip() {
     drawPreviewSprite(previewName);
   }
 
-  // Beschreibung weiss
+  // Description text.
   ctx.font = "11px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
@@ -2379,11 +2409,11 @@ function drawPlanetResourceTooltip() {
 function getGlobalVolumeSliderLayout() {
   return {
     x: 15,
-    y: VIEW.h - 62,
+    y: VIEW.h - 92,
     w: 132,
     h: 26,
     trackX: 48,
-    trackY: VIEW.h - 49,
+    trackY: VIEW.h - 79,
     trackW: 86
   };
 }

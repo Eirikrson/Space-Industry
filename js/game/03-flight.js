@@ -123,8 +123,8 @@ function resolveFlightTarget(target) {
     return {
       x: computerWorld.x,
       y: computerWorld.y,
-      vx: target.enemy.vx,
-      vy: target.enemy.vy,
+      vx: target.enemy.vx / 60,
+      vy: target.enemy.vy / 60,
       radius: getEnemyShipRadius(target.enemy),
       type: "Enemy Ship",
       enemy: target.enemy
@@ -259,6 +259,59 @@ function getApproachCommandForState(x, y, vx, vy, target) {
     x: targetVx + Math.cos(errorAngle) * desiredSpeed,
     y: targetVy + Math.sin(errorAngle) * desiredSpeed
   };
+}
+
+function getRelativeHoldCommandForState(x, y, vx, vy, target, desiredDistance) {
+  const liveTarget = resolveFlightTarget(target);
+  if (!liveTarget) return null;
+
+  const dx = liveTarget.x - x;
+  const dy = liveTarget.y - y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 0.01) {
+    return { x: liveTarget.vx || 0, y: liveTarget.vy || 0 };
+  }
+
+  const towardX = dx / dist;
+  const towardY = dy / dist;
+  const targetVx = liveTarget.vx || 0;
+  const targetVy = liveTarget.vy || 0;
+  const distanceError = dist - desiredDistance;
+  const relativeVx = vx - targetVx;
+  const relativeVy = vy - targetVy;
+  const radialRelativeSpeed = relativeVx * towardX + relativeVy * towardY;
+  const maxCorrectionSpeed = liveTarget.enemy ? 5 : 3;
+  const correctionSpeed = Math.max(
+    -maxCorrectionSpeed,
+    Math.min(maxCorrectionSpeed, distanceError * 0.018 - radialRelativeSpeed * 0.65)
+  );
+
+  return {
+    x: targetVx + towardX * correctionSpeed,
+    y: targetVy + towardY * correctionSpeed
+  };
+}
+
+function getShipAngleForBestThruster(desiredWorldAngle, preferredShipAngle = ship.angle) {
+  let bestLocalDirection = null;
+  let bestThrust = -Infinity;
+  let bestTurn = Infinity;
+
+  for (const module of placedModules) {
+    const stats = BUILDING_STATS[module.type];
+    if (!stats || !stats.thrust) continue;
+    const localDirection = stats.thrustDir + (module.rot || 0) * Math.PI / 2;
+    const candidateShipAngle = normalizeAngle(desiredWorldAngle - localDirection);
+    const turn = Math.abs(normalizeAngle(candidateShipAngle - preferredShipAngle));
+    if (stats.thrust < bestThrust || (stats.thrust === bestThrust && turn >= bestTurn)) continue;
+    bestThrust = stats.thrust;
+    bestTurn = turn;
+    bestLocalDirection = localDirection;
+  }
+
+  return bestLocalDirection === null
+    ? ship.angle
+    : normalizeAngle(desiredWorldAngle - bestLocalDirection);
 }
 
 function getThrustVectorForDesiredAngle(desiredAngle, vx, vy, modules = placedModules, shipAngle = ship.angle, scale = 1) {

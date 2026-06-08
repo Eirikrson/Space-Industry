@@ -201,8 +201,8 @@
           ]
         },
         {
-          "id": "condenserturbine",
-          "name": "Condenserturbine",
+          "id": "condenser_turbine",
+          "name": "Condenser Turbine",
           "size": [
             2,
             2
@@ -217,8 +217,8 @@
           ]
         },
         {
-          "id": "cannon_tower",
-          "name": "Cannon tower",
+          "id": "cannon_turret",
+          "name": "Cannon Turret",
           "size": [
             3,
             3
@@ -226,7 +226,7 @@
         },
         {
           "id": "railgun_turret",
-          "name": "Railgun turret",
+          "name": "Railgun Turret",
           "size": [
             2,
             4
@@ -234,7 +234,7 @@
         },
         {
           "id": "missile_turret",
-          "name": "Missile turret",
+          "name": "Missile Turret",
           "size": [
             3,
             3
@@ -242,7 +242,7 @@
         },
         {
           "id": "laser_turret",
-          "name": "Laser turret",
+          "name": "Laser Turret",
           "size": [
             3,
             2
@@ -302,7 +302,7 @@
         },
         {
           "id": "event_horizon_shield",
-          "name": "Event horizon Shield",
+          "name": "Event Horizon Shield",
           "size": [
             2,
             3
@@ -310,7 +310,7 @@
         },
         {
           "id": "gravitational_pull_stabilizer",
-          "name": "Gravitational pull stabilizer",
+          "name": "Gravitational Pull Stabilizer",
           "size": [
             6,
             6
@@ -318,7 +318,7 @@
         },
         {
           "id": "quantum_computer",
-          "name": "Quantum computer",
+          "name": "Quantum Computer",
           "size": [
             3,
             3
@@ -338,7 +338,7 @@
         "Battery MK2",
         "Reactor",
         "Turbine",
-        "Condenserturbine",
+        "Condenser Turbine",
         "Fusion Reactor",
         "Scooper",
         "Solar Wind Collector"
@@ -352,8 +352,8 @@
         "Asteroid Collector",
         "Drill",
         "Shield Generator",
-        "Event horizon Shield",
-        "Gravitational pull stabilizer",
+        "Event Horizon Shield",
+        "Gravitational Pull Stabilizer",
         "Main Thruster",
         "RCS Thruster",
         "Hangar MK1",
@@ -367,10 +367,10 @@
       "icon": "Gun Turret",
       "items": [
         "Gun Turret",
-        "Cannon tower",
-        "Railgun turret",
-        "Missile turret",
-        "Laser turret"
+        "Cannon Turret",
+        "Railgun Turret",
+        "Missile Turret",
+        "Laser Turret"
       ]
     },
     {
@@ -394,7 +394,7 @@
         "Fuel Processor",
         "Smelter",
         "Assembler",
-        "Quantum computer",
+        "Quantum Computer",
         "Life Support",
         "Farm Module",
         "Quarters"
@@ -423,7 +423,7 @@
       "steamUse": 100,
       "energyProd": 10
     },
-    "Condenserturbine": {
+    "Condenser Turbine": {
       "steamUse": 100,
       "waterProd": 10,
       "energyProd": 10
@@ -552,14 +552,14 @@
       "energyUse": 2,
       "impactEnergyUse": 20
     },
-    "Event horizon Shield": {
+    "Event Horizon Shield": {
       "energyUse": 50,
       "impactEnergyUse": 500
     },
-    "Gravitational pull stabilizer": {
+    "Gravitational Pull Stabilizer": {
       "energyUse": 20
     },
-    "Quantum computer": {
+    "Quantum Computer": {
       "energyUse": 8,
       "itemCap": 600
     },
@@ -599,28 +599,28 @@
       "energyUse": 1,
       "fireRate": 1
     },
-    "Cannon tower": {
+    "Cannon Turret": {
       "cannonBallsUse": 1,
       "energyUse": 2,
       "fireRate": 0.3333333333333333,
       "damage": 1,
       "rangeTiles": 34
     },
-    "Railgun turret": {
+    "Railgun Turret": {
       "railgunRodsUse": 0.2,
       "energyUse": 8,
       "fireRate": 0.1,
       "damage": 1,
       "rangeTiles": 150
     },
-    "Missile turret": {
+    "Missile Turret": {
       "rocketAmmunitionUse": 1,
       "energyUse": 6,
       "fireRate": 0.05,
       "damage": 1,
       "rangeTiles": 80
     },
-    "Laser turret": {
+    "Laser Turret": {
       "energyUse": 30,
       "fireRate": 0.14285714285714285,
       "beamDuration": 2,
@@ -765,7 +765,7 @@
       "nickel": 8,
       "silicon": 6
     },
-    "Event horizon Shield": {
+    "Event Horizon Shield": {
       "ironPlate": 180,
       "copperPlate": 120,
       "circuits": 90,
@@ -774,7 +774,7 @@
       "silicon": 45,
       "uranium": 10
     },
-    "Gravitational pull stabilizer": {
+    "Gravitational Pull Stabilizer": {
       "ironPlate": 500,
       "copperPlate": 360,
       "circuits": 220,
@@ -783,7 +783,7 @@
       "silicon": 120,
       "uranium": 40
     },
-    "Quantum computer": {
+    "Quantum Computer": {
       "ironPlate": 220,
       "copperPlate": 180,
       "circuits": 180,
@@ -791,7 +791,7 @@
       "silicon": 160,
       "nickel": 50
     },
-    "Condenserturbine": {
+    "Condenser Turbine": {
       "ironPlate": 30,
       "copperPlate": 25,
       "circuits": 5,
@@ -846,27 +846,27 @@
       "gears": 8,
       "nickel": 10
     },
-    "Cannon tower": {
+    "Cannon Turret": {
       "ironPlate": 45,
       "gears": 12,
       "circuits": 6,
       "nickel": 8
     },
-    "Railgun turret": {
+    "Railgun Turret": {
       "ironPlate": 70,
       "circuits": 25,
       "cables": 20,
       "nickel": 25,
       "silicon": 10
     },
-    "Missile turret": {
+    "Missile Turret": {
       "ironPlate": 80,
       "circuits": 30,
       "cables": 20,
       "fuel": 20,
       "gears": 15
     },
-    "Laser turret": {
+    "Laser Turret": {
       "ironPlate": 90,
       "circuits": 40,
       "cables": 35,
@@ -1048,7 +1048,7 @@
           }
         },
         {
-          "name": "Condenserturbine",
+          "name": "Condenser Turbine",
           "cost": {
             "ironPlate": 50,
             "copperPlate": 35
@@ -1065,7 +1065,7 @@
           }
         },
         {
-          "name": "Cannon tower",
+          "name": "Cannon Turret",
           "cost": {
             "ironPlate": 60,
             "gears": 15,
@@ -1073,7 +1073,7 @@
           }
         },
         {
-          "name": "Railgun turret",
+          "name": "Railgun Turret",
           "cost": {
             "ironPlate": 90,
             "circuits": 30,
@@ -1082,7 +1082,7 @@
           }
         },
         {
-          "name": "Missile turret",
+          "name": "Missile Turret",
           "cost": {
             "ironPlate": 100,
             "circuits": 35,
@@ -1091,7 +1091,7 @@
           }
         },
         {
-          "name": "Laser turret",
+          "name": "Laser Turret",
           "cost": {
             "circuits": 45,
             "cables": 35,
@@ -1137,7 +1137,7 @@
           }
         },
         {
-          "name": "Event horizon Shield",
+          "name": "Event Horizon Shield",
           "cost": {
             "ironPlate": 180,
             "circuits": 90,
@@ -1148,7 +1148,7 @@
           }
         },
         {
-          "name": "Gravitational pull stabilizer",
+          "name": "Gravitational Pull Stabilizer",
           "cost": {
             "ironPlate": 500,
             "copperPlate": 360,
@@ -1159,7 +1159,7 @@
           }
         },
         {
-          "name": "Quantum computer",
+          "name": "Quantum Computer",
           "cost": {
             "ironPlate": 220,
             "copperPlate": 180,
@@ -1182,7 +1182,7 @@
       "",
       "OUTPUT Energy       +10/sec"
     ],
-    "Condenserturbine": [
+    "Condenser Turbine": [
       "INPUT Steam         -100/sec",
       "INPUT Energy        startup",
       "",
@@ -1247,9 +1247,9 @@
       "Very slow passive collector.",
       "Only collects solid materials.",
       "",
-      "OUTPUT Iron ore     common",
-      "OUTPUT Copper ore   common",
-      "OUTPUT Silicon ore  uncommon",
+      "OUTPUT Iron Ore     common",
+      "OUTPUT Copper Ore   common",
+      "OUTPUT Silicon Ore  uncommon",
       "OUTPUT Nickel       uncommon",
       "OUTPUT Carbon       uncommon",
       "OUTPUT Uranium      rare"
@@ -1261,13 +1261,13 @@
       "Mines directly in front."
     ],
     "Smelter": [
-      "INPUT Iron ore      -1/sec",
-      "INPUT Copper ore    -1/sec",
-      "INPUT Silicon ore   -1/sec",
+      "INPUT Iron Ore      -1/sec",
+      "INPUT Copper Ore    -1/sec",
+      "INPUT Silicon Ore   -1/sec",
       "INPUT Energy        -2/sec",
       "",
-      "OUTPUT Iron plate   +1/sec",
-      "OUTPUT Copper plate +1/sec",
+      "OUTPUT Iron Plate   +1/sec",
+      "OUTPUT Copper Plate +1/sec",
       "OUTPUT Silicon      +1/sec",
       "Processes one ore type at a time."
     ],
@@ -1375,17 +1375,17 @@
       "",
       "Capacity Energy 5000"
     ],
-    "Event horizon Shield": [
+    "Event Horizon Shield": [
       "INPUT Energy        -50/sec while active",
       "",
       "Protects a small arc of the ship during black-hole entry."
     ],
-    "Gravitational pull stabilizer": [
+    "Gravitational Pull Stabilizer": [
       "INPUT Energy        -20/sec while active",
       "",
       "Stabilizes the ship against black-hole tidal forces."
     ],
-    "Quantum computer": [
+    "Quantum Computer": [
       "INPUT Energy        -8/sec while active",
       "",
       "Required to navigate the black-hole transition."
@@ -1396,22 +1396,22 @@
       "",
       "Basic automatic defense turret."
     ],
-    "Cannon tower": [
-      "INPUT Cannon balls  -1/shot",
+    "Cannon Turret": [
+      "INPUT Cannon Balls  -1/shot",
       "",
       "Slow cannon. Shorter range, double impact damage."
     ],
-    "Railgun turret": [
-      "INPUT Railgun rods  -0.2/shot",
+    "Railgun Turret": [
+      "INPUT Railgun Rods  -0.2/shot",
       "",
       "Very long range. Fires once every 10 seconds."
     ],
-    "Missile turret": [
-      "INPUT Rocket ammunition -1/shot",
+    "Missile Turret": [
+      "INPUT Rocket Ammunition -1/shot",
       "",
       "Homes directly toward the enemy computer."
     ],
-    "Laser turret": [
+    "Laser Turret": [
       "INPUT Energy        -30/shot while firing",
       "",
       "Fires a 2 second beam, then recharges for 5 seconds."

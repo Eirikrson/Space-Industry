@@ -1,5 +1,5 @@
-const TURRET_TYPES = new Set(["Gun Turret", "Cannon tower", "Railgun turret", "Missile turret", "Laser turret", "Turret"]);
-const TURRET_CONTROL_TYPES = ["Gun Turret", "Cannon tower", "Railgun turret", "Missile turret", "Laser turret"];
+const TURRET_TYPES = new Set(["Gun Turret", "Cannon Turret", "Railgun Turret", "Missile Turret", "Laser Turret", "Turret"]);
+const TURRET_CONTROL_TYPES = ["Gun Turret", "Cannon Turret", "Railgun Turret", "Missile Turret", "Laser Turret"];
 
 function isTurretType(type) {
   return TURRET_TYPES.has(type);
@@ -11,20 +11,20 @@ function getTurretSpriteName(type) {
 }
 
 function getTurretBaseSpriteName(type, module = null) {
-  if (type === "Cannon tower" || type === "Missile turret") return "TurretBase3x3";
-  if (type === "Laser turret") return module?._laserBeam ? "LaserTurretOn" : "LaserTurretOff";
+  if (type === "Cannon Turret" || type === "Missile Turret") return "TurretBase3x3";
+  if (type === "Laser Turret") return module?._laserBeam ? "LaserTurretOn" : "LaserTurretOff";
   return getTurretSpriteName(type);
 }
 
 function getTurretTopSpriteName(type) {
   if (type === "Gun Turret" || type === "Turret") return "TurretGunStraight";
-  if (type === "Cannon tower") return "CannonTurret";
-  if (type === "Missile turret") return "MissileTurretOff";
+  if (type === "Cannon Turret") return "CannonTurret";
+  if (type === "Missile Turret") return "MissileTurretOff";
   return null;
 }
 
 function getTurretTopSpriteNameForModule(type, module = null, options = {}) {
-  if (type === "Missile turret") {
+  if (type === "Missile Turret") {
     const on = options.preview || (module?._spriteOnUntil || 0) > performance.now();
     return on ? "MissileTurretOn" : "MissileTurretOff";
   }
@@ -32,7 +32,7 @@ function getTurretTopSpriteNameForModule(type, module = null, options = {}) {
 }
 
 function getTurretTopDrawAngle(type, angle = 0) {
-  if (type === "Cannon tower" || type === "Missile turret") return angle + Math.PI;
+  if (type === "Cannon Turret" || type === "Missile Turret") return angle + Math.PI;
   return angle;
 }
 
@@ -42,10 +42,10 @@ function getTurretBodySpriteName(type, module = null, options = {}) {
 
 function getTurretConfig(type) {
   const normalized = type === "Turret" ? "Gun Turret" : type;
-  if (normalized === "Cannon tower") return { ammo: "cannonBalls", fireDelay: 3, damage: 1, rangeTiles: 34, speed: 340, kind: "cannon" };
-  if (normalized === "Railgun turret") return { ammo: "railgunRods", ammoPerShot: 0.2, fireDelay: 10, damage: 1, rangeTiles: 150, speed: 980, kind: "railgun", fixed: true, arc: Math.PI / 8 };
-  if (normalized === "Missile turret") return { ammo: "rocketAmmunition", fireDelay: 20, damage: 1, rangeTiles: 80, speed: 260, kind: "missile", computerOnly: true };
-  if (normalized === "Laser turret") return { ammo: null, fireDelay: 7, damage: 0.1, rangeTiles: 24, speed: 0, kind: "laser", energyUse: 30, beamDuration: 2, arc: Math.PI / 2 };
+  if (normalized === "Cannon Turret") return { ammo: "cannonBalls", fireDelay: 3, damage: 1, rangeTiles: 34, speed: 340, kind: "cannon" };
+  if (normalized === "Railgun Turret") return { ammo: "railgunRods", ammoPerShot: 0.2, fireDelay: 10, damage: 1, rangeTiles: 150, speed: 980, kind: "railgun", fixed: true, arc: Math.PI / 8 };
+  if (normalized === "Missile Turret") return { ammo: "rocketAmmunition", fireDelay: 20, damage: 1, rangeTiles: 80, speed: 260, kind: "missile", computerOnly: true };
+  if (normalized === "Laser Turret") return { ammo: null, fireDelay: 7, damage: 0.1, rangeTiles: 24, speed: 0, kind: "laser", energyUse: 30, beamDuration: 2, arc: Math.PI / 2 };
   return { ammo: "ammo", fireDelay: 1, damage: 0.25, rangeTiles: 50, speed: 420, kind: "bullet" };
 }
 
@@ -54,14 +54,14 @@ function getTurretForwardAngle(owner, turret) {
 }
 
 function canRailgunFireAt(owner, turret, from, target) {
-  if ((turret.type !== "Railgun turret")) return true;
+  if ((turret.type !== "Railgun Turret")) return true;
   const forward = getTurretForwardAngle(owner, turret);
   const angle = Math.atan2(target.y - from.y, target.x - from.x);
   return Math.abs(normalizeAngle(angle - forward)) <= getTurretConfig(turret.type).arc / 2;
 }
 
 function canLaserFireAt(owner, turret, from, target) {
-  if (turret.type !== "Laser turret") return true;
+  if (turret.type !== "Laser Turret") return true;
   const forward = getTurretForwardAngle(owner, turret);
   const angle = Math.atan2(target.y - from.y, target.x - from.x);
   return Math.abs(normalizeAngle(angle - forward)) <= getTurretConfig(turret.type).arc / 2;
@@ -80,7 +80,7 @@ function setTurretTypeEnabled(type, enabled) {
 }
 
 function getTurretAmmoInfo(type) {
-  const key = getTurretConfig(type).ammo || (type === "Laser turret" ? "energy" : null);
+  const key = getTurretConfig(type).ammo || (type === "Laser Turret" ? "energy" : null);
   if (!key) return null;
   return { key, amount: Math.floor(res[key] || 0), name: key === "energy" ? "Energy" : formatResourceName(key) };
 }
@@ -1374,33 +1374,55 @@ function getNearestEnemyTargetForTurret(turretModule, rangeTiles = 12) {
   if (enemyShips.length === 0) return null;
 
   const world = moduleWorldCenter(turretModule);
-  let best = null;
-  let bestDist = Infinity;
   const range = CONFIG.GRID_SIZE * rangeTiles;
   const rangeSq = range * range;
   const config = getTurretConfig(turretModule.type);
 
-  for (const enemy of enemyShips) {
-    if (enemy._dead) continue;
+  function getTargetForEnemy(enemy) {
+    if (!enemy || enemy._dead) return null;
     const enemyDx = enemy.x - world.x;
     const enemyDy = enemy.y - world.y;
-    if (enemyDx * enemyDx + enemyDy * enemyDy > rangeSq * 1.8) continue;
+    if (enemyDx * enemyDx + enemyDy * enemyDy > rangeSq * 1.8) return null;
     const targetModule = config.computerOnly
       ? enemy.modules.find(module => module.type === "Computer" && getModuleHealth(module) > 0)
       : getClosestEnemyModuleTo(enemy, world.x, world.y);
-    if (!targetModule) continue;
+    if (!targetModule) return null;
     const targetWorld = getEnemyModuleWorldCenter(enemy, targetModule);
-    if (config.kind === "laser" && !canLaserFireAt(ship, turretModule, world, targetWorld)) continue;
+    if (config.kind === "laser" && !canLaserFireAt(ship, turretModule, world, targetWorld)) return null;
     const dx = targetWorld.x - world.x;
     const dy = targetWorld.y - world.y;
     const dist = dx * dx + dy * dy;
-    if (dist < rangeSq && dist < bestDist) {
-      best = { x: targetWorld.x, y: targetWorld.y, enemy, module: targetModule };
-      bestDist = dist;
+    if (dist >= rangeSq) return null;
+    return { x: targetWorld.x, y: targetWorld.y, enemy, module: targetModule, dist };
+  }
+
+  const priorityEnemy = getEnemyById(turretPriorityEnemyId);
+  const priorityTarget = getTargetForEnemy(priorityEnemy);
+  if (priorityTarget) return priorityTarget;
+
+  let best = null;
+  let bestDist = Infinity;
+  for (const enemy of enemyShips) {
+    const target = getTargetForEnemy(enemy);
+    if (target && target.dist < bestDist) {
+      best = target;
+      bestDist = target.dist;
     }
   }
 
   return best;
+}
+
+function setTurretPriorityEnemy(enemy) {
+  turretPriorityEnemyId = enemy && !enemy._dead ? enemy.id : null;
+  if (turretPriorityEnemyId === null) return;
+  for (const turret of placedModules) {
+    if (!isTurretType(turret.type)) continue;
+    turret._cachedTarget = null;
+    turret._targetScanTimer = 0;
+  }
+  flash(`Turret priority: ${enemy.name || "Enemy"}`);
+  tutorialEvent("turretTargeting");
 }
 
 function getClosestPlayerModuleTo(x, y) {
@@ -1641,6 +1663,9 @@ function updateDysonSphereAttacks(dt) {
 
 function updatePlayerTurrets(dt) {
   if (buildMode) return;
+  if (turretPriorityEnemyId !== null && !getEnemyById(turretPriorityEnemyId)) {
+    turretPriorityEnemyId = null;
+  }
 
   for (const turret of placedModules) {
     if (!isTurretType(turret.type)) continue;
@@ -1660,6 +1685,16 @@ function updatePlayerTurrets(dt) {
       turret._targetScanTimer = 0.5;
     }
     if (!target) continue;
+    if (
+      config.kind === "missile" &&
+      combatBullets.some(bullet =>
+        bullet.owner === "player" &&
+        bullet.kind === "missile" &&
+        bullet.targetEnemyId === target.enemy.id
+      )
+    ) {
+      continue;
+    }
 
     const turretWorld = moduleWorldCenter(turret);
     if (!canRailgunFireAt(ship, turret, turretWorld, target)) continue;
@@ -1930,6 +1965,15 @@ function drawEnemyShips() {
     ctx.strokeRect(x, y, width, 22);
     ctx.fillStyle = "white";
     ctx.fillText(label, p.x, y + 11);
+
+    if (enemy.id === turretPriorityEnemyId) {
+      ctx.strokeStyle = "#55ccff";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x - 3, y - 3, width + 6, 28);
+      ctx.fillStyle = "#aeeeff";
+      ctx.font = "10px Consolas, monospace";
+      ctx.fillText("TURRET PRIORITY", p.x, y - 9);
+    }
   }
 }
 

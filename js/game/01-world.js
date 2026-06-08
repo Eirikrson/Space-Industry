@@ -109,12 +109,23 @@ class Ship {
       if (!velocityAssistActive) {
         precisionBeforeAssist = precisionThrust;
         lockedApproachTarget = selectedFlightTarget || getMouseFlightObject();
-        velocityAssistActive = true;
+        const liveTarget = resolveFlightTarget(lockedApproachTarget);
+        if (liveTarget) {
+          const minimumDistance = (liveTarget.radius || 0) +
+            getShipCollisionRadius() * 0.5 +
+            CONFIG.GRID_SIZE * (liveTarget.enemy ? 5 : 2);
+          velocityAssistDesiredDistance = Math.max(
+            minimumDistance,
+            Math.hypot(liveTarget.x - this.x, liveTarget.y - this.y)
+          );
+          velocityAssistActive = true;
+        }
       }
       this.updateVelocityMatch(dt, lockedApproachTarget);
     } else {
       velocityMatchTarget = null;
       lockedApproachTarget = null;
+      velocityAssistDesiredDistance = null;
       if (velocityAssistActive) {
         precisionThrust = precisionBeforeAssist;
         velocityAssistActive = false;
@@ -154,9 +165,13 @@ class Ship {
     }
 
     velocityMatchTarget = liveTarget;
-    if (!velocityMatchTarget || res.fuel <= 0) return;
+    if (!velocityMatchTarget) {
+      velocityAssistDesiredDistance = null;
+      return;
+    }
+    if (res.fuel <= 0) return;
 
-    // Nase automatisch zum Feind drehen; bei Himmelskörpern/Asteroiden nicht.
+    // Face enemy targets without rotating toward stationary celestial bodies.
     if (velocityMatchTarget.enemy) {
       matchRotateNose = true;
     } else {
@@ -167,24 +182,48 @@ class Ship {
     const dy = velocityMatchTarget.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    let angleDiff = 0;
-    if (matchRotateNose && dist > 0.01) {
-      const desiredShipAngle = Math.atan2(dy, dx) + Math.PI / 2 + SHIP_NOSE_OFFSET;
-      angleDiff = Math.abs(normalizeAngle(desiredShipAngle - this.angle));
-      this.rotateToward(dt, desiredShipAngle, 1.0);
+    const minimumDistance = (velocityMatchTarget.radius || 0) +
+      getShipCollisionRadius() * 0.5 +
+      CONFIG.GRID_SIZE * (velocityMatchTarget.enemy ? 5 : 2);
+    if (!Number.isFinite(velocityAssistDesiredDistance)) {
+      velocityAssistDesiredDistance = Math.max(minimumDistance, dist);
+    } else {
+      velocityAssistDesiredDistance = Math.max(minimumDistance, velocityAssistDesiredDistance);
     }
 
-    const command = getApproachCommandForState(this.x, this.y, this.vx, this.vy, velocityMatchTarget);
+    const command = getRelativeHoldCommandForState(
+      this.x,
+      this.y,
+      this.vx,
+      this.vy,
+      velocityMatchTarget,
+      velocityAssistDesiredDistance
+    );
     if (!command) return;
-
-    const surfaceGap = getSurfaceGapToTarget(this.x, this.y, velocityMatchTarget);
-    const closeApproach = !velocityMatchTarget.enemy && surfaceGap <= CONFIG.GRID_SIZE * 8;
-    const turningHard = matchRotateNose && angleDiff > 0.8;
-    precisionThrust = closeApproach || turningHard ? true : precisionBeforeAssist;
 
     const dvx = command.x - this.vx;
     const dvy = command.y - this.vy;
     const delta = Math.sqrt(dvx * dvx + dvy * dvy);
+    const desiredThrustAngle = delta > 0.001 ? Math.atan2(dvy, dvx) : this.angle;
+    let angleDiff = 0;
+
+    if (matchRotateNose && dist > 0.01) {
+      const desiredNoseAngle = Math.atan2(dy, dx) + Math.PI / 2 + SHIP_NOSE_OFFSET;
+      const needsThrustAlignment = delta > 0.3 && !shipCanAccelerateToward(desiredThrustAngle);
+      const desiredShipAngle = needsThrustAlignment
+        ? getShipAngleForBestThruster(desiredThrustAngle, desiredNoseAngle)
+        : desiredNoseAngle;
+      angleDiff = Math.abs(normalizeAngle(desiredShipAngle - this.angle));
+      this.rotateToward(dt, desiredShipAngle, needsThrustAlignment ? 1.35 : 1.0);
+    } else if (delta > 0.12 && !shipCanAccelerateToward(desiredThrustAngle)) {
+      const desiredShipAngle = getShipAngleForBestThruster(desiredThrustAngle);
+      angleDiff = Math.abs(normalizeAngle(desiredShipAngle - this.angle));
+      this.rotateToward(dt, desiredShipAngle, 1.2);
+    }
+
+    const turningHard = matchRotateNose && angleDiff > 0.8;
+    const fineCorrection = Math.abs(dist - velocityAssistDesiredDistance) < CONFIG.GRID_SIZE * 2;
+    precisionThrust = fineCorrection || turningHard ? true : precisionBeforeAssist;
 
     if (Math.abs(this.angularVelocity) > 0.01 && !matchRotateNose) {
       this.angularVelocity *= Math.pow(0.05, dt);
@@ -192,10 +231,7 @@ class Ship {
 
     if (delta < 0.06) return;
 
-    const desiredAngle = Math.atan2(dvy, dvx);
-    if (!this.thrustToward(dt, desiredAngle)) {
-      flash("No thruster faces the needed direction");
-    }
+    this.thrustToward(dt, desiredThrustAngle);
   }
 
   updateEnemyIntercept(dt, target) {
@@ -299,7 +335,7 @@ class Asteroid {
     this.kind = kind;
     this.size = kind === "ice" ? 35 + worldRand() * 70 : 30 + worldRand() * 60;
     this.angle = worldRand() * Math.PI * 2;
-    this.vx = 0; // Asteroiden sind stationär
+    this.vx = 0;
     this.vy = 0;
     this.spin = (worldRand() - 0.5) * 0.01;
     this.contents = createAsteroidContents(this.kind);
@@ -317,7 +353,7 @@ class Asteroid {
   }
 
   update(dt) {
-    // Asteroiden sind stationär – nur visuelle Eigenrotation
+    // Asteroids stay in place but keep their visual spin.
     this.angle += this.spin * dt * 60;
   }
 
@@ -502,7 +538,6 @@ function isInsideCelestialBody(x, y, padding = 0) {
 
 // Galaxy generated after camera/ship init below
 
-
 camera.x = ship.x;
 camera.y = ship.y;
 buildCamera.x = ship.x;
@@ -528,7 +563,6 @@ function worldRand() {
 
 // ── Planet type definitions ───────────────────────────────────────────────
 
-
 const PLANET_TYPE_KEYS = Object.keys(PLANET_TYPES);
 const CELESTIAL_SIZE_FACTOR = 3;
 const BLACK_HOLE_SIZE_FACTOR = 2.5;
@@ -540,7 +574,7 @@ const PLANET_ORBIT_PERIOD_MAX = 3 * 60 * 60;
 const SYSTEM_ORBIT_PERIOD_MIN = 3 * 60 * 60;
 const SYSTEM_ORBIT_PERIOD_MAX = 5 * 60 * 60;
 const NORMAL_SYSTEM_COUNT = 8;
-const WORLD_CHUNK_SIZE = CONFIG.GRID_SIZE * 1800;
+const WORLD_CHUNK_SIZE = CONFIG.GRID_SIZE * 450;
 const ACTIVE_CHUNK_RADIUS = 1;
 
 function orbitSpeedFromPeriodSeconds(seconds) {
@@ -704,7 +738,7 @@ class GalaxyPlanet {
   }
 
   update(dt) {
-    // Position bleibt fest (orbitAngle wird nicht fortgeschrieben)
+    // Position remains fixed.
     this.spinAngle += this.spinSpeed * dt; // nur visuelles Spin
   }
 
@@ -906,7 +940,7 @@ class EndTwinPlanet {
   }
 
   update(dt) {
-    // Position bleibt fest
+    // Position remains fixed.
     this.spinAngle += dt * 0.012; // nur visuelles Spin
   }
 
@@ -987,6 +1021,8 @@ class AsteroidBelt {
     const maxR = this.outerR * camera.scale;
     if (starP.x < -maxR*2 || starP.x > VIEW.w+maxR*2 || starP.y < -maxR*2 || starP.y > VIEW.h+maxR*2) return;
 
+    if (camera.scale > 0.25) return;
+
     if (camera.scale > 0.003) {
       ctx.save();
       ctx.strokeStyle = "rgba(255,255,255,0.45)";
@@ -1024,7 +1060,6 @@ class AsteroidBelt {
 
 // ── GalaxyStar ────────────────────────────────────────────────────────────
 
-
 class GalaxyStar {
   constructor(x, y, radius, typeIndex) {
     this.x = x; this.y = y;
@@ -1042,7 +1077,7 @@ class GalaxyStar {
   }
 
   update(dt) {
-    // Position bleibt fest (orbitAngle wird nicht fortgeschrieben)
+    // Position remains fixed.
     this.pulseT += dt * 0.4; // nur visuelles Pulsieren
   }
 
@@ -1404,197 +1439,6 @@ function applyGravity(dt) {
   }
 }
 
-// ── Orbit system ──────────────────────────────────────────────────────────
-//
-// Two phases:
-//   PHASE 1 – AUTOPILOT ("approach" / "circularize"):
-//             O is pressed → ship burns fuel to reach a stable circular orbit
-//             at getDesiredOrbitRadius(body). Thrusters fire, fuel consumed.
-//   PHASE 2 – FREE FLIGHT ("free"):
-//             Once in orbit the autopilot cuts engines.  The ship coasts
-//             purely under gravity (applyGravity handles all bodies).
-//             No fuel consumed.  Other bodies perturb the orbit naturally
-//             → ellipses, swingbys, etc.
-//
-// ─────────────────────────────────────────────────────────────────────────
-
-// ── Orbit system (simplified, no-gravity version) ─────────────────────────
-//
-// Since planets/stars no longer exert gravity, orbiting is a simple
-// "snap to circular path" mechanic:
-//   ENTRY  – 'O' pressed → ship burns to reach orbit radius, then locks
-//   ORBIT  – ship coasts in a perfect circle, zero fuel consumed
-//   EXIT   – 'O' pressed again → ship gets tangential velocity and leaves
-//
-// The drawn orbit ring matches the radius the ship actually follows.
-// ─────────────────────────────────────────────────────────────────────────
-
-const ORBIT_SPEED = 2.0;  // world-units per second along the circle (visual speed)
-function updateOrbitMode(dt) {
-  if (!orbitModeActive) { orbitEllipse = null; return; }
-
-  // Validate / find orbit target
-  if (!orbitTarget || !isOrbitTargetValid(orbitTarget)) {
-    orbitTarget = getBestOrbitTarget();
-    orbitPhase = "approach";
-    orbitEllipse = null;
-  }
-  if (!orbitTarget) { orbitEllipse = null; return; }
-
-  const body  = orbitTarget;
-  const bv    = getOrbitBodyVelocity(body);
-  const desiredR = getDesiredOrbitRadius(body);
-  orbitDesiredRadius = desiredR;
-
-  // Current relative position to body
-  const relX = ship.x - body.x;
-  const relY = ship.y - body.y;
-  const dist  = Math.max(1, Math.hypot(relX, relY));
-  const radialErr = dist - desiredR;
-
-  if (orbitPhase === "approach") {
-    // --- APPROACH: fly to orbit radius using thrusters, then snap to free ---
-    const nx = relX / dist;
-    const ny = relY / dist;
-    // Tangential direction (counterclockwise)
-    const orbitDir = getOrbitDirection(body);
-    const tx = -ny * orbitDir;
-    const ty =  nx * orbitDir;
-
-    // Desired tangential speed (a reasonable constant so orbit looks smooth)
-    const tangSpeed = Math.max(0.5, Math.min(MAX_SHIP_SPEED * 0.55, desiredR * 0.0008));
-
-    // Target velocity: body-relative radial correction + tangential speed
-    const radialCorrect = -radialErr * ORBIT_APPROACH_ACCEL_FACTOR * 60;
-    const targetVx = bv.x + nx * radialCorrect + tx * tangSpeed;
-    const targetVy = bv.y + ny * radialCorrect + ty * tangSpeed;
-    const dvx = targetVx - ship.vx;
-    const dvy = targetVy - ship.vy;
-
-    if (Math.hypot(dvx, dvy) > 0.08 && res.fuel > 0) {
-      ship.thrustToward(dt, Math.atan2(dvy, dvx));
-      // Note: thrustToward already handles fuel consumption, but we want free orbit
-      // so refund the fuel (orbit should be free once established).
-      // During approach, fuel IS consumed (brief burn to reach orbit).
-    }
-
-    // Orient along tangential direction
-    ship.rotateToward(dt, Math.atan2(ty, tx) + Math.PI / 2 + SHIP_NOSE_OFFSET, 0.7);
-
-    // Transition to free when close enough
-    if (Math.abs(radialErr) < CONFIG.GRID_SIZE * 6 && Math.hypot(dvx, dvy) < 1.2) {
-      // Snap to orbit
-      _orbitAngle = Math.atan2(relY, relX);
-      orbitPhase = "free";
-    }
-
-  } else {
-    // --- FREE ORBIT: move ship exactly along the circle, zero fuel ---
-    const orbitDir = getOrbitDirection(body);
-    const tangSpeed = Math.max(0.5, Math.min(MAX_SHIP_SPEED * 0.55, desiredR * 0.0008));
-    const angularSpeed = (tangSpeed / desiredR) * orbitDir;
-    _orbitAngle += angularSpeed * dt;
-
-    // Pin ship to circle
-    ship.x = body.x + Math.cos(_orbitAngle) * desiredR;
-    ship.y = body.y + Math.sin(_orbitAngle) * desiredR;
-
-    // Tangential velocity (for realistic exit)
-    const tx = -Math.sin(_orbitAngle) * orbitDir;
-    const ty =  Math.cos(_orbitAngle) * orbitDir;
-    ship.vx = bv.x + tx * tangSpeed;
-    ship.vy = bv.y + ty * tangSpeed;
-
-    // Nose along flight direction
-    ship.rotateToward(dt, Math.atan2(ty, tx) + Math.PI / 2 + SHIP_NOSE_OFFSET, 0.6);
-  }
-
-  // Build the visible orbit circle (refresh every 0.5 s or on phase change)
-  ship._orbitPredictTimer = (ship._orbitPredictTimer || 0) - dt;
-  if (ship._orbitPredictTimer <= 0) {
-    ship._orbitPredictTimer = 0.5;
-    const pts = [];
-    const steps = 120;
-    for (let i = 0; i <= steps; i++) {
-      const a = (i / steps) * Math.PI * 2;
-      pts.push({ x: body.x + Math.cos(a) * desiredR, y: body.y + Math.sin(a) * desiredR });
-    }
-    orbitEllipse = pts;
-  }
-}
-
-function isOrbitTargetValid(target) {
-  return worldStars.includes(target) || planets.includes(target);
-}
-
-function getBestOrbitTarget() {
-  const selected = selectedFlightTarget || getMouseFlightObject();
-  if (selected?.planet && planets.includes(selected.planet)) return selected.planet;
-  if (selected?.star && worldStars.includes(selected.star)) return selected.star;
-
-  let nearest = null;
-  let nearestDist = Infinity;
-
-  for (const planet of planets) {
-    const d = Math.hypot(planet.x - ship.x, planet.y - ship.y);
-    if (d < nearestDist) {
-      nearest = planet;
-      nearestDist = d;
-    }
-  }
-
-  for (const star of worldStars) {
-    const d = Math.hypot(star.x - ship.x, star.y - ship.y);
-    if (d < nearestDist) {
-      nearest = star;
-      nearestDist = d;
-    }
-  }
-
-  return nearestDist <= GRAVITY_RANGE * 3 ? nearest : null;
-}
-
-function getDesiredOrbitRadius(body) {
-  const extraTiles = body.type === "star" ? 35 : 14;
-  return body.radius + CONFIG.GRID_SIZE * extraTiles;
-}
-
-function getCircularOrbitSpeed(body, radius) {
-  const gravity = body.gravity || 1;
-  const denom = body.type === "star"
-    ? Math.max(radius * 0.0005, 1)
-    : Math.max(radius * 0.002, 1);
-  const accel = gravity * GRAVITY_SCALE * (body.type === "star" ? 1 : 1) / denom;
-  const speed = Math.sqrt(Math.max(0, accel * radius));
-  return Math.max(0.35, Math.min(MAX_SHIP_SPEED * 0.8, speed));
-}
-
-function getOrbitDirection(body) {
-  return body.orbitDir || 1;
-}
-
-// getOrbitBodyVelocity ist in 09-landing.js definiert (gibt immer {x:0,y:0} zurück)
-
-function getBestLandingTarget() {
-  const selected = selectedFlightTarget || getMouseFlightObject();
-  if (selected?.planet && planets.includes(selected.planet)) return selected.planet;
-
-  let nearest = null;
-  let nearestDist = Infinity;
-
-  for (const planet of planets) {
-    const d = Math.hypot(planet.x - ship.x, planet.y - ship.y);
-    if (d < nearestDist) {
-      nearest = planet;
-      nearestDist = d;
-    }
-  }
-
-  return nearestDist <= GRAVITY_RANGE * 2 ? nearest : null;
-}
-
-// updateLandingMode ist jetzt in 09-planet-landing.js implementiert
-
 function getNearestStar() {
   let nearest = null, nd = Infinity;
   for (const star of worldStars) {
@@ -1630,7 +1474,7 @@ function drawGalaxyBackground() {
   // Galaxy dust toward center
   const cp = worldToScreen(CONFIG.GALAXY_CENTER_X, CONFIG.GALAXY_CENTER_Y);
   const gr = CONFIG.GALAXY_RADIUS * camera.scale;
-  if (gr > 5) {
+  if (gr > 5 && camera.scale <= 0.25) {
     const dustGrad = ctx.createRadialGradient(cp.x, cp.y, 0, cp.x, cp.y, gr);
     dustGrad.addColorStop(0, "rgba(180,100,255,0.12)");
     dustGrad.addColorStop(0.3, "rgba(80,40,160,0.06)");
@@ -1638,32 +1482,5 @@ function drawGalaxyBackground() {
     dustGrad.addColorStop(1, "transparent");
     ctx.beginPath(); ctx.arc(cp.x, cp.y, gr, 0, Math.PI*2);
     ctx.fillStyle = dustGrad; ctx.fill();
-  }
-}
-
-function drawOrbitIndicator() {
-  if (!orbitModeActive || !orbitTarget) return;
-
-  const bodyScreen = worldToScreen(orbitTarget.x, orbitTarget.y);
-  const desiredR = getDesiredOrbitRadius(orbitTarget);
-  const refR = desiredR * camera.scale;
-
-  // Draw the exact orbit circle the ship follows
-  ctx.beginPath();
-  ctx.arc(bodyScreen.x, bodyScreen.y, refR, 0, Math.PI * 2);
-  const orbitColor = orbitPhase === "free"
-    ? "rgba(0,220,180,0.55)"
-    : "rgba(255,200,60,0.45)";
-  ctx.strokeStyle = orbitColor;
-  ctx.lineWidth = orbitPhase === "free" ? 2 : 1.5;
-  ctx.setLineDash(orbitPhase === "free" ? [] : [6, 8]);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Phase label
-  if (orbitPhase === "approach") {
-    ctx.font = "11px monospace";
-    ctx.fillStyle = "rgba(255,200,60,0.85)";
-    ctx.fillText("→ Approaching orbit …", bodyScreen.x + refR * 0.7 + 6, bodyScreen.y - 6);
   }
 }

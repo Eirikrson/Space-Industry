@@ -204,15 +204,15 @@ function formatRecipeResources(resources) {
 }
 
 function getBuildingDescription(name) {
-  if (name === "Quantum computer") {
+  if (name === "Quantum Computer") {
     const lines = (BUILDING_DESCRIPTIONS[name] || ["No description available."]).slice();
     const needed = typeof getRequiredStabilizerCount === "function" ? getRequiredStabilizerCount() : 1;
     const have = typeof getPlacedStabilizerCount === "function" ? getPlacedStabilizerCount() : 0;
     const shieldNeed = typeof getRequiredEventHorizonShieldCount === "function" ? getRequiredEventHorizonShieldCount() : 4;
-    const shieldHave = placedModules.filter(module => module.type === "Event horizon Shield" && getModuleHealth(module) > 0).length;
+    const shieldHave = placedModules.filter(module => module.type === "Event Horizon Shield" && getModuleHealth(module) > 0).length;
     lines.push("");
     lines.push(`Black-hole stabilizers ${have}/${needed}`);
-    lines.push(`Event horizon Shields ${shieldHave}/${shieldNeed}`);
+    lines.push(`Event Horizon Shields ${shieldHave}/${shieldNeed}`);
     lines.push("Shield need scales with ship size.");
     return lines;
   }

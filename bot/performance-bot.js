@@ -14,23 +14,29 @@ const EDGE_PATH = "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
 const NODE_PATH = process.execPath;
 const PERFORMANCE_WORLD_SEED = 4101;
 const SCENARIO_RUNS = 3;
-const SCENARIO_DURATION_MS = 3000;
+const SCENARIO_DURATION_MS = 2200;
 const managedServers = new Set();
 const PROFILE_FUNCTIONS = [
   "drawGalaxyBackground",
   "drawParallaxStarfield",
   "drawDysonSpheres",
   "drawModules",
+  "drawTurretRangeAt",
+  "drawTurretModuleSprite",
+  "drawImageSprite",
   "drawEnemyShips",
   "drawSmallShips",
   "drawCombatBullets",
   "drawUI",
   "drawResourceUI",
+  "drawMotherShipResourceUI",
   "drawMapOverlay",
   "drawTooltip",
   "drawPlanetResourceTooltip",
   "updateSpaceHazards",
   "updateResources",
+  "updateTurretGuns",
+  "updatePlayerTurrets",
   "updateEnemyShips",
   "updateSmallShips",
   "updateGameSounds",
@@ -229,6 +235,20 @@ async function configureScenario(page, scenario) {
       }
     }
 
+    if (config.nearbyEnemies) {
+      for (let remaining = config.nearbyEnemies; remaining > 0; remaining -= 50) {
+        spawnEnemyShipsByType(1, Math.min(50, remaining));
+      }
+      enemyShips.slice(-config.nearbyEnemies).forEach((enemy, index) => {
+        const angle = index / Math.max(1, config.nearbyEnemies) * Math.PI * 2;
+        const distance = CONFIG.GRID_SIZE * (8 + index % 3);
+        enemy.x = ship.x + Math.cos(angle) * distance;
+        enemy.y = ship.y + Math.sin(angle) * distance;
+        enemy.vx = 0;
+        enemy.vy = 0;
+      });
+    }
+
     if (config.drones) {
       for (let i = 0; i < config.drones; i++) {
         smallShips.push({
@@ -280,6 +300,40 @@ async function configureScenario(page, scenario) {
       }
     }
 
+    if (config.turrets) {
+      const maxX = placedModules.reduce((value, module) => Math.max(value, module.x + (module.w || 1)), 0);
+      for (let i = 0; i < config.turrets; i++) {
+        placedModules.push({
+          id: nextModuleId++,
+          x: maxX + (i % 3) * 2,
+          y: Math.floor(i / 3) * 2,
+          type: "Gun Turret",
+          w: 2,
+          h: 2,
+          rot: i % 4,
+          hp: 1
+        });
+      }
+      res.energy = Math.max(res.energy || 0, 100000);
+      res.ammo = Math.max(res.ammo || 0, 100000);
+    }
+
+    if (Number.isFinite(config.zoom)) camera.scale = config.zoom;
+    if (config.buildMode) {
+      buildMode = true;
+      buildCamera.x = ship.x;
+      buildCamera.y = ship.y;
+    }
+    if (config.disableUi) {
+      drawUI = () => {};
+      drawResourceUI = () => {};
+      drawDysonBuildButton = () => {};
+      drawDysonPanel = () => {};
+      drawOrbitIndicator = () => {};
+      drawTooltip = () => {};
+      drawPlanetResourceTooltip = () => {};
+    }
+
     keys.w = true;
   }, scenario);
 }
@@ -299,7 +353,9 @@ async function collectScenarioRun(page, scenario) {
   });
 
   return page.evaluate(name => {
-    const frames = window.__performanceBot.frames.slice(30).sort((a, b) => a - b);
+    const rawFrames = window.__performanceBot.frames.slice();
+    const frameWarmup = rawFrames.length > 60 ? 30 : Math.floor(rawFrames.length / 4);
+    const frames = rawFrames.slice(frameWarmup).sort((a, b) => a - b);
     const averageFrameMs = frames.reduce((sum, value) => sum + value, 0) / Math.max(1, frames.length);
     const percentile = ratio => frames[Math.min(frames.length - 1, Math.floor(frames.length * ratio))] || 0;
     const makeSamples = source => Object.entries(source)
@@ -313,16 +369,26 @@ async function collectScenarioRun(page, scenario) {
       .sort((a, b) => b.totalMs - a.totalMs);
     const functions = makeSamples(window.__performanceBot.functions);
     const canvas = makeSamples(window.__performanceBot.canvas);
-    const loopTimes = window.__performanceBot.loopTimes.slice(10).sort((a, b) => a - b);
+    const rawLoopTimes = window.__performanceBot.loopTimes.slice();
+    const loopWarmup = rawLoopTimes.length > 20 ? 10 : Math.floor(rawLoopTimes.length / 4);
+    const loopTimes = rawLoopTimes.slice(loopWarmup).sort((a, b) => a - b);
     const longTasks = window.__performanceBot.longTasks.slice().sort((a, b) => a - b);
+    const canvasCalls = canvas.reduce((sum, item) => sum + item.calls, 0);
+    const visibleModules = placedModules.filter(module => {
+      const world = moduleWorldCenter(module);
+      const point = worldToScreen(world.x, world.y);
+      return point.x >= 0 && point.x <= VIEW.w && point.y >= 0 && point.y <= VIEW.h;
+    }).length;
 
     return {
       name,
+      rawFrameSamples: rawFrames.length,
       averageFrameMs,
       fps: averageFrameMs > 0 ? 1000 / averageFrameMs : 0,
       p95FrameMs: percentile(0.95),
       maxFrameMs: frames[frames.length - 1] || 0,
       frameSamples: frames.length,
+      canvasCallsPerFrame: canvasCalls / Math.max(1, frames.length),
       functions,
       canvas,
       loop: {
@@ -337,11 +403,15 @@ async function collectScenarioRun(page, scenario) {
       },
       counts: {
         modules: placedModules.length,
+        visibleModules,
+        turrets: placedModules.filter(module => isTurretType(module.type)).length,
         planets: planets.length,
         asteroids: asteroids.length,
         enemies: enemyShips.length,
         drones: smallShips.length,
         messages: flashMessages.length,
+        systems: solarSystems.length,
+        cameraScale: camera.scale,
         activeSystems: solarSystems.filter(system =>
           isSystemNearActiveFocus(system, [{ x: ship.x, y: ship.y }])
         ).length
@@ -381,6 +451,8 @@ function aggregateScenarioRuns(scenario, runs) {
     p95FrameMs: median(runs.map(run => run.p95FrameMs)),
     maxFrameMs: median(runs.map(run => run.maxFrameMs)),
     frameSamples: Math.round(median(runs.map(run => run.frameSamples))),
+    rawFrameSamples: Math.round(median(runs.map(run => run.rawFrameSamples))),
+    canvasCallsPerFrame: median(runs.map(run => run.canvasCallsPerFrame)),
     functions: aggregateSamples(runs, "functions"),
     canvas: aggregateSamples(runs, "canvas"),
     loop: {
@@ -393,10 +465,10 @@ function aggregateScenarioRuns(scenario, runs) {
       totalMs: median(runs.map(run => run.longTasks.totalMs)),
       maxMs: median(runs.map(run => run.longTasks.maxMs))
     },
-    counts: Object.fromEntries(countKeys.map(key => [
-      key,
-      Math.round(median(runs.map(run => run.counts[key])))
-    ])),
+    counts: Object.fromEntries(countKeys.map(key => {
+      const value = median(runs.map(run => run.counts[key]));
+      return [key, key === "cameraScale" ? value : Math.round(value)];
+    })),
     measurements: runs
   };
 }
@@ -500,15 +572,16 @@ function createReport(results, generatedAt, checks, realSaveUsed) {
       : `Each synthetic scenario uses world seed ${PERFORMANCE_WORLD_SEED}. Values are medians from ${SCENARIO_RUNS} runs.`,
     "Complete game-loop timings are the primary comparison. Headless-browser FPS can vary because of frame scheduling.",
     "",
-    "| Scenario | Runs | FPS | Average frame | Loop average | Loop P95 | P95 frame | Long tasks |",
+    "| Scenario | Zoom | Turrets | Visible modules | Canvas calls/frame | FPS | Loop average | Loop P95 |",
     "|---|---:|---:|---:|---:|---:|---:|---:|"
   );
 
   for (const result of results) {
     lines.push(
-      `| ${result.name} | ${result.runCount} | ${formatNumber(result.fps, 1)} | ` +
-      `${formatNumber(result.averageFrameMs)} ms | ${formatNumber(result.loop.averageMs)} ms | ` +
-      `${formatNumber(result.loop.p95Ms)} ms | ${formatNumber(result.p95FrameMs)} ms | ${result.longTasks.count} |`
+      `| ${result.name} | ${formatNumber(result.counts.cameraScale, 2)} | ${result.counts.turrets} | ` +
+      `${result.counts.visibleModules}/${result.counts.modules} | ${formatNumber(result.canvasCallsPerFrame, 0)} | ` +
+      `${formatNumber(result.fps, 1)} | ${formatNumber(result.loop.averageMs)} ms | ` +
+      `${formatNumber(result.loop.p95Ms)} ms |`
     );
   }
 
@@ -517,12 +590,18 @@ function createReport(results, generatedAt, checks, realSaveUsed) {
     lines.push(
       `Objects: ${result.counts.modules} modules, ${result.counts.planets} planets, ` +
       `${result.counts.asteroids} asteroids, ${result.counts.enemies} enemies, ` +
-      `${result.counts.drones} drones, ${result.counts.activeSystems} active systems.`
+      `${result.counts.drones} drones, ${result.counts.activeSystems}/${result.counts.systems} active systems.`
+    );
+    lines.push(
+      `View: zoom ${formatNumber(result.counts.cameraScale, 2)}, ` +
+      `${result.counts.visibleModules}/${result.counts.modules} modules visible, ` +
+      `${result.counts.turrets} turrets, ${formatNumber(result.canvasCallsPerFrame, 0)} canvas calls per frame.`
     );
     lines.push(
       `Complete game loop: ${formatNumber(result.loop.averageMs, 3)} ms average, ` +
       `${formatNumber(result.loop.p95Ms)} ms P95, ${formatNumber(result.loop.maxMs)} ms maximum.`
     );
+    lines.push(`Measured frames: ${result.frameSamples} after warmup, ${result.rawFrameSamples} total.`);
     lines.push(
       `Browser long tasks: ${result.longTasks.count}, total ${formatNumber(result.longTasks.totalMs)} ms, ` +
       `maximum ${formatNumber(result.longTasks.maxMs)} ms.`
@@ -570,11 +649,16 @@ async function main() {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   let scenarios = [
     { name: "Baseline flight" },
+    { name: "Zoomed out", zoom: 0.25 },
+    { name: "Maximum zoom", zoom: 3 },
     { name: "Notification stack", notifications: 8 },
-    { name: "50 enemies", enemies: 50 },
-    { name: "100 distant drones", drones: 100 },
-    { name: "250 nearby asteroids", asteroids: 250 },
-    { name: "Combined load", notifications: 8, enemies: 50, drones: 100, asteroids: 250 }
+    { name: "5 nearby enemies", nearbyEnemies: 5 },
+    { name: "12 nearby asteroids", asteroids: 12 },
+    { name: "6 turrets", turrets: 6, zoom: 1 },
+    { name: "6 turrets maximum zoom", turrets: 6, zoom: 3 },
+    { name: "6 turrets and 3 enemies", turrets: 6, nearbyEnemies: 3, zoom: 3 },
+    { name: "Build mode maximum zoom", buildMode: true, zoom: 3 },
+    { name: "Maximum zoom without UI", zoom: 3, disableUi: true }
   ];
   const results = [];
   const checks = [];
@@ -586,18 +670,16 @@ async function main() {
       realSaveUsed = true;
       scenarios = [
         { name: "Savegame baseline", exportedSave },
+        { name: "Savegame zoomed out", exportedSave, zoom: 0.25 },
+        { name: "Savegame maximum zoom", exportedSave, zoom: 3 },
         { name: "Savegame notification stack", exportedSave, notifications: 8 },
-        { name: "Savegame + 50 enemies", exportedSave, enemies: 50 },
-        { name: "Savegame + 100 distant drones", exportedSave, drones: 100 },
-        { name: "Savegame + 250 nearby asteroids", exportedSave, asteroids: 250 },
-        {
-          name: "Savegame combined load",
-          exportedSave,
-          notifications: 8,
-          enemies: 50,
-          drones: 100,
-          asteroids: 250
-        }
+        { name: "Savegame + 5 nearby enemies", exportedSave, nearbyEnemies: 5 },
+        { name: "Savegame + 12 nearby asteroids", exportedSave, asteroids: 12 },
+        { name: "Savegame + 6 turrets", exportedSave, turrets: 6, zoom: 1 },
+        { name: "Savegame + 6 turrets maximum zoom", exportedSave, turrets: 6, zoom: 3 },
+        { name: "Savegame + 6 turrets and 3 enemies", exportedSave, turrets: 6, nearbyEnemies: 3, zoom: 3 },
+        { name: "Savegame build mode maximum zoom", exportedSave, buildMode: true, zoom: 3 },
+        { name: "Savegame maximum zoom without UI", exportedSave, zoom: 3, disableUi: true }
       ];
       checks.push({
         name: "Optional real savegame",

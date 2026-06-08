@@ -20,8 +20,8 @@
       "src": "Graphics/ItemIcons/Circuits.png",
       "frames": 1
     },
-    "Copper": {
-      "src": "Graphics/ItemIcons/Copper.png",
+    "CopperOre": {
+      "src": "Graphics/ItemIcons/CopperOre.png",
       "frames": 1
     },
     "CopperPlate": {
@@ -41,7 +41,7 @@
       "frames": 1
     },
     "Food": {
-      "src": "Graphics/ItemIcons/FoodServings.png",
+      "src": "Graphics/ItemIcons/Food.png",
       "frames": 1
     },
     "Fuel": {
@@ -56,8 +56,8 @@
       "src": "Graphics/ItemIcons/Hydrogen.png",
       "frames": 1
     },
-    "Iron": {
-      "src": "Graphics/ItemIcons/Iron.png",
+    "IronOre": {
+      "src": "Graphics/ItemIcons/IronOre.png",
       "frames": 1
     },
     "IronPlate": {
@@ -74,6 +74,10 @@
     },
     "Silicon": {
       "src": "Graphics/ItemIcons/Silicon.png",
+      "frames": 1
+    },
+    "SiliconOre": {
+      "src": "Graphics/ItemIcons/SiliconOre.png",
       "frames": 1
     },
     "Steam": {
@@ -137,8 +141,8 @@
       "frames": 5,
       "speed": 100
     },
-    "Condenserturbine": {
-      "src": "Graphics/Machines/Condenserturbine.png",
+    "Condenser Turbine": {
+      "src": "Graphics/Machines/CondenserTurbine.png",
       "frames": 1
     },
     "Tank MK1": {
@@ -159,8 +163,8 @@
       "frames": 2,
       "speed": 1000
     },
-    "Quantum computer": {
-      "src": "Graphics/Machines/Computer.png",
+    "Quantum Computer": {
+      "src": "Graphics/Machines/QuantumComputer.png",
       "frames": 2,
       "speed": 1000
     },
@@ -196,12 +200,12 @@
       "src": "Graphics/Machines/ShieldGenerator.png",
       "frames": 1
     },
-    "Event horizon Shield": {
-      "src": "Graphics/Machines/ShieldGenerator.png",
+    "Event Horizon Shield": {
+      "src": "Graphics/Machines/EventHorizonShield.png",
       "frames": 1
     },
-    "Gravitational pull stabilizer": {
-      "src": "Graphics/Machines/Reactor.png",
+    "Gravitational Pull Stabilizer": {
+      "src": "Graphics/Machines/GravitationalPullStabilizer.png",
       "frames": 4,
       "speed": 300
     },
@@ -221,6 +225,10 @@
       "src": "Graphics/Machines/MainThrusterOff.png",
       "frames": 1
     },
+    "Main Thruster": {
+      "src": "Graphics/Machines/MainThruster.png",
+      "frames": 1
+    },
     "Main Thruster On": {
       "src": "Graphics/Machines/MainThrusterOn.png",
       "frames": 2,
@@ -228,6 +236,10 @@
     },
     "RCS Thruster Off": {
       "src": "Graphics/Machines/RCSThrusterOff.png",
+      "frames": 1
+    },
+    "RCS Thruster": {
+      "src": "Graphics/Machines/RCSThruster.png",
       "frames": 1
     },
     "RCS Thruster On": {
@@ -280,16 +292,16 @@
       "src": "Graphics/Machines/GunTurret.png",
       "frames": 1
     },
-    "Cannon tower": {
+    "Cannon Turret": {
       "src": "Graphics/Machines/CannonTurret.png",
       "frames": 1
     },
-    "Railgun turret": {
+    "Railgun Turret": {
       "src": "Graphics/Machines/RailgunTurret.png",
       "frames": 1
     },
-    "Missile turret": {
-      "src": "Graphics/Machines/MissileTurretOff.png",
+    "Missile Turret": {
+      "src": "Graphics/Machines/MissileTurret.png",
       "frames": 1
     },
     "MissileTurretOff": {
@@ -300,8 +312,8 @@
       "src": "Graphics/Machines/MissileTurretOn.png",
       "frames": 1
     },
-    "Laser turret": {
-      "src": "Graphics/Machines/LaserTurretOff.png",
+    "Laser Turret": {
+      "src": "Graphics/Machines/LaserTurret.png",
       "frames": 1
     },
     "LaserTurretOff": {

@@ -175,7 +175,7 @@ function processCommit() {
   }
 
   // --- NORMAL MODE: one module at a time, crew-speed gated ---
-  if (repairMode && getMostDamagedModule()) {
+  if (repairMode && getMostDamagedModule() && !commitSnapshot.automatic) {
     flash("Repairs must finish before build work");
     return;
   }
@@ -427,7 +427,7 @@ function updateResources(dt) {
       }
     }
 
-    if (m.type === "Condenserturbine" && res.steam >= stats.steamUse * dt) {
+    if (m.type === "Condenser Turbine" && res.steam >= stats.steamUse * dt) {
       const steam = Math.min(stats.steamUse * dt, res.steam);
       res.steam -= steam;
       eProd += stats.energyProd * (steam / (stats.steamUse * dt));
@@ -598,7 +598,7 @@ function updateResources(dt) {
       }
     }
 
-    if ((m.type === "Event horizon Shield" || m.type === "Gravitational pull stabilizer" || m.type === "Quantum computer") && canUsePower(m)) {
+    if ((m.type === "Event Horizon Shield" || m.type === "Gravitational Pull Stabilizer" || m.type === "Quantum Computer") && canUsePower(m)) {
       eUse += stats.energyUse;
       m._machineActive = "endgame";
     }
@@ -668,6 +668,21 @@ function destroyShip(message, source) {
   if (appState === "playing") {
     startGameOverEnding(message || "Ship destroyed");
   }
+}
+
+function updateAutomaticBlueprintBuild() {
+  if (!autoBlueprintRepair || buildMode || commitPending || blueprints.length === 0) return;
+  const now = performance.now();
+  if (now < nextAutoBlueprintBuildAttemptAt) return;
+
+  nextAutoBlueprintBuildAttemptAt = now + 5000;
+  commitPending = true;
+  commitStartTime = now;
+  commitSnapshot = {
+    blueprints: JSON.parse(JSON.stringify(blueprints)),
+    demolish: new Set(),
+    automatic: true
+  };
 }
 
 function isAsteroidInShield(asteroid) {
@@ -981,7 +996,7 @@ function updateSpaceHazards(dt) {
 function updateTurretGuns(dt) {
   for (const m of placedModules) {
     if (!isTurretType(m.type)) continue;
-    if (m.type === "Railgun turret") continue;
+    if (m.type === "Railgun Turret") continue;
 
     if (m._gunAngle === undefined) m._gunAngle = Math.random() * Math.PI * 2;
     if (m._gunTargetAngle === undefined) m._gunTargetAngle = m._gunAngle;

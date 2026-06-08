@@ -308,14 +308,22 @@ function resetGameRuntime() {
   selectedFlightTarget = null;
   lockedApproachTarget = null;
   velocityAssistActive = false;
+  velocityAssistDesiredDistance = null;
   matchRotateNose = true;
   adminInstantBuild = false;
   repairMode = true;
   autoBlueprintRepair = true;
+  turretPriorityEnemyId = null;
   importedShipGhost = null;
   commitPending = false;
   commitSnapshot = null;
   buildWorkSoundUntil = 0;
+  nextAutoBlueprintBuildAttemptAt = 0;
+  performanceHudFps = 0;
+  performanceHudTps = 0;
+  performanceHudFrames = 0;
+  performanceHudTicks = 0;
+  performanceHudWindowStart = performance.now();
   researchWindowOpen = false;
   assemblerWindowModule = null;
   turretControlWindowOpen = false;
@@ -420,7 +428,7 @@ function openNewWorldDialog(slot) {
     title: "New world",
     fields: [
       { id: "name", label: "World title", value: text("menu.newGameDefaultName", { slot }), placeholder: "World title", type: "text" },
-      { id: "seed", label: "Seed", value: "", placeholder: "Leer lassen fuer zufaelligen Seed", type: "number" }
+      { id: "seed", label: "Seed", value: "", placeholder: "Leave empty for a random seed", type: "number" }
     ],
     buttons: [
       { id: "cancel", text: "Cancel" },
@@ -717,12 +725,12 @@ function getRequiredEventHorizonShieldCount() {
 }
 
 function getBlackHoleReadiness() {
-  const eventShields = placedModules.filter(module => module.type === "Event horizon Shield" && getModuleHealth(module) > 0).length;
+  const eventShields = placedModules.filter(module => module.type === "Event Horizon Shield" && getModuleHealth(module) > 0).length;
   const requiredShields = getRequiredEventHorizonShieldCount();
   return {
     energy: (res.energy || 0) >= 45000,
-    stabilizer: placedModules.some(module => module.type === "Gravitational pull stabilizer" && getModuleHealth(module) > 0),
-    quantum: placedModules.some(module => module.type === "Quantum computer" && getModuleHealth(module) > 0),
+    stabilizer: placedModules.some(module => module.type === "Gravitational Pull Stabilizer" && getModuleHealth(module) > 0),
+    quantum: placedModules.some(module => module.type === "Quantum Computer" && getModuleHealth(module) > 0),
     shields: eventShields >= requiredShields,
     eventShields,
     requiredShields
@@ -739,17 +747,17 @@ function getBlackHoleRequirementStatusText() {
   return [
     "Black-hole travel requirements:",
     `Energy: ${Math.floor(res.energy || 0)}/45000`,
-    `Gravitational pull stabilizer: ${ready.stabilizer ? "1/1" : "0/1"}`,
-    `Quantum computer: ${ready.quantum ? "1/1" : "0/1"}`,
-    `Event horizon Shields: ${ready.eventShields}/${ready.requiredShields}`,
+    `Gravitational Pull Stabilizer: ${ready.stabilizer ? "1/1" : "0/1"}`,
+    `Quantum Computer: ${ready.quantum ? "1/1" : "0/1"}`,
+    `Event Horizon Shields: ${ready.eventShields}/${ready.requiredShields}`,
     "",
-    "The required shield count depends on the ship size. A larger ship needs more Event horizon Shields so the whole hull is covered before entering the black hole."
+    "The required shield count depends on the ship size. A larger ship needs more Event Horizon Shields so the whole hull is covered before entering the black hole."
   ].join("\n");
 }
 
 function openQuantumComputerStatus() {
   uiDialog = {
-    title: "Quantum computer",
+    title: "Quantum Computer",
     body: getBlackHoleRequirementStatusText(),
     width: Math.min(560, VIEW.w - 48),
     height: Math.min(340, VIEW.h - 48),
@@ -926,7 +934,7 @@ function drawBlackHoleEnding() {
     ctx.font = "12px Consolas, monospace";
     ctx.textAlign = "center";
     ctx.fillText(
-      `Needed: 45000 energy, ${ready.requiredShields} Event horizon Shields, 1 Stabilizer, 1 Quantum computer`,
+      `Needed: 45000 energy, ${ready.requiredShields} Event Horizon Shields, 1 Stabilizer, 1 Quantum Computer`,
       VIEW.w / 2,
       bodyBottom + 28
     );
@@ -1756,7 +1764,7 @@ function drawSeedDialog() {
   ctx.font = "13px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.fillStyle = pendingSeedInput ? "white" : "rgba(255,255,255,0.42)";
-  ctx.fillText(pendingSeedInput || "Leer lassen fuer zufaelligen Seed", layout.input.x + 10, layout.input.y + layout.input.h / 2);
+  ctx.fillText(pendingSeedInput || "Leave empty for a random seed", layout.input.x + 10, layout.input.y + layout.input.h / 2);
 
   drawBtn("Play", layout.play.x, layout.play.y, layout.play.w, layout.play.h, true);
   drawBtn("Cancel", layout.cancel.x, layout.cancel.y, layout.cancel.w, layout.cancel.h, false);
@@ -2315,6 +2323,16 @@ function loop(now) {
 
   const simulationActive = appState === "playing" && appWindowActive && !shouldBlockSimulationForOverlay();
   const gameplayActive = simulationActive && !buildMode;
+  performanceHudFrames++;
+  if (simulationActive) performanceHudTicks++;
+  const performanceHudElapsed = now - performanceHudWindowStart;
+  if (performanceHudElapsed >= 1000) {
+    performanceHudFps = Math.round(performanceHudFrames * 1000 / performanceHudElapsed);
+    performanceHudTps = Math.round(performanceHudTicks * 1000 / performanceHudElapsed);
+    performanceHudFrames = 0;
+    performanceHudTicks = 0;
+    performanceHudWindowStart = now;
+  }
   const stepDt = gameplayActive ? dt : 0;
   if (gameplayActive) worldPlayTime += dt;
   if (appState === "playing" && appWindowActive && !shouldBlockSimulationForOverlay()) updateTutorial(dt);
@@ -2419,6 +2437,7 @@ function loop(now) {
   if (simulationActive) {
     updateBuildCamera();
     updateBuildMode();
+    updateAutomaticBlueprintBuild();
     processCommit();
   }
 
@@ -2454,6 +2473,7 @@ function loop(now) {
   }
 
   drawModules();
+  drawHoveredTurretRange();
   drawEnemyShips();
   drawSmallShips();
   drawBlueprints();

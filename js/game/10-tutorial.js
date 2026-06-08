@@ -19,8 +19,8 @@ const TUTORIAL_STEPS = [
   },
   {
     id: "autopilot",
-    title: "Resources and autopilot",
-    body: "You need resources to build. Point at an asteroid or other object and press Space to let the autopilot fly toward it. Press R to align your ship nose with the target.",
+    title: "Relative flight assist",
+    body: "Point at an object and hold Space. The ship matches its relative velocity and returns to the distance it had when the assist started. Against enemies it also turns toward the target. Press R to align the ship nose manually.",
     waitFor: "ok"
   },
   {
@@ -88,7 +88,11 @@ const TUTORIAL_EVENT_STEPS = {
   },
   turret: {
     title: "Turrets",
-    body: "Turrets defend the ship automatically when they have power and ammunition. Click any turret to open turret control and enable or disable turret types."
+    body: "Turrets defend the ship automatically when they have power and ammunition. Hover a turret to see its range. Click an enemy to make it the priority target, or click a turret to open turret control."
+  },
+  turretTargeting: {
+    title: "Turret target priority",
+    body: "The selected enemy is now prioritized by every turret that can reach it. Missile Turrets coordinate automatically, so only one missile at a time is assigned to the same enemy."
   },
   shield: {
     title: "Shields",
@@ -231,7 +235,7 @@ function notifyTutorialModuleBuilt(type) {
   if (type === "Assembler") tutorialEvent("assembler");
   if (type === "Quarters") tutorialEvent("quarters");
   if (type === "Life Support" || type === "Farm Module" || type === "Quarters") tutorialEvent("crew");
-  if (type === "Quantum computer") notifyTutorialQuantumComputerBuilt();
+  if (type === "Quantum Computer") notifyTutorialQuantumComputerBuilt();
 }
 
 function notifyTutorialResearch(type) {
@@ -261,7 +265,7 @@ function notifyTutorialActionDone(id) {
 }
 
 function getPlacedStabilizerCount() {
-  return placedModules.filter(module => module.type === "Gravitational pull stabilizer" && getModuleHealth(module) > 0).length;
+  return placedModules.filter(module => module.type === "Gravitational Pull Stabilizer" && getModuleHealth(module) > 0).length;
 }
 
 function getRequiredStabilizerCount() {
@@ -277,7 +281,7 @@ function notifyTutorialQuantumComputerBuilt() {
   tutorialOverlay = {
     ...TUTORIAL_EVENT_STEPS.quantumComputer,
     source: "event",
-    body: `Quantum navigation is installed. For black-hole travel you need ${need} Gravitational pull stabilizer. Current stabilizers: ${have}/${need}. Event horizon Shields depend on ship size: ${ready.eventShields}/${ready.requiredShields}. You also need 45000 stored energy.`,
+    body: `Quantum navigation is installed. For black-hole travel you need ${need} Gravitational Pull Stabilizer. Current stabilizers: ${have}/${need}. Event Horizon Shields depend on ship size: ${ready.eventShields}/${ready.requiredShields}. You also need 45000 stored energy.`,
     waitFor: "ok"
   };
   resetTutorialTypewriter();

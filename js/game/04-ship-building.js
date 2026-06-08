@@ -412,10 +412,15 @@ function normalizeImportedDroneSettings(data) {
 
 const LEGACY_MODULE_NAME_MAP = {
   "Turret": "Gun Turret",
-  "Cannon Tower": "Cannon tower",
-  "Railgun Turret": "Railgun turret",
-  "Missile Turret": "Missile turret",
-  "Laser Turret": "Laser turret",
+  "Cannon Tower": "Cannon Turret",
+  "Cannon tower": "Cannon Turret",
+  "Railgun turret": "Railgun Turret",
+  "Missile turret": "Missile Turret",
+  "Laser turret": "Laser Turret",
+  "Condenserturbine": "Condenser Turbine",
+  "Event horizon Shield": "Event Horizon Shield",
+  "Gravitational pull stabilizer": "Gravitational Pull Stabilizer",
+  "Quantum computer": "Quantum Computer",
   "Storage Tray": "Warehouse MK1",
   "Battery": "Battery MK1",
   "Warehouse": "Warehouse MK2",
@@ -434,7 +439,7 @@ function normalizeModuleType(type) {
 
 function normalizeModuleShape(module) {
   const normalized = { ...module, type: normalizeModuleType(module.type) };
-  if (normalized.type === "Laser turret" && (normalized.w || 1) === 2 && (normalized.h || 1) === 3) {
+  if (normalized.type === "Laser Turret" && (normalized.w || 1) === 2 && (normalized.h || 1) === 3) {
     normalized.w = 3;
     normalized.h = 2;
   }
@@ -736,8 +741,8 @@ const ENEMY_SHIP_DESIGNS = [
       enemyModule(1, -6, "Drill"),
       enemyModule(2, -6, "Drill"),
       enemyModule(-3, 3, "Reactor", 2, 2, 0),
-      enemyModule(2, 5, "Condenserturbine", 2, 2, 0),
-      enemyModule(-3, 5, "Condenserturbine", 2, 2, 0),
+      enemyModule(2, 5, "Condenser Turbine", 2, 2, 0),
+      enemyModule(-3, 5, "Condenser Turbine", 2, 2, 0),
       enemyModule(-1, -4, "Smelter", 3, 3, 0),
       enemyModule(-3, -5, "RCS Thruster", 1, 2, 2),
       enemyModule(3, -5, "RCS Thruster", 1, 2, 2),
