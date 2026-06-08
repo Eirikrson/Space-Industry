@@ -305,15 +305,18 @@ function drawSmallShips() {
   for (const smallShip of smallShips) {
     if (smallShip.status === "hangar" || smallShip.status === "building" || smallShip.status === "docking") continue;
 
+    const p = worldToScreen(smallShip.x, smallShip.y);
+    const margin = Math.max(120, getSmallShipClickRadius(smallShip) * camera.scale + 40);
+    if (p.x < -margin || p.x > VIEW.w + margin || p.y < -margin || p.y > VIEW.h + margin) {
+      continue;
+    }
+
     const com = getCenterOfMass(smallShip.modules);
-    const cargoUsed = getSmallShipCargoUsed(smallShip);
-    const cargoCap = Math.max(1, getSmallShipCargoCap(smallShip));
 
     for (const module of smallShip.modules) {
       drawSmallShipModule(smallShip, module, com);
     }
 
-    const p = worldToScreen(smallShip.x, smallShip.y);
     drawSmallShipNameBadge(smallShip, p);
   }
 }
@@ -1190,21 +1193,30 @@ function drawUI() {
   drawAssemblerWindow();
   drawTurretControlWindow();
 
-  if (performance.now() < flashUntil) {
+  if (flashMessages.length > 0) {
+    const flashNow = performance.now();
+    for (let i = flashMessages.length - 1; i >= 0; i--) {
+      if (!flashMessages[i].persistent && flashNow >= flashMessages[i].until) {
+        flashMessages.splice(i, 1);
+      }
+    }
     ctx.font = "bold 16px Consolas, monospace";
     ctx.textAlign = "center";
-    const width = Math.max(260, ctx.measureText(flashMsg).width + 38);
-    const height = 34;
-    const x = VIEW.w / 2 - width / 2;
-    const y = 43;
+    for (let i = 0; i < flashMessages.length; i++) {
+      const message = flashMessages[i];
+      const width = Math.min(VIEW.w - 30, Math.max(260, ctx.measureText(message.text).width + 38));
+      const height = 34;
+      const x = VIEW.w / 2 - width / 2;
+      const y = 43 + i * 40;
 
-    ctx.fillStyle = "rgba(4, 10, 30, 0.92)";
-    ctx.fillRect(x, y, width, height);
-    ctx.strokeStyle = "#2255aa";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, width, height);
-    ctx.fillStyle = "white";
-    ctx.fillText(flashMsg, VIEW.w / 2, y + height / 2);
+      ctx.fillStyle = "rgba(4, 10, 30, 0.92)";
+      ctx.fillRect(x, y, width, height);
+      ctx.strokeStyle = "#2255aa";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, width, height);
+      ctx.fillStyle = "white";
+      ctx.fillText(message.text, VIEW.w / 2, y + height / 2);
+    }
   }
   if (!buildMode) return;
 

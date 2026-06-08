@@ -45,6 +45,8 @@ let landingDuration    = 3;
 let landingDirection   = 1;
 let landingEntrySpeed  = 0;
 let departureStartRadius = 0;
+let planetDrillCheckTimer = 0;
+let planetDrillAvailable = false;
 
 // ── Konstanten ─────────────────────────────────────────────────────────────
 const ORBIT_APPROACH_ACCEL_FACTOR = 0.006;
@@ -446,7 +448,8 @@ function _onLanded(planet) {
 
   const typeKey  = planet.typeKey || planet.type;
   const typeName = (planet.def && planet.def.name) || typeKey || "Planet";
-  flash(`Landed on ${typeName} – passive mining active`);
+  updatePlanetDrillWarning(0, true);
+  flash(`Landed on ${typeName}`);
   playSound("toggle", 90);
 }
 
@@ -569,8 +572,32 @@ function getPlanetMiningRates(planet) {
   return PLANET_MINING_RATES[typeKey] || {};
 }
 
+function hasOperationalPlanetDrill() {
+  return placedModules.some(module => module.type === "Drill" && getModuleHealth(module) > 0);
+}
+
+function updatePlanetDrillWarning(dt = 0, force = false) {
+  if (!shipLanded || !landedPlanet) {
+    planetDrillCheckTimer = 0;
+    planetDrillAvailable = false;
+    setPersistentFlash("planet-drill-required", "", false);
+    return true;
+  }
+
+  planetDrillCheckTimer = Math.max(0, planetDrillCheckTimer - dt);
+  if (force || planetDrillCheckTimer <= 0) {
+    planetDrillCheckTimer = 1;
+    planetDrillAvailable = hasOperationalPlanetDrill();
+  }
+
+  const needsDrill = !planetDrillAvailable;
+  setPersistentFlash("planet-drill-required", "Planet mining requires at least one working drill", needsDrill);
+  return !needsDrill;
+}
+
 function updatePlanetMining(dt) {
   if (!shipLanded || !landedPlanet) return;
+  if (!updatePlanetDrillWarning(dt)) return;
 
   planetMiningTimer += dt;
   if (planetMiningTimer < 1.0) return;

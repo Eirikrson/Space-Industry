@@ -301,8 +301,49 @@ function cleanupEnemyShipDamage(enemy) {
 }
 
 function flash(msg) {
-  flashMsg = msg;
-  flashUntil = performance.now() + 1200;
+  const text = String(msg);
+  const now = performance.now();
+  const existing = flashMessages.find(message => !message.persistent && message.text === text);
+  if (existing) {
+    existing.until = now + 4000;
+    return;
+  }
+
+  flashMessages.push({
+    id: nextFlashMessageId++,
+    text,
+    until: now + 4000,
+    persistent: false
+  });
+
+  let transientCount = 0;
+  for (const message of flashMessages) {
+    if (!message.persistent) transientCount++;
+  }
+  if (transientCount > 8) {
+    const oldestIndex = flashMessages.findIndex(message => !message.persistent);
+    if (oldestIndex >= 0) flashMessages.splice(oldestIndex, 1);
+  }
+}
+
+function setPersistentFlash(key, msg, active) {
+  const existingIndex = flashMessages.findIndex(message => message.persistent && message.key === key);
+  const existing = existingIndex >= 0 ? flashMessages[existingIndex] : null;
+  if (!active) {
+    if (existingIndex >= 0) flashMessages.splice(existingIndex, 1);
+    return;
+  }
+  if (existing) {
+    existing.text = String(msg);
+    return;
+  }
+  flashMessages.push({
+    id: nextFlashMessageId++,
+    key,
+    text: String(msg),
+    until: Infinity,
+    persistent: true
+  });
 }
 
 function getBuildInventoryLayout() {
@@ -845,6 +886,8 @@ window.addEventListener("keydown", e => {
 
   if (key === "escape") {
     if (!handlePlayingEscapeKey()) {
+      updateSavePreviewFrame();
+      persistCurrentSavePreview();
       appState = "paused";
       saveSelectionMode = null;
       pendingSavePayload = null;

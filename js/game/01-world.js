@@ -574,11 +574,11 @@ function addActiveWorldChunksForPoint(chunks, x, y) {
   }
 }
 
-function getActiveWorldChunks() {
+function getActiveWorldChunks(includeSmallShips = true) {
   const chunks = new Set();
   addActiveWorldChunksForPoint(chunks, ship.x, ship.y);
 
-  if (typeof smallShips !== "undefined") {
+  if (includeSmallShips && typeof smallShips !== "undefined") {
     for (const smallShip of smallShips) {
       if (smallShip && !smallShip._delete && Number.isFinite(smallShip.x) && Number.isFinite(smallShip.y)) {
         addActiveWorldChunksForPoint(chunks, smallShip.x, smallShip.y);
@@ -589,10 +589,10 @@ function getActiveWorldChunks() {
   return chunks;
 }
 
-function getActiveWorldFocusPoints() {
+function getActiveWorldFocusPoints(includeSmallShips = true) {
   const points = [{ x: ship.x, y: ship.y }];
 
-  if (typeof smallShips !== "undefined") {
+  if (includeSmallShips && typeof smallShips !== "undefined") {
     for (const smallShip of smallShips) {
       if (smallShip && !smallShip._delete && Number.isFinite(smallShip.x) && Number.isFinite(smallShip.y)) {
         points.push({ x: smallShip.x, y: smallShip.y });
@@ -1105,12 +1105,12 @@ function generateGalaxy() {
 
   // Black hole at center
   blackHole = new BlackHole(CX, CY);
+  const systemAngleStep = Math.PI * 2 / NORMAL_SYSTEM_COUNT;
+  const systemAngleOffset = rng() * Math.PI * 2;
 
   for (let si = 0; si < NORMAL_SYSTEM_COUNT; si++) {
-    const angleBase = (si / NORMAL_SYSTEM_COUNT) * Math.PI * 2;
-    const angle = angleBase + (rng() - 0.5) * 0.22;
-    const ring = si % 2;
-    const dist = CONFIG.GALAXY_RADIUS * (ring === 0 ? 0.55 + rng() * 0.08 : 0.82 + rng() * 0.08);
+    const angle = systemAngleOffset + (si + rng()) * systemAngleStep;
+    const dist = CONFIG.GALAXY_RADIUS * (0.52 + rng() * 0.38);
     const sx = CX + Math.cos(angle) * dist;
     const sy = CY + Math.sin(angle) * dist;
     const starRadius = (1200 + rng() * 1200) * CELESTIAL_SIZE_FACTOR;
