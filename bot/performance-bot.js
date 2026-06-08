@@ -4,12 +4,18 @@ const { spawn } = require("child_process");
 const { chromium } = require("playwright");
 
 const ROOT = path.resolve(__dirname, "..");
-const REPORT_PATH = path.join(ROOT, "performance-report-latest.md");
-const DATA_PATH = path.join(ROOT, "performance-data-latest.json");
-const ERROR_LOG_PATH = path.join(ROOT, "performance-bot-error-latest.log");
+const BOT_DIR = __dirname;
+const REPORT_PATH = path.join(BOT_DIR, "performance-report-latest.md");
+const DATA_PATH = path.join(BOT_DIR, "performance-data-latest.json");
+const ERROR_LOG_PATH = path.join(BOT_DIR, "performance-bot-error-latest.log");
+const REAL_SAVE_PATH = path.join(BOT_DIR, "performance-test-save.json");
 const SERVER_URL = "http://127.0.0.1:8765/index.html";
 const EDGE_PATH = "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
 const NODE_PATH = process.execPath;
+const PERFORMANCE_WORLD_SEED = 4101;
+const SCENARIO_RUNS = 3;
+const SCENARIO_DURATION_MS = 3000;
+const managedServers = new Set();
 const PROFILE_FUNCTIONS = [
   "drawGalaxyBackground",
   "drawParallaxStarfield",
@@ -65,13 +71,18 @@ async function ensureServer() {
   });
   for (let i = 0; i < 30; i++) {
     await delay(100);
-    if (await isServerReady()) return child;
+    if (await isServerReady()) {
+      managedServers.add(child);
+      child.once("exit", () => managedServers.delete(child));
+      return child;
+    }
   }
   child.kill();
   throw new Error("The local game server could not be started.");
 }
 
 async function prepareWorld(page, seed) {
+  await ensureServer();
   await page.goto(SERVER_URL);
   await page.waitForFunction(() => typeof resetGameToNew === "function");
   await page.evaluate(worldSeed => {
@@ -82,6 +93,24 @@ async function prepareWorld(page, seed) {
     uiDialog = null;
     nextEnemySpawnAt = performance.now() + 3600000;
   }, seed);
+}
+
+async function prepareSavedWorld(page, exportedSave) {
+  await ensureServer();
+  await page.goto(SERVER_URL);
+  await page.waitForFunction(() => typeof loadSavePayload === "function");
+  await page.evaluate(container => {
+    const payload = decryptSaveExport(container);
+    if (!payload || typeof payload !== "object" || !payload.ship || !Array.isArray(payload.placedModules)) {
+      throw new Error("performance-test-save.json is not a valid exported savegame.");
+    }
+    loadSavePayload(payload);
+    appState = "playing";
+    tutorialActive = false;
+    tutorialOverlay = null;
+    uiDialog = null;
+    nextEnemySpawnAt = performance.now() + 3600000;
+  }, exportedSave);
 }
 
 async function installProfiler(page) {
@@ -234,15 +263,36 @@ async function configureScenario(page, scenario) {
       }
     }
 
+    if (config.asteroids) {
+      asteroids.length = 0;
+      const keepRadius = getShipCollisionRadius() + CONFIG.GRID_SIZE * 65;
+      for (let i = 0; i < config.asteroids; i++) {
+        const angle = (i / config.asteroids) * Math.PI * 2 + (i % 7) * 0.013;
+        const distance = CONFIG.GRID_SIZE * 8 +
+          (i % 45) / 45 * Math.max(CONFIG.GRID_SIZE * 4, keepRadius - CONFIG.GRID_SIZE * 12);
+        const asteroid = new Asteroid(
+          ship.x + Math.cos(angle) * distance,
+          ship.y + Math.sin(angle) * distance,
+          i % 10 === 0 ? "ice" : "rock"
+        );
+        asteroid._performanceBot = true;
+        asteroids.push(asteroid);
+      }
+    }
+
     keys.w = true;
   }, scenario);
 }
 
-async function collectScenario(page, scenario) {
-  await prepareWorld(page, 4100 + scenario.seed);
+async function collectScenarioRun(page, scenario) {
+  if (scenario.exportedSave) {
+    await prepareSavedWorld(page, scenario.exportedSave);
+  } else {
+    await prepareWorld(page, PERFORMANCE_WORLD_SEED);
+  }
   await installProfiler(page);
   await configureScenario(page, scenario);
-  await page.waitForTimeout(4500);
+  await page.waitForTimeout(SCENARIO_DURATION_MS);
   await page.evaluate(() => {
     keys.w = false;
     window.__performanceBot.running = false;
@@ -298,6 +348,66 @@ async function collectScenario(page, scenario) {
       }
     };
   }, scenario.name);
+}
+
+function median(values) {
+  const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (!sorted.length) return 0;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function aggregateSamples(runs, property) {
+  const names = new Set(runs.flatMap(run => run[property].map(item => item.name)));
+  return [...names].map(name => {
+    const samples = runs.map(run => run[property].find(item => item.name === name)).filter(Boolean);
+    return {
+      name,
+      calls: Math.round(median(samples.map(item => item.calls))),
+      totalMs: median(samples.map(item => item.totalMs)),
+      averageMs: median(samples.map(item => item.averageMs)),
+      maxMs: median(samples.map(item => item.maxMs))
+    };
+  }).sort((a, b) => b.totalMs - a.totalMs);
+}
+
+function aggregateScenarioRuns(scenario, runs) {
+  const countKeys = Object.keys(runs[0].counts);
+  return {
+    name: scenario.name,
+    runCount: runs.length,
+    averageFrameMs: median(runs.map(run => run.averageFrameMs)),
+    fps: median(runs.map(run => run.fps)),
+    p95FrameMs: median(runs.map(run => run.p95FrameMs)),
+    maxFrameMs: median(runs.map(run => run.maxFrameMs)),
+    frameSamples: Math.round(median(runs.map(run => run.frameSamples))),
+    functions: aggregateSamples(runs, "functions"),
+    canvas: aggregateSamples(runs, "canvas"),
+    loop: {
+      averageMs: median(runs.map(run => run.loop.averageMs)),
+      p95Ms: median(runs.map(run => run.loop.p95Ms)),
+      maxMs: median(runs.map(run => run.loop.maxMs))
+    },
+    longTasks: {
+      count: Math.round(median(runs.map(run => run.longTasks.count))),
+      totalMs: median(runs.map(run => run.longTasks.totalMs)),
+      maxMs: median(runs.map(run => run.longTasks.maxMs))
+    },
+    counts: Object.fromEntries(countKeys.map(key => [
+      key,
+      Math.round(median(runs.map(run => run.counts[key])))
+    ])),
+    measurements: runs
+  };
+}
+
+async function collectScenario(page, scenario) {
+  const runs = [];
+  for (let run = 1; run <= SCENARIO_RUNS; run++) {
+    console.log(`  Run ${run}/${SCENARIO_RUNS}`);
+    runs.push(await collectScenarioRun(page, scenario));
+  }
+  return aggregateScenarioRuns(scenario, runs);
 }
 
 async function testSavePreviewHover(page) {
@@ -361,7 +471,7 @@ function formatNumber(value, digits = 2) {
   return Number(value || 0).toFixed(digits);
 }
 
-function createReport(results, generatedAt, checks) {
+function createReport(results, generatedAt, checks, realSaveUsed) {
   const lines = [
     "# Space Industry Performance Report",
     "",
@@ -378,22 +488,27 @@ function createReport(results, generatedAt, checks) {
     const details = check.name === "Save preview hover"
       ? `stored=${check.previewStored}, hoveredSlot=${check.hoveredSlot}, loaded=${check.imageLoaded}, drawn=${check.previewDrawn}`
       : check.details;
-    lines.push(`| ${check.name} | ${check.passed ? "PASS" : "FAIL"} | ${details} |`);
+    lines.push(`| ${check.name} | ${check.status || (check.passed ? "PASS" : "FAIL")} | ${details} |`);
   }
 
   lines.push(
     "",
     "## Scenario Summary",
     "",
-    "| Scenario | FPS | Average frame | Loop average | P95 frame | Maximum frame | Long tasks |",
-    "|---|---:|---:|---:|---:|---:|---:|"
+    realSaveUsed
+      ? `Every scenario reloads performance-test-save.json. Values are medians from ${SCENARIO_RUNS} runs.`
+      : `Each synthetic scenario uses world seed ${PERFORMANCE_WORLD_SEED}. Values are medians from ${SCENARIO_RUNS} runs.`,
+    "Complete game-loop timings are the primary comparison. Headless-browser FPS can vary because of frame scheduling.",
+    "",
+    "| Scenario | Runs | FPS | Average frame | Loop average | Loop P95 | P95 frame | Long tasks |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|"
   );
 
   for (const result of results) {
     lines.push(
-      `| ${result.name} | ${formatNumber(result.fps, 1)} | ${formatNumber(result.averageFrameMs)} ms | ` +
-      `${formatNumber(result.loop.averageMs)} ms | ${formatNumber(result.p95FrameMs)} ms | ` +
-      `${formatNumber(result.maxFrameMs)} ms | ${result.longTasks.count} |`
+      `| ${result.name} | ${result.runCount} | ${formatNumber(result.fps, 1)} | ` +
+      `${formatNumber(result.averageFrameMs)} ms | ${formatNumber(result.loop.averageMs)} ms | ` +
+      `${formatNumber(result.loop.p95Ms)} ms | ${formatNumber(result.p95FrameMs)} ms | ${result.longTasks.count} |`
     );
   }
 
@@ -429,14 +544,20 @@ function createReport(results, generatedAt, checks) {
   }
 
   const baseline = results[0];
-  const worst = [...results].sort((a, b) => a.fps - b.fps)[0];
+  const worst = [...results].sort((a, b) => b.loop.p95Ms - a.loop.p95Ms)[0];
   lines.push("", "## Automatic Assessment", "");
-  lines.push(`Baseline: ${formatNumber(baseline.fps, 1)} FPS.`);
-  lines.push(`Slowest scenario: ${worst.name} with ${formatNumber(worst.fps, 1)} FPS.`);
-  if (worst.fps < baseline.fps * 0.65) {
-    lines.push("This scenario causes a significant performance drop and should be investigated first.");
+  lines.push(
+    `Baseline loop: ${formatNumber(baseline.loop.averageMs, 3)} ms average, ` +
+    `${formatNumber(baseline.loop.p95Ms)} ms P95.`
+  );
+  lines.push(
+    `Highest loop P95: ${worst.name} with ${formatNumber(worst.loop.p95Ms)} ms ` +
+    `(${formatNumber(worst.loop.averageMs, 3)} ms average).`
+  );
+  if (worst.loop.p95Ms > Math.max(4, baseline.loop.p95Ms * 1.5)) {
+    lines.push("This scenario causes a significant measured game-loop increase and should be investigated first.");
   } else {
-    lines.push("No tested scenario caused a severe relative performance collapse.");
+    lines.push("No tested scenario caused a severe measured game-loop increase.");
   }
   lines.push("", "The report is generated with an isolated browser profile and does not modify real savegames.", "");
   return lines.join("\n");
@@ -444,20 +565,52 @@ function createReport(results, generatedAt, checks) {
 
 async function main() {
   if (fs.existsSync(ERROR_LOG_PATH)) fs.unlinkSync(ERROR_LOG_PATH);
-  const server = await ensureServer();
+  await ensureServer();
   const browser = await chromium.launch({ headless: true, executablePath: EDGE_PATH });
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-  const scenarios = [
-    { name: "Baseline flight", seed: 1 },
-    { name: "Notification stack", seed: 2, notifications: 8 },
-    { name: "50 enemies", seed: 3, enemies: 50 },
-    { name: "100 distant drones", seed: 4, drones: 100 },
-    { name: "Combined load", seed: 5, notifications: 8, enemies: 50, drones: 100 }
+  let scenarios = [
+    { name: "Baseline flight" },
+    { name: "Notification stack", notifications: 8 },
+    { name: "50 enemies", enemies: 50 },
+    { name: "100 distant drones", drones: 100 },
+    { name: "250 nearby asteroids", asteroids: 250 },
+    { name: "Combined load", notifications: 8, enemies: 50, drones: 100, asteroids: 250 }
   ];
   const results = [];
   const checks = [];
 
   try {
+    let realSaveUsed = false;
+    if (fs.existsSync(REAL_SAVE_PATH)) {
+      const exportedSave = JSON.parse(fs.readFileSync(REAL_SAVE_PATH, "utf8"));
+      realSaveUsed = true;
+      scenarios = [
+        { name: "Savegame baseline", exportedSave },
+        { name: "Savegame notification stack", exportedSave, notifications: 8 },
+        { name: "Savegame + 50 enemies", exportedSave, enemies: 50 },
+        { name: "Savegame + 100 distant drones", exportedSave, drones: 100 },
+        { name: "Savegame + 250 nearby asteroids", exportedSave, asteroids: 250 },
+        {
+          name: "Savegame combined load",
+          exportedSave,
+          notifications: 8,
+          enemies: 50,
+          drones: 100,
+          asteroids: 250
+        }
+      ];
+      checks.push({
+        name: "Optional real savegame",
+        passed: true,
+        details: `${path.basename(REAL_SAVE_PATH)} is reloaded before every scenario; no generated world is used for performance measurements`
+      });
+    } else {
+      checks.push({
+        name: "Optional real savegame",
+        status: "SKIP",
+        details: `${path.basename(REAL_SAVE_PATH)} was not present; synthetic scenarios were tested`
+      });
+    }
     console.log("Testing: Save preview hover");
     checks.push(await testSavePreviewHover(page));
     for (const scenario of scenarios) {
@@ -470,14 +623,14 @@ async function main() {
       passed: path.basename(REPORT_PATH).includes("latest") && path.basename(DATA_PATH).includes("latest"),
       details: `${path.basename(REPORT_PATH)} and ${path.basename(DATA_PATH)} are overwritten each run; no archive directory is used`
     });
-    const report = createReport(results, generatedAt, checks);
+    const report = createReport(results, generatedAt, checks, realSaveUsed);
     fs.writeFileSync(REPORT_PATH, report, "utf8");
     fs.writeFileSync(DATA_PATH, JSON.stringify({ generatedAt, checks, results }, null, 2), "utf8");
     console.log(`Latest report: ${REPORT_PATH}`);
     console.log(`Latest raw measurements: ${DATA_PATH}`);
   } finally {
     await browser.close();
-    if (server) server.kill();
+    for (const server of managedServers) server.kill();
   }
 }
 

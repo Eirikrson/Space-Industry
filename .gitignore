@@ -1,4 +1,5 @@
 Start-Game.bat
-performance-report-latest.md
-performance-data-latest.json
-performance-bot-error-latest.log
+bot/performance-report-latest.md
+bot/performance-data-latest.json
+bot/performance-bot-error-latest.log
+bot/performance-test-save.json
