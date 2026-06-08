@@ -835,14 +835,12 @@ function shipHasPoweredFrontShield(intensity, dt) {
   return true;
 }
 
-function updateStarHeat(dt) {
+function updateStarHeat(dt, activeWorldChunks = getActiveWorldChunks(false)) {
   if (adminInstantBuild) return;
 
   const heatRange = CONFIG.GRID_SIZE * 10;
   let maxIntensity = 0;
   const moduleHeat = [];
-  const activeWorldChunks = getActiveWorldChunks();
-
   for (const module of placedModules) {
     const center = moduleWorldCenter(module);
     const moduleRadius = Math.max(module.w || 1, module.h || 1) * CONFIG.GRID_SIZE * 0.55;
@@ -911,7 +909,7 @@ function updateSpaceHazards(dt) {
 
   const shipRadius = getShipCollisionRadius();
   const bodies = [];
-  const activeWorldChunks = getActiveWorldChunks();
+  const activeWorldChunks = getActiveWorldChunks(false);
 
   for (const star of worldStars) {
     if (!isCircleInActiveChunks(star.x, star.y, star.radius + shipRadius, activeWorldChunks)) continue;
@@ -976,7 +974,7 @@ function updateSpaceHazards(dt) {
     }
   }
 
-  updateStarHeat(dt);
+  updateStarHeat(dt, activeWorldChunks);
   removeEmptyAsteroids();
 }
 

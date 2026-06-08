@@ -1620,7 +1620,7 @@ function updateDysonSphereAttacks(dt) {
 
   for (const enemy of enemyShips) {
     if (enemy._dead) continue;
-    const target = getEnemyDysonAttackTarget(enemy);
+    const target = enemy._dysonAttackTarget || null;
     if (!target) continue;
 
     const dx = target.star.x - enemy.x;
@@ -1795,16 +1795,26 @@ function updateEnemyShips(dt) {
 
   for (const enemy of enemyShips) {
     if (enemy._dead) continue;
-    cleanupEnemyShipDamage(enemy);
-    if (enemy._dead) continue;
+    if (enemy.modules.some(module => module._destroyed)) {
+      cleanupEnemyShipDamage(enemy);
+      if (enemy._dead) continue;
+      enemy._resourceCaps = null;
+      enemy._solarPanelCount = null;
+    }
 
-    const caps = getEnemyResourceCaps(enemy);
-    enemy.resources.energy = Math.min(caps.energy, (enemy.resources.energy || 0) + enemy.modules.filter(module => module.type === "Solar Panel").length * dt);
+    const caps = enemy._resourceCaps || (enemy._resourceCaps = getEnemyResourceCaps(enemy));
+    const solarPanelCount = enemy._solarPanelCount ?? (enemy._solarPanelCount = enemy.modules.filter(module => module.type === "Solar Panel").length);
+    enemy.resources.energy = Math.min(caps.energy, (enemy.resources.energy || 0) + solarPanelCount * dt);
 
     const playerDist = Math.hypot(ship.x - enemy.x, ship.y - enemy.y);
     const attackRange = CONFIG.GRID_SIZE * 16;
 
-    const dysonTarget = getEnemyDysonAttackTarget(enemy);
+    enemy._dysonTargetScanTimer = Math.max(0, (enemy._dysonTargetScanTimer || 0) - dt);
+    if (enemy._dysonTargetScanTimer <= 0) {
+      enemy._dysonTargetScanTimer = 0.5;
+      enemy._dysonAttackTarget = getEnemyDysonAttackTarget(enemy);
+    }
+    const dysonTarget = enemy._dysonAttackTarget || null;
 
     if (dysonTarget && playerDist >= CONFIG.GRID_SIZE * 35) {
       moveEnemyToward(enemy, dysonTarget.star.x, dysonTarget.star.y, dt, CONFIG.GRID_SIZE * 18 * 0.65);
@@ -1893,14 +1903,19 @@ function drawEnemyShips() {
   if (buildMode) return;
 
   for (const enemy of enemyShips) {
+    const p = worldToScreen(enemy.x, enemy.y);
+    const radius = getEnemyShipRadius(enemy) * camera.scale;
+    const margin = Math.max(140, radius + 50);
+    if (p.x < -margin || p.x > VIEW.w + margin || p.y < -margin || p.y > VIEW.h + margin) {
+      continue;
+    }
+
     const com = getCenterOfMass(enemy.modules);
 
     for (const module of enemy.modules) {
       drawEnemyShipModule(enemy, module, com);
     }
 
-    const p = worldToScreen(enemy.x, enemy.y);
-    const radius = getEnemyShipRadius(enemy) * camera.scale;
     const label = currentWorldIsEnd ? `ANCIENT ROBOT ${enemy.name}` : `ENEMY ${enemy.name}`;
     ctx.font = "11px Consolas, monospace";
     ctx.textAlign = "center";
@@ -1954,18 +1969,31 @@ function drawCombatBullets() {
 }
 
 function damageEnemyFromCelestialCollision(enemy, dt) {
+  enemy._celestialCollisionElapsed = (enemy._celestialCollisionElapsed || 0) + dt;
+  enemy._celestialCollisionTimer = Math.max(0, (enemy._celestialCollisionTimer || 0) - dt);
+  if (enemy._celestialCollisionTimer > 0) return;
+
+  const collisionDt = enemy._celestialCollisionElapsed;
+  enemy._celestialCollisionElapsed = 0;
+  enemy._celestialCollisionTimer = 1;
   const enemyRadius = getEnemyShipRadius(enemy);
   let damage = 0;
 
   for (const star of worldStars) {
-    if (Math.hypot(enemy.x - star.x, enemy.y - star.y) < star.radius + enemyRadius * 0.45) {
-      damage = Math.max(damage, 3.5 * dt);
+    const dx = enemy.x - star.x;
+    const dy = enemy.y - star.y;
+    const collisionRadius = star.radius + enemyRadius * 0.45;
+    if (dx * dx + dy * dy < collisionRadius * collisionRadius) {
+      damage = Math.max(damage, 3.5 * collisionDt);
     }
   }
 
   for (const planet of planets) {
-    if (Math.hypot(enemy.x - planet.x, enemy.y - planet.y) < planet.radius + enemyRadius * 0.45) {
-      damage = Math.max(damage, 1.4 * dt);
+    const dx = enemy.x - planet.x;
+    const dy = enemy.y - planet.y;
+    const collisionRadius = planet.radius + enemyRadius * 0.45;
+    if (dx * dx + dy * dy < collisionRadius * collisionRadius) {
+      damage = Math.max(damage, 1.4 * collisionDt);
     }
   }
 

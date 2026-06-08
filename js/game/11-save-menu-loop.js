@@ -6,6 +6,27 @@ function getAutosaveSlotKey(index = 0) {
   return index <= 0 ? AUTOSAVE_KEY : `${AUTOSAVE_KEY}.${index}`;
 }
 
+const saveMenuReadCache = new Map();
+let saveMenuAutosaveCache = null;
+
+function invalidateSaveMenuReadCache() {
+  saveMenuReadCache.clear();
+  saveMenuAutosaveCache = null;
+  if (typeof savePreviewImageCache !== "undefined") savePreviewImageCache.clear();
+}
+
+function readSaveSlotForMenu(slot) {
+  if (!saveMenuReadCache.has(slot)) {
+    saveMenuReadCache.set(slot, readSaveSlot(slot));
+  }
+  return saveMenuReadCache.get(slot);
+}
+
+function getAutosaveEntriesForMenu() {
+  if (!saveMenuAutosaveCache) saveMenuAutosaveCache = getAutosaveEntries();
+  return saveMenuAutosaveCache;
+}
+
 function readAutosaveIndex(index = 0) {
   try {
     const raw = localStorage.getItem(getAutosaveSlotKey(index));
@@ -18,6 +39,7 @@ function readAutosaveIndex(index = 0) {
 function writeAutosaveIndex(index, payload) {
   try {
     localStorage.setItem(getAutosaveSlotKey(index), JSON.stringify(payload));
+    invalidateSaveMenuReadCache();
     return true;
   } catch (error) {
     console.warn("Could not write autosave", error);
@@ -67,17 +89,20 @@ function writeSaveSlot(slot, payload) {
 
   try {
     localStorage.setItem(key, serialized);
+    invalidateSaveMenuReadCache();
     return true;
   } catch (error) {
     try {
       localStorage.removeItem(key);
       localStorage.setItem(key, serialized);
+      invalidateSaveMenuReadCache();
       return true;
     } catch (retryError) {
       if (slot !== "auto") {
         try {
           localStorage.removeItem(getSaveSlotKey("auto"));
           localStorage.setItem(key, serialized);
+          invalidateSaveMenuReadCache();
           return true;
         } catch (autoRetryError) {
           console.warn("Could not write save slot after clearing autosave", autoRetryError);
@@ -92,6 +117,15 @@ function writeSaveSlot(slot, payload) {
       return false;
     }
   }
+}
+
+function deleteSaveSlot(slot) {
+  if (slot === "auto") {
+    for (let i = 0; i < 3; i++) localStorage.removeItem(getAutosaveSlotKey(i));
+  } else {
+    localStorage.removeItem(getSaveSlotKey(slot));
+  }
+  invalidateSaveMenuReadCache();
 }
 
 function stripRuntimeState(value) {
@@ -117,11 +151,56 @@ function stripRuntimeState(value) {
   return output;
 }
 
+const SAVE_PREVIEW_WIDTH = 320;
+const SAVE_PREVIEW_HEIGHT = 180;
+const savePreviewCanvas = document.createElement("canvas");
+const savePreviewCtx = savePreviewCanvas.getContext("2d");
+const savePreviewImageCache = new Map();
+let savePreviewReady = false;
+savePreviewCanvas.width = SAVE_PREVIEW_WIDTH;
+savePreviewCanvas.height = SAVE_PREVIEW_HEIGHT;
+
+function updateSavePreviewFrame() {
+  savePreviewCtx.imageSmoothingEnabled = true;
+  savePreviewCtx.clearRect(0, 0, SAVE_PREVIEW_WIDTH, SAVE_PREVIEW_HEIGHT);
+  savePreviewCtx.drawImage(
+    canvas,
+    0,
+    0,
+    canvas.width,
+    canvas.height,
+    0,
+    0,
+    SAVE_PREVIEW_WIDTH,
+    SAVE_PREVIEW_HEIGHT
+  );
+  savePreviewReady = true;
+}
+
+function captureSavePreview() {
+  if (!savePreviewReady) return null;
+  try {
+    return savePreviewCanvas.toDataURL("image/webp", 0.58);
+  } catch (error) {
+    return null;
+  }
+}
+
+function persistCurrentSavePreview() {
+  if (currentSaveSlot === null || currentSaveSlot === undefined || currentSaveSlot === "auto") return false;
+  const payload = readSaveSlot(currentSaveSlot);
+  const preview = captureSavePreview();
+  if (!payload || !preview) return false;
+  payload.preview = preview;
+  return writeSaveSlot(currentSaveSlot, payload);
+}
+
 function createSavePayload(name) {
   return {
-    version: 2,
+    version: 3,
     name: name || currentSaveName || text("menu.unnamedSave"),
     savedAt: new Date().toISOString(),
+    preview: captureSavePreview(),
     seed: currentWorldSeed,
     seedLabel: currentWorldSeedLabel,
     seedMode: currentWorldIsEnd ? "End" : "normal",
@@ -177,6 +256,7 @@ function saveInitialWorldToSlot(slot) {
     flash("Start save could not be saved");
     return false;
   }
+  currentSaveSlot = slot;
   lastAutosaveAt = performance.now();
   return true;
 }
@@ -211,6 +291,8 @@ function resetGeneratedWorld() {
 }
 
 function resetGameRuntime() {
+  savePreviewReady = false;
+  savePreviewCtx.clearRect(0, 0, SAVE_PREVIEW_WIDTH, SAVE_PREVIEW_HEIGHT);
   buildMode = false;
   heldItem = AIR;
   mouseDown = false;
@@ -218,14 +300,16 @@ function resetGameRuntime() {
   rightMouseDemolishMode = null;
   dragging = false;
   hoveredGrid = null;
-  flashMsg = "";
-  flashUntil = 0;
+  flashMessages = [];
+  nextFlashMessageId = 1;
+  currentSaveSlot = null;
   rotation = 0;
   velocityMatchTarget = null;
   selectedFlightTarget = null;
   lockedApproachTarget = null;
   velocityAssistActive = false;
   matchRotateNose = true;
+  adminInstantBuild = false;
   repairMode = true;
   autoBlueprintRepair = true;
   importedShipGhost = null;
@@ -264,6 +348,8 @@ function resetGameRuntime() {
 
 function resetGameToNew(name, seed) {
   resetGameRuntime();
+  savePreviewReady = false;
+  savePreviewCtx.clearRect(0, 0, SAVE_PREVIEW_WIDTH, SAVE_PREVIEW_HEIGHT);
   setNormalWorldSeed(seed);
 
   nextModuleId = 1;
@@ -1122,6 +1208,7 @@ function saveGameToSlot(slot, name) {
     return false;
   }
   currentSaveName = payload.name;
+  if (slot !== "auto") currentSaveSlot = slot;
   pendingSavePayload = null;
   pendingSaveName = "";
   saveSelectionMode = null;
@@ -1154,7 +1241,9 @@ function requestSaveToSlot(slot) {
 function loadSaveSlot(slot) {
   const payload = readSaveSlot(slot);
   if (!payload) return false;
-  return loadSavePayload(payload);
+  const loaded = loadSavePayload(payload);
+  if (loaded) currentSaveSlot = slot === "auto" ? null : slot;
+  return loaded;
 }
 
 function formatSaveDate(iso) {
@@ -1516,7 +1605,7 @@ function drawSaveSlot(rect, save, active = false) {
   ctx.font = "13px Consolas, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  const autosaves = rect.slot === "auto" ? getAutosaveEntries() : [];
+  const autosaves = rect.slot === "auto" ? getAutosaveEntriesForMenu() : [];
   const title = save
     ? save.name || text("menu.unnamedSave")
     : rect.slot === "auto" && autosaves.length > 0 ? "Autosaves"
@@ -1532,6 +1621,60 @@ function drawSaveSlot(rect, save, active = false) {
     ? `${formatSaveDate(save.savedAt)}${adminSave ? "  ADMIN" : ""}`
     : rect.slot === "auto" ? text("menu.lastAutomaticSave") : text("menu.clickToStart");
   ctx.fillText(detail, rect.x + 10, rect.y + 35);
+}
+
+function getSavePreviewImage(save) {
+  const source = save?.preview;
+  if (!source) return null;
+  if (savePreviewImageCache.has(source)) return savePreviewImageCache.get(source);
+
+  const image = new Image();
+  image.src = source;
+  savePreviewImageCache.set(source, image);
+  return image;
+}
+
+function drawHoveredSavePreview() {
+  if (uiDialog || selectedMenuSaveSlot) return;
+  const rect = getSaveSlotAt(mouse.x, mouse.y);
+  if (!rect) return;
+
+  const save = readSaveSlotForMenu(rect.slot);
+  if (!save?.preview) return;
+
+  const image = getSavePreviewImage(save);
+  const width = Math.min(SAVE_PREVIEW_WIDTH, VIEW.w - 30);
+  const height = width * SAVE_PREVIEW_HEIGHT / SAVE_PREVIEW_WIDTH;
+  const menu = getSaveMenuLayout();
+  const gap = 14;
+  let x = menu.x + menu.panelW + gap;
+  let y = Math.max(15, Math.min(VIEW.h - height - 15, rect.y + rect.h / 2 - height / 2));
+
+  if (x + width + 8 > VIEW.w) {
+    x = menu.x - width - gap;
+  }
+  if (x < 8) {
+    x = Math.max(8, VIEW.w / 2 - width / 2);
+    y = Math.max(8, menu.y - height - gap);
+  }
+
+  ctx.fillStyle = "rgba(4, 10, 30, 0.96)";
+  ctx.fillRect(x - 6, y - 6, width + 12, height + 12);
+  ctx.strokeStyle = "rgba(100,150,255,0.9)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x - 6, y - 6, width + 12, height + 12);
+
+  if (image?.complete && image.naturalWidth > 0) {
+    ctx.drawImage(image, x, y, width, height);
+  } else {
+    ctx.fillStyle = "rgba(10,20,45,0.96)";
+    ctx.fillRect(x, y, width, height);
+    ctx.fillStyle = "rgba(190,215,255,0.72)";
+    ctx.font = "12px Consolas, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Loading preview...", x + width / 2, y + height / 2);
+  }
 }
 
 function drawGameTitlePanel(subtitle) {
@@ -1558,8 +1701,9 @@ function drawMainMenu() {
   rebuildSaveSlotRects();
 
   for (const rect of saveSlotRects) {
-    drawSaveSlot(rect, readSaveSlot(rect.slot));
+    drawSaveSlot(rect, readSaveSlotForMenu(rect.slot));
   }
+  drawHoveredSavePreview();
 
   ctx.fillStyle = "rgba(255,255,255,0.72)";
   ctx.font = "12px Consolas, monospace";
@@ -1930,7 +2074,7 @@ function getMenuSaveActionLayout() {
 function drawMenuSaveActionDialog() {
   if (!selectedMenuSaveSlot) return;
 
-  const save = readSaveSlot(selectedMenuSaveSlot);
+  const save = readSaveSlotForMenu(selectedMenuSaveSlot);
   const layout = getMenuSaveActionLayout();
   ctx.fillStyle = "rgba(0,0,0,0.45)";
   ctx.fillRect(0, 0, VIEW.w, VIEW.h);
@@ -2005,8 +2149,9 @@ function drawPauseMenu() {
   if (saveSelectionMode) {
     rebuildSaveSlotRects();
     for (const rect of saveSlotRects.filter(rect => rect.slot !== "auto")) {
-      drawSaveSlot(rect, readSaveSlot(rect.slot), pendingOverwriteSlot === rect.slot);
+      drawSaveSlot(rect, readSaveSlotForMenu(rect.slot), pendingOverwriteSlot === rect.slot);
     }
+    drawHoveredSavePreview();
   } else {
     ctx.fillStyle = "rgba(255,255,255,0.68)";
     ctx.font = "13px Consolas, monospace";
@@ -2099,7 +2244,7 @@ function handleGameInterfaceClick(mx, my) {
         return true;
       }
       openConfirmDialog("Delete savegame", text("save.deleteConfirm", { name: save.name || text("save.thisSavegame") }), () => {
-        localStorage.removeItem(getSaveSlotKey(selectedMenuSaveSlot));
+        deleteSaveSlot(selectedMenuSaveSlot);
         selectedMenuSaveSlot = null;
       });
       return true;
@@ -2211,8 +2356,8 @@ function loop(now) {
 
   if (!buildMode) {
     syncStarPositionsAtTime(worldPlayTime);
-    const activeWorldChunks = getActiveWorldChunks();
-    const activeWorldFocusPoints = getActiveWorldFocusPoints();
+    const activeWorldChunks = getActiveWorldChunks(false);
+    const activeWorldFocusPoints = getActiveWorldFocusPoints(false);
     const activeSystems = solarSystems.filter(system => isSystemNearActiveFocus(system, activeWorldFocusPoints));
 
     for (const system of activeSystems) {
