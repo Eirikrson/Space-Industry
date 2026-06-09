@@ -726,8 +726,6 @@ class GalaxyPlanet {
     this.orbitDir = worldRand() < 0.5 ? 1 : -1;
     this.orbitSpeed = randomOrbitSpeed(PLANET_ORBIT_PERIOD_MIN, PLANET_ORBIT_PERIOD_MAX);
     this.baseOrbitAngle = this.orbitAngle;
-    this.spinAngle = worldRand() * Math.PI * 2;
-    this.spinSpeed = 0.005 + worldRand() * 0.02;
     // Generate cloud bands (for visual)
     this.bands = [];
     const rng = seededRand(Math.floor(x + y * 7));
@@ -738,8 +736,7 @@ class GalaxyPlanet {
   }
 
   update(dt) {
-    // Position remains fixed.
-    this.spinAngle += this.spinSpeed * dt; // nur visuelles Spin
+    // Planets are static.
   }
 
   setPositionFromAngle(angle) {
@@ -783,8 +780,6 @@ class GalaxyPlanet {
       ctx.fillStyle = cloudGrad;
       ctx.fill();
 
-      ctx.save();
-      ctx.rotate(this.spinAngle * 0.45);
       for (let i = -2; i <= 2; i++) {
         ctx.beginPath();
         ctx.ellipse(0, i * r * 0.34, cloudRad * 0.95, r * 0.18, 0, 0, Math.PI*2);
@@ -792,7 +787,6 @@ class GalaxyPlanet {
         ctx.lineWidth = Math.max(1, r * 0.035);
         ctx.stroke();
       }
-      ctx.restore();
     }
 
     // Atmosphere glow
@@ -815,7 +809,6 @@ class GalaxyPlanet {
       ctx.beginPath();
       ctx.arc(0, 0, r, 0, Math.PI*2);
       ctx.clip();
-      ctx.rotate(this.spinAngle);
       for (const band of this.bands) {
         ctx.beginPath();
         ctx.ellipse(0, band.offset * r, r * 0.98, r * band.width, 0, 0, Math.PI*2);
@@ -930,18 +923,21 @@ class EndTwinPlanet {
     this.radius = radius;
     this.angle = angle;
     this.orbitRadius = radius * 0.56;
-    this.spinAngle = angle;
     this.colors = colors;
     this.type = "planet";
     this.typeKey = "end";
-    this.def = { name: "Unknown Planet", colors, atmosphere: "rgba(120,180,255,0.18)", cloudColor: "#cceeff" };
+    this.def = {
+      name: "Unknown Planet",
+      colors,
+      atmosphere: "rgba(120,180,255,0.18)",
+      cloudColor: "#cceeff"
+    };
     this.x = centerX + Math.cos(angle) * this.orbitRadius;
     this.y = centerY + Math.sin(angle) * this.orbitRadius;
   }
 
   update(dt) {
-    // Position remains fixed.
-    this.spinAngle += dt * 0.012; // nur visuelles Spin
+    // Position and surface remain fixed.
   }
 
   get gravity() { return this.radius * 0.035; }
@@ -951,40 +947,56 @@ class EndTwinPlanet {
     const r = this.radius * camera.scale;
     if (p.x < -r * 2 || p.x > VIEW.w + r * 2 || p.y < -r * 2 || p.y > VIEW.h + r * 2) return;
 
-    ctx.save();
-    ctx.translate(p.x, p.y);
-    ctx.rotate(this.spinAngle);
+    if (!this._staticTexture) {
+      const size = 2048;
+      const center = size / 2;
+      const bodyRadius = size / 2.9;
+      const texture = document.createElement("canvas");
+      texture.width = size;
+      texture.height = size;
+      const textureCtx = texture.getContext("2d");
+      const glow = textureCtx.createRadialGradient(center, center, bodyRadius * 0.6, center, center, bodyRadius * 1.45);
+      glow.addColorStop(0, "rgba(90,160,255,0.16)");
+      glow.addColorStop(1, "transparent");
+      textureCtx.fillStyle = glow;
+      textureCtx.beginPath();
+      textureCtx.arc(center, center, bodyRadius * 1.45, 0, Math.PI * 2);
+      textureCtx.fill();
 
-    const glow = ctx.createRadialGradient(0, 0, r * 0.6, 0, 0, r * 1.45);
-    glow.addColorStop(0, "rgba(90,160,255,0.16)");
-    glow.addColorStop(1, "transparent");
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 1.45, 0, Math.PI * 2);
-    ctx.fillStyle = glow;
-    ctx.fill();
+      const grad = textureCtx.createRadialGradient(
+        center - bodyRadius * 0.28,
+        center - bodyRadius * 0.32,
+        bodyRadius * 0.05,
+        center,
+        center,
+        bodyRadius
+      );
+      grad.addColorStop(0, this.colors[2]);
+      grad.addColorStop(0.48, this.colors[1]);
+      grad.addColorStop(1, this.colors[0]);
+      textureCtx.fillStyle = grad;
+      textureCtx.beginPath();
+      textureCtx.arc(center, center, bodyRadius, 0, Math.PI * 2);
+      textureCtx.fill();
 
-    const grad = ctx.createRadialGradient(-r * 0.28, -r * 0.32, r * 0.05, 0, 0, r);
-    grad.addColorStop(0, this.colors[2]);
-    grad.addColorStop(0.48, this.colors[1]);
-    grad.addColorStop(1, this.colors[0]);
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    if (r > 12) {
-      ctx.beginPath();
-      ctx.arc(0, 0, r, 0, Math.PI * 2);
-      ctx.clip();
+      textureCtx.save();
+      textureCtx.beginPath();
+      textureCtx.arc(center, center, bodyRadius, 0, Math.PI * 2);
+      textureCtx.clip();
       for (let i = -3; i <= 3; i++) {
-        ctx.beginPath();
-        ctx.ellipse(0, i * r * 0.23, r * 0.95, r * 0.09, 0, 0, Math.PI * 2);
-        ctx.fillStyle = i % 2 === 0 ? "rgba(210,235,255,0.10)" : "rgba(40,70,150,0.16)";
-        ctx.fill();
+        textureCtx.beginPath();
+        textureCtx.ellipse(center, center + i * bodyRadius * 0.23, bodyRadius * 0.95, bodyRadius * 0.09, 0, 0, Math.PI * 2);
+        textureCtx.fillStyle = i % 2 === 0 ? "rgba(210,235,255,0.10)" : "rgba(40,70,150,0.16)";
+        textureCtx.fill();
       }
+      textureCtx.restore();
+      this._staticTexture = texture;
     }
 
-    ctx.restore();
+    const previousSmoothing = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this._staticTexture, p.x - r * 1.45, p.y - r * 1.45, r * 2.9, r * 2.9);
+    ctx.imageSmoothingEnabled = previousSmoothing;
   }
 }
 
@@ -1273,9 +1285,23 @@ function generateEndGalaxy(rng) {
   );
 
   const endPlanetKeys = ["metal", "radioactive", "lava", "ice", "gas", "water", "desert"];
+  const closeGap = (38 + rng() * 22) * Math.PI / 180;
+  const remainingAngle = Math.PI * 2 - closeGap;
+  const gapWeights = [0.75 + rng() * 0.5, 0.75 + rng() * 0.5, 0.75 + rng() * 0.5];
+  const gapWeightTotal = gapWeights.reduce((sum, value) => sum + value, 0);
+  const gaps = [
+    closeGap,
+    ...gapWeights.map(value => remainingAngle * value / gapWeightTotal)
+  ];
+  const closeGapIndex = Math.floor(rng() * gaps.length);
+  gaps.push(...gaps.splice(0, closeGapIndex));
+  const systemAngles = [rng() * Math.PI * 2];
+  for (let i = 1; i < 4; i++) {
+    systemAngles.push(systemAngles[i - 1] + gaps[i - 1]);
+  }
 
   for (let si = 0; si < 4; si++) {
-    const angle = (si / 4) * Math.PI * 2 + (rng() - 0.5) * 0.16;
+    const angle = systemAngles[si];
     const dist = CONFIG.GALAXY_RADIUS * (0.62 + rng() * 0.13);
     const sx = CX + Math.cos(angle) * dist;
     const sy = CY + Math.sin(angle) * dist;

@@ -1013,16 +1013,29 @@ function getEnemyDesign(id) {
 
 function getEnemyModuleWorldCenter(enemy, module) {
   const grid = CONFIG.GRID_SIZE;
-  const com = getCenterOfMass(enemy.modules);
+  const com = getEnemyCenterOfMass(enemy);
   const center = getModuleCenter(module);
   const rel = rotVec((center.x - com.x) * grid, (center.y - com.y) * grid, enemy.angle || 0);
 
   return { x: enemy.x + rel.x, y: enemy.y + rel.y };
 }
 
+function getEnemyCenterOfMass(enemy) {
+  if (enemy._geometryModules !== enemy.modules || !enemy._centerOfMass) {
+    enemy._geometryModules = enemy.modules;
+    enemy._centerOfMass = getCenterOfMass(enemy.modules);
+    enemy._shipRadius = null;
+  }
+  return enemy._centerOfMass;
+}
+
 function getEnemyShipRadius(enemy) {
+  if (enemy._geometryModules === enemy.modules && Number.isFinite(enemy._shipRadius)) {
+    return enemy._shipRadius;
+  }
+
   const grid = CONFIG.GRID_SIZE;
-  const com = getCenterOfMass(enemy.modules);
+  const com = getEnemyCenterOfMass(enemy);
   let radius = grid;
 
   for (const module of enemy.modules) {
@@ -1032,6 +1045,7 @@ function getEnemyShipRadius(enemy) {
     radius = Math.max(radius, Math.hypot(dx, dy) + Math.max(module.w || 1, module.h || 1) * grid * 0.75);
   }
 
+  enemy._shipRadius = radius;
   return radius;
 }
 
@@ -1100,16 +1114,44 @@ function chooseEnemyFleetDesign() {
   return available[Math.floor(Math.random() * available.length)] || ENEMY_FLEET_DESIGNS[0];
 }
 
-function getEnemySpawnPosition() {
+function isEnemySpawnAreaFree(x, y, radius) {
+  const clearance = radius + CONFIG.GRID_SIZE * 8;
+  const blockedBy = (body, bodyRadius) => {
+    if (!body) return false;
+    const minDistance = clearance + bodyRadius;
+    const dx = x - body.x;
+    const dy = y - body.y;
+    return dx * dx + dy * dy < minDistance * minDistance;
+  };
+
+  if (blockedBy(ship, getShipCollisionRadius())) return false;
+  if (blackHole && blockedBy(blackHole, blackHole.radius)) return false;
+  for (const star of worldStars) {
+    if (blockedBy(star, star.radius)) return false;
+  }
+  for (const planet of planets) {
+    if (blockedBy(planet, planet.radius)) return false;
+  }
+  for (const asteroid of asteroids) {
+    if (blockedBy(asteroid, asteroid.size)) return false;
+  }
+  for (const enemy of enemyShips) {
+    if (!enemy._dead && blockedBy(enemy, getEnemyShipRadius(enemy))) return false;
+  }
+  return true;
+}
+
+function getEnemySpawnPosition(spawnRadius = CONFIG.GRID_SIZE * 12) {
   const minDistance = CONFIG.GRID_SIZE * 85;
   const maxDistance = CONFIG.GRID_SIZE * 135;
-  const angle = Math.random() * Math.PI * 2;
-  const distance = minDistance + Math.random() * (maxDistance - minDistance);
-
-  return {
-    x: Math.max(300, Math.min(CONFIG.WORLD_WIDTH - 300, ship.x + Math.cos(angle) * distance)),
-    y: Math.max(300, Math.min(CONFIG.WORLD_HEIGHT - 300, ship.y + Math.sin(angle) * distance))
-  };
+  for (let attempt = 0; attempt < 24; attempt++) {
+    const angle = Math.random() * Math.PI * 2;
+    const distance = minDistance + Math.random() * (maxDistance - minDistance);
+    const x = Math.max(300, Math.min(CONFIG.WORLD_WIDTH - 300, ship.x + Math.cos(angle) * distance));
+    const y = Math.max(300, Math.min(CONFIG.WORLD_HEIGHT - 300, ship.y + Math.sin(angle) * distance));
+    if (isEnemySpawnAreaFree(x, y, spawnRadius)) return { x, y };
+  }
+  return null;
 }
 
 function formatDirectionFromPlayer(target) {
@@ -1131,9 +1173,11 @@ function formatDirectionFromPlayer(target) {
   return `${distanceTiles} m ${direction}`;
 }
 function spawnEnemyFleet(fleet = chooseEnemyFleetDesign()) {
-  const pos = getEnemySpawnPosition();
-  const fleetId = nextEnemyFleetId++;
   const spacing = CONFIG.GRID_SIZE * 7;
+  const spawnRadius = Math.max(CONFIG.GRID_SIZE * 12, fleet.ships.length * spacing * 0.6);
+  const pos = getEnemySpawnPosition(spawnRadius);
+  if (!pos) return false;
+  const fleetId = nextEnemyFleetId++;
   const count = fleet.ships.length;
 
   for (let i = 0; i < count; i++) {
@@ -1148,6 +1192,7 @@ function spawnEnemyFleet(fleet = chooseEnemyFleetDesign()) {
 
   flash(currentWorldIsEnd ? `Ancient robot ships detected: ${formatDirectionFromPlayer(pos)}` : `Enemy fleet detected: ${formatDirectionFromPlayer(pos)}`);
   playSound("enemyDetected", 500);
+  return true;
 }
 
 function spawnEnemyShipsByType(designId, count = 1) {
@@ -1155,7 +1200,8 @@ function spawnEnemyShipsByType(designId, count = 1) {
   if (!design) return 0;
 
   const amount = Math.max(1, Math.min(50, Math.floor(count) || 1));
-  const pos = getEnemySpawnPosition();
+  const pos = getEnemySpawnPosition(Math.max(CONFIG.GRID_SIZE * 12, amount * CONFIG.GRID_SIZE * 4));
+  if (!pos) return 0;
   const fleetId = nextEnemyFleetId++;
   const spacing = CONFIG.GRID_SIZE * 7;
 
@@ -1365,7 +1411,10 @@ function updateEnemySpawning() {
   const now = performance.now();
   if (now < nextEnemySpawnAt) return;
 
-  spawnEnemyFleet();
+  if (!spawnEnemyFleet()) {
+    nextEnemySpawnAt = now + 3000;
+    return;
+  }
   nextEnemySpawnAt = currentWorldIsEnd
     ? now + 18000 + Math.random() * 22000
     : now + 45000 + Math.random() * 45000;
@@ -1431,7 +1480,9 @@ function getClosestPlayerModuleTo(x, y) {
 
   for (const module of placedModules) {
     const world = moduleWorldCenter(module);
-    const dist = Math.hypot(world.x - x, world.y - y);
+    const dx = world.x - x;
+    const dy = world.y - y;
+    const dist = dx * dx + dy * dy;
     if (dist < bestDist) {
       best = module;
       bestDist = dist;
@@ -1446,8 +1497,11 @@ function getClosestEnemyModuleTo(enemy, x, y) {
   let bestDist = Infinity;
 
   for (const module of enemy.modules) {
+    if (getModuleHealth(module) <= 0) continue;
     const world = getEnemyModuleWorldCenter(enemy, module);
-    const dist = Math.hypot(world.x - x, world.y - y);
+    const dx = world.x - x;
+    const dy = world.y - y;
+    const dist = dx * dx + dy * dy;
     if (dist < bestDist) {
       best = module;
       bestDist = dist;
@@ -1463,6 +1517,70 @@ function getEnemyById(id) {
 
 function getEnemyModuleById(enemy, id) {
   return enemy?.modules?.find(module => module.id === id && getModuleHealth(module) > 0) || null;
+}
+
+function resolveCachedTurretTarget(turret) {
+  const cached = turret?._cachedTarget;
+  const enemy = getEnemyById(cached?.enemy?.id);
+  if (!enemy) return null;
+
+  const module = getEnemyModuleById(enemy, cached?.module?.id);
+  if (!module) return null;
+
+  const target = getEnemyModuleWorldCenter(enemy, module);
+  return { x: target.x, y: target.y, enemy, module, dist: cached.dist };
+}
+
+function getInterceptPoint(fromX, fromY, targetX, targetY, targetVx, targetVy, projectileSpeed, inheritedVx = 0, inheritedVy = 0) {
+  const rx = targetX - fromX;
+  const ry = targetY - fromY;
+  const vx = (targetVx || 0) - inheritedVx;
+  const vy = (targetVy || 0) - inheritedVy;
+  const a = vx * vx + vy * vy - projectileSpeed * projectileSpeed;
+  const b = 2 * (rx * vx + ry * vy);
+  const c = rx * rx + ry * ry;
+  let time = 0;
+
+  if (Math.abs(a) < 0.0001) {
+    if (Math.abs(b) > 0.0001) time = -c / b;
+  } else {
+    const discriminant = b * b - 4 * a * c;
+    if (discriminant >= 0) {
+      const root = Math.sqrt(discriminant);
+      const t1 = (-b - root) / (2 * a);
+      const t2 = (-b + root) / (2 * a);
+      time = Math.min(t1 > 0 ? t1 : Infinity, t2 > 0 ? t2 : Infinity);
+      if (!Number.isFinite(time)) time = 0;
+    }
+  }
+
+  return {
+    x: targetX + (targetVx || 0) * Math.max(0, time),
+    y: targetY + (targetVy || 0) * Math.max(0, time)
+  };
+}
+
+function distancePointToSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq <= 0.0001) return Math.hypot(px - x1, py - y1);
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lengthSq));
+  return Math.hypot(px - (x1 + dx * t), py - (y1 + dy * t));
+}
+
+function getEnemyModuleHitBySegment(enemy, preferredModule, x1, y1, x2, y2) {
+  const candidates = preferredModule
+    ? [preferredModule, ...enemy.modules.filter(module => module !== preferredModule)]
+    : enemy.modules;
+
+  for (const module of candidates) {
+    if (getModuleHealth(module) <= 0) continue;
+    const world = getEnemyModuleWorldCenter(enemy, module);
+    const hitRadius = Math.max(module.w || 1, module.h || 1) * CONFIG.GRID_SIZE * 0.7;
+    if (distancePointToSegment(world.x, world.y, x1, y1, x2, y2) <= hitRadius) return module;
+  }
+  return null;
 }
 
 function moveEnemyToward(enemy, targetX, targetY, dt, stopDistance = CONFIG.GRID_SIZE * 6) {
@@ -1485,7 +1603,11 @@ function moveEnemyToward(enemy, targetX, targetY, dt, stopDistance = CONFIG.GRID
   const dvx = desiredVx - enemy.vx;
   const dvy = desiredVy - enemy.vy;
   const dv = Math.hypot(dvx, dvy);
-  const step = Math.min(dv, 220 * getMassAccelerationFactor(enemy.modules) * dt);
+  if (enemy._massModules !== enemy.modules || !Number.isFinite(enemy._massAccelerationFactor)) {
+    enemy._massModules = enemy.modules;
+    enemy._massAccelerationFactor = getMassAccelerationFactor(enemy.modules);
+  }
+  const step = Math.min(dv, 220 * enemy._massAccelerationFactor * dt);
 
   if ((enemy.resources.fuel || 0) > 0 && dv > 0.001) {
     const fuelUse = step * 0.01;
@@ -1553,8 +1675,25 @@ function updateEnemyMining(enemy, dt) {
 }
 
 function fireCombatBullet(owner, shooter, fromX, fromY, targetX, targetY, options = {}) {
-  const angle = Math.atan2(targetY - fromY, targetX - fromX);
   const speed = options.speed || 420;
+  const velocityScale = owner === "player" ? 60 : 1;
+  const inheritedVx = (shooter.vx || 0) * velocityScale;
+  const inheritedVy = (shooter.vy || 0) * velocityScale;
+  const aim = options.kind === "missile"
+    ? { x: targetX, y: targetY }
+    : getInterceptPoint(
+        fromX,
+        fromY,
+        targetX,
+        targetY,
+        options.targetVx || 0,
+        options.targetVy || 0,
+        speed,
+        inheritedVx,
+        inheritedVy
+      );
+  const angle = Math.atan2(aim.y - fromY, aim.x - fromX);
+  const distance = Math.hypot(aim.x - fromX, aim.y - fromY);
 
   playSound("turretShot", 70);
 
@@ -1567,9 +1706,9 @@ function fireCombatBullet(owner, shooter, fromX, fromY, targetX, targetY, option
     targetModuleId: options.targetModuleId,
     x: fromX,
     y: fromY,
-    vx: Math.cos(angle) * speed + (shooter.vx || 0),
-    vy: Math.sin(angle) * speed + (shooter.vy || 0),
-    ttl: 3.2
+    vx: Math.cos(angle) * speed + inheritedVx,
+    vy: Math.sin(angle) * speed + inheritedVy,
+    ttl: Math.min(18, Math.max(3.2, distance / Math.max(1, speed) * 1.6 + 1))
   });
 }
 
@@ -1673,17 +1812,11 @@ function updatePlayerTurrets(dt) {
     const config = getTurretConfig(turret.type);
     turret._fireCooldown = Math.max(0, (turret._fireCooldown || 0) - dt);
     if (turret._fireCooldown > 0) continue;
-    turret._targetScanTimer = Math.max(0, (turret._targetScanTimer || 0) - dt);
 
     if (config.energyUse && (res.energy || 0) < config.energyUse) continue;
     if (config.ammo && (res[config.ammo] || 0) < (config.ammoPerShot || 1)) continue;
 
-    let target = turret._cachedTarget || null;
-    if (turret._targetScanTimer <= 0 || !getEnemyById(target?.enemy?.id)) {
-      target = getNearestEnemyTargetForTurret(turret, config.rangeTiles);
-      turret._cachedTarget = target;
-      turret._targetScanTimer = 0.5;
-    }
+    const target = resolveCachedTurretTarget(turret);
     if (!target) continue;
     if (
       config.kind === "missile" &&
@@ -1699,7 +1832,8 @@ function updatePlayerTurrets(dt) {
     const turretWorld = moduleWorldCenter(turret);
     if (!canRailgunFireAt(ship, turret, turretWorld, target)) continue;
 
-    turret._gunAngle = Math.atan2(target.y - turretWorld.y, target.x - turretWorld.x) - ship.angle - (turret.rot || 0) * Math.PI / 2 - Math.PI / 2;
+    const targetAngle = Math.atan2(target.y - turretWorld.y, target.x - turretWorld.x) - ship.angle - (turret.rot || 0) * Math.PI / 2 - Math.PI / 2;
+    if (!config.fixed && Math.abs(normalizeAngle(targetAngle - (turret._gunAngle || 0))) > 0.12) continue;
     if (config.ammo) res[config.ammo] -= (config.ammoPerShot || 1);
     if (config.energyUse) res.energy -= config.energyUse;
     turret._fireCooldown = config.fireDelay;
@@ -1715,7 +1849,9 @@ function updatePlayerTurrets(dt) {
         damage: config.damage,
         speed: config.speed,
         targetEnemyId: target.enemy.id,
-        targetModuleId: target.module.id
+        targetModuleId: target.module.id,
+        targetVx: target.enemy.vx,
+        targetVy: target.enemy.vy
       });
     }
   }
@@ -1752,6 +1888,8 @@ function playerShieldBlocksBullet(bullet) {
 function updateCombatBullets(dt) {
   for (let i = combatBullets.length - 1; i >= 0; i--) {
     const bullet = combatBullets[i];
+    const previousX = bullet.x;
+    const previousY = bullet.y;
     if (bullet.kind === "missile") {
       const enemy = getEnemyById(bullet.targetEnemyId);
       const computer = enemy?.modules?.find(module => module.type === "Computer" && getModuleHealth(module) > 0);
@@ -1788,18 +1926,24 @@ function updateCombatBullets(dt) {
         combatBullets.splice(i, 1);
       }
     } else if (bullet.owner === "player") {
-      for (const enemy of enemyShips) {
-        const module = bullet.kind === "missile"
-          ? enemy.modules.find(candidate => candidate.type === "Computer" && getModuleHealth(candidate) > 0)
-          : getClosestEnemyModuleTo(enemy, bullet.x, bullet.y);
-        if (!module) continue;
-        const world = getEnemyModuleWorldCenter(enemy, module);
-        const hitRadius = Math.max(module.w || 1, module.h || 1) * CONFIG.GRID_SIZE * 0.55;
-        if (Math.hypot(world.x - bullet.x, world.y - bullet.y) <= hitRadius) {
-          damageModule(module, bullet.damage ?? 0.25);
-          combatBullets.splice(i, 1);
-          break;
-        }
+      const enemy = getEnemyById(bullet.targetEnemyId);
+      if (!enemy) {
+        combatBullets.splice(i, 1);
+        continue;
+      }
+
+      const preferredModule = getEnemyModuleById(enemy, bullet.targetModuleId);
+      const hitModule = getEnemyModuleHitBySegment(
+        enemy,
+        preferredModule,
+        previousX,
+        previousY,
+        bullet.x,
+        bullet.y
+      );
+      if (hitModule) {
+        damageModule(hitModule, bullet.damage ?? 0.25);
+        combatBullets.splice(i, 1);
       }
     }
   }
@@ -1927,8 +2071,8 @@ function drawEnemyShipModule(enemy, module, com) {
   ctx.translate(p.x, p.y);
   ctx.rotate((enemy.angle || 0) + rot * Math.PI / 2);
   ctx.strokeStyle = currentWorldIsEnd ? "rgba(190,80,255,0.98)" : "rgba(255,40,40,0.95)";
-  ctx.shadowColor = currentWorldIsEnd ? "rgba(180,80,255,0.8)" : "transparent";
-  ctx.shadowBlur = currentWorldIsEnd ? Math.max(4, 8 * camera.scale) : 0;
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
   ctx.lineWidth = Math.max(2, 3 * camera.scale);
   ctx.strokeRect(-sw / 2 - 2, -sh / 2 - 2, sw + 4, sh + 4);
   ctx.restore();
@@ -1945,7 +2089,34 @@ function drawEnemyShips() {
       continue;
     }
 
-    const com = getCenterOfMass(enemy.modules);
+    if (camera.scale <= 0.06) {
+      const color = currentWorldIsEnd ? "#c96cff" : "#ff5555";
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate((enemy.angle || 0) - Math.PI / 2);
+      ctx.fillStyle = color;
+      ctx.strokeStyle = "rgba(0,0,0,0.9)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(12, 0);
+      ctx.lineTo(-8, -7);
+      ctx.lineTo(-4, 0);
+      ctx.lineTo(-8, 7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      if (enemy.id === turretPriorityEnemyId) {
+        ctx.strokeStyle = "#55ccff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 16, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+      continue;
+    }
+
+    const com = getEnemyCenterOfMass(enemy);
 
     for (const module of enemy.modules) {
       drawEnemyShipModule(enemy, module, com);

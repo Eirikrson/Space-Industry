@@ -298,6 +298,11 @@ function cleanupEnemyShipDamage(enemy) {
   }
 
   enemy.modules = result.modules;
+  enemy._geometryModules = null;
+  enemy._centerOfMass = null;
+  enemy._shipRadius = null;
+  enemy._massModules = null;
+  enemy._massAccelerationFactor = null;
 }
 
 function flash(msg) {

@@ -33,7 +33,12 @@ function getDesiredOrbitRadius(body) {
     return Math.max(body.radius + CONFIG.GRID_SIZE * 35, shellRadius + CONFIG.GRID_SIZE * 22);
   }
   const extraTiles = body.type === "blackhole" ? 50 : 14;
-  return body.radius + CONFIG.GRID_SIZE * extraTiles;
+  const surfaceClearance = Math.max(
+    CONFIG.GRID_SIZE * extraTiles,
+    body.radius * 0.35,
+    getShipCollisionRadius() * 0.8
+  );
+  return body.radius + surfaceClearance;
 }
 
 function getLandedRadius(planet) {
@@ -149,8 +154,15 @@ function _orbitApproach(dt, body, relX, relY, dist, desiredR, radialErr) {
 
   if (dvLen > 0.04 && res.fuel > 0) {
     const thrustAngle = Math.atan2(dvy, dvx);
-    if (!ship.thrustToward(dt, thrustAngle)) {
-      rotateBestThrusterToward(dt, thrustAngle);
+    const desiredShipAngle = getShipAngleForBestThruster(thrustAngle, ship.angle);
+    const turnError = Math.atan2(
+      Math.sin(desiredShipAngle - ship.angle),
+      Math.cos(desiredShipAngle - ship.angle)
+    );
+    if (Math.abs(turnError) > 0.06) {
+      ship.rotateToward(dt, desiredShipAngle, 1.0);
+    } else {
+      ship.thrustToward(dt, thrustAngle);
     }
   }
 
@@ -218,22 +230,6 @@ function createOrbitTangentPoint(body, relX, relY, dist, radius) {
   return candidates[0].alignment >= candidates[1].alignment ? candidates[0] : candidates[1];
 }
 
-function rotateBestThrusterToward(dt, worldAngle) {
-  let bestLocalDirection = null;
-  let bestThrust = -1;
-
-  for (const module of placedModules) {
-    const stats = BUILDING_STATS[module.type];
-    if (!stats || !stats.thrust || stats.thrust <= bestThrust) continue;
-    bestThrust = stats.thrust;
-    bestLocalDirection = stats.thrustDir + (module.rot || 0) * Math.PI / 2;
-  }
-
-  if (bestLocalDirection !== null) {
-    ship.rotateToward(dt, worldAngle - bestLocalDirection, 1.0);
-  }
-}
-
 function _orbitFree(dt, body, desiredR) {
   const orbitDir  = body.orbitDir || 1;
   const tangSpeed = orbitLockedSpeed || getOrbitTangentSpeed(body, desiredR);
@@ -285,13 +281,9 @@ function _startSpiralLanding(planet) {
   landingProgress = 0;
   landingStartAngle = Math.atan2(ship.y - planet.y, ship.x - planet.x);
   landingDirection = planet.orbitDir || 1;
-  landingEntrySpeed = Math.max(
-    orbitLockedSpeed || 0,
-    Math.hypot(ship.vx, ship.vy),
-    getOrbitTangentSpeed(planet, getDesiredOrbitRadius(planet))
-  );
+  landingEntrySpeed = MAX_SHIP_SPEED * 0.7;
   const pathLength = getDesiredOrbitRadius(planet) * 1.35;
-  landingDuration = Math.max(5.4, Math.min(18, pathLength / Math.max(1, landingEntrySpeed * 60) * 3));
+  landingDuration = Math.max(3, pathLength / Math.max(1, landingEntrySpeed * 60));
   orbitLockedSpeed = 0;
 }
 
@@ -430,6 +422,7 @@ const PLANET_MINING_RATES = {
   metal:      { ironOre: 0.22, nickel: 0.15, copperOre: 0.08 },
   jungle:     { food: 0.60, carbon: 0.10 },
   radioactive:{ uranium: 0.80, silicon: 0.06 },
+  end:        { helium3: 0.45, uranium: 0.32, nickel: 0.24, silicon: 0.18 },
 };
 
 function getPlanetMiningRates(planet) {
@@ -484,7 +477,7 @@ function updatePlanetMining(dt) {
     landedPlanet._storageWarningTimer = (landedPlanet._storageWarningTimer || 0) + elapsed;
     if (landedPlanet._storageWarningTimer >= 5) {
       landedPlanet._storageWarningTimer = 0;
-      flash("Planet mining needs free warehouse space or matching liquid tanks");
+      flash("Planet mining needs free warehouse space; gases also need a matching tank");
     }
   }
 }

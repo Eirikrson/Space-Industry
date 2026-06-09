@@ -365,6 +365,7 @@ function updateResources(dt) {
   res.foodCap = 0;
   res.steamCap = 0;
   let solarEnergyProdBase = 0;
+  let asteroidCollectorCount = 0;
 
   for (const m of placedModules) {
     if (m.tankContent && m.tankCap) {
@@ -379,6 +380,7 @@ function updateResources(dt) {
     if (stats.crewCap) res.crewCap += stats.crewCap;
     if (stats.itemCap) res.itemCap += stats.itemCap;
     if (stats.energyProdBase) solarEnergyProdBase += stats.energyProdBase;
+    if (m.type === "Asteroid Collector") asteroidCollectorCount++;
   }
 
   const solarFactor = getSolarEfficiency();
@@ -388,6 +390,15 @@ function updateResources(dt) {
   if (typeof getDysonChargeRate === "function") eProd += getDysonChargeRate();
   let eUse = 0;
   const wasPowered = res.energy > 0;
+  const collectorEfficiency = Math.min(4, Math.pow(Math.max(1, asteroidCollectorCount), 0.585));
+  const orbitGasPlanet = orbitModeActive && orbitPhase === "free" && orbitTarget?.typeKey === "gas"
+    ? orbitTarget
+    : null;
+  const orbitStar = orbitModeActive && orbitPhase === "free" && orbitTarget instanceof GalaxyStar
+    ? orbitTarget
+    : null;
+  let nearbyGasPlanet;
+  let nearbyStar;
   const hasPower = () => res.energy > 0 || eProd > eUse;
   const canUsePower = module => {
     const now = performance.now();
@@ -510,9 +521,7 @@ function updateResources(dt) {
         m._collectorTimer = 10 + Math.random() * 10;
       }
 
-      const collectors = placedModules.filter(module => module.type === "Asteroid Collector").length;
-      const efficiency = Math.min(4, Math.pow(Math.max(1, collectors), 0.585));
-      m._collectorTimer -= dt * (efficiency / Math.max(1, collectors));
+      m._collectorTimer -= dt * (collectorEfficiency / Math.max(1, asteroidCollectorCount));
 
       if (m._collectorTimer <= 0) {
         const resource = COLLECTOR_SOLID_POOL[Math.floor(Math.random() * COLLECTOR_SOLID_POOL.length)];
@@ -523,8 +532,18 @@ function updateResources(dt) {
 
     if (m.type === "Drill" && canUsePower(m)) {
       eUse += stats.energyUse;
-      const waterPlanet = findWaterPlanetForDrill(m);
-      const target = waterPlanet ? null : findAsteroidForDrill(m);
+      m._drillScanTimer = Math.max(0, (m._drillScanTimer || 0) - dt);
+      if (m._drillScanTimer <= 0) {
+        m._drillScanTimer = 0.2;
+        m._drillWaterPlanet = findWaterPlanetForDrill(m);
+        m._drillAsteroid = m._drillWaterPlanet ? null : findAsteroidForDrill(m);
+      }
+      const waterPlanet = m._drillWaterPlanet && planets.includes(m._drillWaterPlanet)
+        ? m._drillWaterPlanet
+        : null;
+      const target = m._drillAsteroid && asteroids.includes(m._drillAsteroid) && m._drillAsteroid.totalItems > 0
+        ? m._drillAsteroid
+        : null;
 
       if (waterPlanet) {
         const accepted = storeResource("water", 100 * dt);
@@ -556,12 +575,10 @@ function updateResources(dt) {
     }
 
     if (m.type === "Scooper" && canUsePower(m)) {
-      const orbitPlanet = orbitModeActive
-        && orbitPhase === "free"
-        && orbitTarget?.typeKey === "gas"
-        ? orbitTarget
-        : null;
-      const planet = orbitPlanet || findNearestGasPlanet(ship.x, ship.y, CONFIG.GRID_SIZE * 8);
+      if (nearbyGasPlanet === undefined) {
+        nearbyGasPlanet = findNearestGasPlanet(ship.x, ship.y, CONFIG.GRID_SIZE * 8);
+      }
+      const planet = orbitGasPlanet || nearbyGasPlanet;
       if (planet) {
         eUse += stats.energyUse;
         const acceptedHydrogen = storeResource("hydrogen", stats.gasCollectRate * 0.8 * dt);
@@ -575,17 +592,10 @@ function updateResources(dt) {
     }
 
     if (m.type === "Solar Wind Collector" && canUsePower(m)) {
-      const orbitStar = orbitModeActive
-        && orbitPhase === "free"
-        && orbitTarget instanceof GalaxyStar
-        ? orbitTarget
-        : null;
-      const orbitGasPlanet = orbitModeActive
-        && orbitPhase === "free"
-        && orbitTarget?.typeKey === "gas"
-        ? orbitTarget
-        : null;
-      const star = orbitStar || findNearestStar(ship.x, ship.y, CONFIG.GRID_SIZE * 12);
+      if (nearbyStar === undefined) {
+        nearbyStar = findNearestStar(ship.x, ship.y, CONFIG.GRID_SIZE * 12);
+      }
+      const star = orbitStar || nearbyStar;
       if ((star && !isStarCoveredByCompleteDysonSphere(star)) || orbitGasPlanet) {
         eUse += stats.energyUse;
         const rateFactor = orbitGasPlanet ? 0.6 : 1;
@@ -623,6 +633,8 @@ function updateResources(dt) {
     playSound("powerOff", 900);
   }
 
+  updatePlanetMining(dt);
+
   for (const key of ["water", "steam", "hydrogen", "oxygen", "fuel", "ironOre", "copperOre", "siliconOre", "ironPlate", "copperPlate", "silicon", "nickel", "carbon", "deuterium", "tritium", "helium3", "uranium", "food", "ammo", "cannonBalls", "railgunRods", "rocketAmmunition"]) {
     res[key] = Math.max(0, res[key]);
   }
@@ -647,7 +659,6 @@ function updateResources(dt) {
     resourceRateTimer = 0;
   }
 
-  updatePlanetMining(dt); // Passive resource mining while landed.
   removeEmptyAsteroids();
 }
 
@@ -711,7 +722,15 @@ function isAsteroidInShield(asteroid) {
   return false;
 }
 
+let shipCollisionRadiusCache = 0;
+let shipCollisionRadiusCacheUntil = 0;
+
 function getShipCollisionRadius() {
+  const now = performance.now();
+  if (shipCollisionRadiusCache > 0 && now < shipCollisionRadiusCacheUntil) {
+    return shipCollisionRadiusCache;
+  }
+
   const grid = CONFIG.GRID_SIZE;
   const com = getCenterOfMass();
   let radius = grid * 0.75;
@@ -724,6 +743,8 @@ function getShipCollisionRadius() {
     radius = Math.max(radius, Math.sqrt(dx * dx + dy * dy) + moduleRadius);
   }
 
+  shipCollisionRadiusCache = radius;
+  shipCollisionRadiusCacheUntil = now + 250;
   return radius;
 }
 
@@ -850,8 +871,17 @@ function shipHasPoweredFrontShield(intensity, dt) {
   return true;
 }
 
+let starHeatCheckTimer = 0;
+let starHeatElapsed = 0;
+
 function updateStarHeat(dt, activeWorldChunks = getActiveWorldChunks(false)) {
   if (adminInstantBuild) return;
+  starHeatElapsed += dt;
+  starHeatCheckTimer -= dt;
+  if (starHeatCheckTimer > 0) return;
+  starHeatCheckTimer = 0.2;
+  const heatDt = starHeatElapsed;
+  starHeatElapsed = 0;
 
   const heatRange = CONFIG.GRID_SIZE * 10;
   let maxIntensity = 0;
@@ -875,10 +905,10 @@ function updateStarHeat(dt, activeWorldChunks = getActiveWorldChunks(false)) {
   }
 
   if (maxIntensity <= 0) return;
-  if (shipHasPoweredFrontShield(maxIntensity, dt)) return;
+  if (shipHasPoweredFrontShield(maxIntensity, heatDt)) return;
 
   for (const hit of moduleHeat) {
-    damageModule(hit.module, hit.intensity * 0.036 * dt);
+    damageModule(hit.module, hit.intensity * 0.036 * heatDt);
   }
 }
 // ── Landing & post-launch invulnerability ─────────────────────────────────
@@ -962,6 +992,10 @@ function updateSpaceHazards(dt) {
       : distSq < collisionRadius * collisionRadius;
 
     if (collided && adminInstantBuild) {
+      if (body.type === "blackhole") {
+        destroyShip("Ship destroyed", body);
+        continue;
+      }
       if (body.type === "asteroid") body.asteroid.totalItems = 0;
       continue;
     }
@@ -975,6 +1009,14 @@ function updateSpaceHazards(dt) {
     }
 
     if (collided) {
+      if (
+        body.type === "planet" &&
+        orbitModeActive &&
+        orbitTarget instanceof EndTwinPlanet &&
+        body.planet instanceof EndTwinPlanet
+      ) {
+        continue;
+      }
       // Planet collision: skip if invulnerable (landed / landing / post-launch)
       if (body.type === "planet" && isShipInvulnerableToPlanet(body.planet)) {
         continue;
@@ -996,14 +1038,19 @@ function updateSpaceHazards(dt) {
 function updateTurretGuns(dt) {
   for (const m of placedModules) {
     if (!isTurretType(m.type)) continue;
-    if (m.type === "Railgun Turret") continue;
 
     if (m._gunAngle === undefined) m._gunAngle = Math.random() * Math.PI * 2;
     if (m._gunTargetAngle === undefined) m._gunTargetAngle = m._gunAngle;
     if (m._gunSwitchTimer === undefined) m._gunSwitchTimer = 0.5 + Math.random() * 2;
     m._turning = false;
 
-    const target = getNearestEnemyTargetForTurret(m, 50);
+    m._targetScanTimer = Math.max(0, (m._targetScanTimer || 0) - dt);
+    let target = resolveCachedTurretTarget(m);
+    if (m._targetScanTimer <= 0 || !target) {
+      target = getNearestEnemyTargetForTurret(m, getTurretConfig(m.type).rangeTiles);
+      m._cachedTarget = target;
+      m._targetScanTimer = target ? 0.35 : 0.75;
+    }
 
     if (target) {
       const turretWorld = moduleWorldCenter(m);

@@ -119,7 +119,7 @@
     },
     "Solar Wind Collector": {
       "src": "Graphics/Machines/SolarWindCollector.png",
-      "frames": 16,
+      "frames": 1,
       "speed": 80
     },
     "Reactor": {
@@ -165,7 +165,7 @@
     },
     "Quantum Computer": {
       "src": "Graphics/Machines/QuantumComputer.png",
-      "frames": 2,
+      "frames": 1,
       "speed": 1000
     },
     "Electrolyser": {

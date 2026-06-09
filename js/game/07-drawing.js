@@ -128,21 +128,46 @@ function drawShieldArcAt(x, y, outDir, active = true) {
   ctx.fill();
 }
 
+function drawDistantMotherShip() {
+  const p = worldToScreen(ship.x, ship.y);
+  const size = Math.max(7, Math.min(26, getShipCollisionRadius() * camera.scale));
+
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(ship.angle);
+  ctx.fillStyle = "rgba(90,190,255,0.92)";
+  ctx.strokeStyle = "rgba(220,245,255,0.95)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(0, -size);
+  ctx.lineTo(size * 0.7, size * 0.75);
+  ctx.lineTo(0, size * 0.45);
+  ctx.lineTo(-size * 0.7, size * 0.75);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawModules() {
+  if (!buildMode && camera.scale <= 0.06) {
+    drawDistantMotherShip();
+    return;
+  }
+
   const grid = CONFIG.GRID_SIZE;
   const com = getCenterOfMass();
 
-  for (const m of placedModules) {
-    const world = moduleWorldCenter(m);
-    const p = worldToScreen(world.x, world.y);
-    const rangePad = (isTurretType(m.type) ? (getTurretConfig(m.type)?.rangeTiles || 4) : 4) * CONFIG.GRID_SIZE * camera.scale;
-    if (p.x < -rangePad || p.x > VIEW.w + rangePad || p.y < -rangePad || p.y > VIEW.h + rangePad) continue;
-
-    if (m.type === "Shield Generator" && (buildMode || shieldsActive)) {
+  if (buildMode || shieldsActive) {
+    for (const m of placedModules) {
+      if (m.type !== "Shield Generator") continue;
+      const world = moduleWorldCenter(m);
+      const p = worldToScreen(world.x, world.y);
+      const rangePad = 4 * CONFIG.GRID_SIZE * camera.scale;
+      if (p.x < -rangePad || p.x > VIEW.w + rangePad || p.y < -rangePad || p.y > VIEW.h + rangePad) continue;
       const outDir = ship.angle + (m.rot || 0) * Math.PI / 2 + Math.PI / 2;
       drawShieldArcAt(p.x, p.y, outDir, buildMode);
     }
-
   }
 
   for (const m of placedModules) {
@@ -702,7 +727,11 @@ function getMapBodyAt(mx, my) {
   let best = null;
   let bestDist = Infinity;
   const stars = map.focused ? [mapFocusSystem.star] : worldStars;
-  const systemPlanets = map.focused ? mapFocusSystem.planets : [];
+  const systemPlanets = map.focused
+    ? mapFocusSystem.planets
+    : currentWorldIsEnd
+      ? planets.filter(planet => planet instanceof EndTwinPlanet)
+      : [];
 
   for (const star of stars) {
     const p = worldToMap(map, star.x, star.y);
@@ -826,6 +855,13 @@ function drawMapOverlay() {
     for (const system of solarSystems) {
       drawGalaxySystemOnMap(map, system);
     }
+
+    if (currentWorldIsEnd) {
+      for (const planet of planets) {
+        if (!(planet instanceof EndTwinPlanet)) continue;
+        drawMapBody(map, planet, planet.colors?.[1] || getPlanetMapColor(planet), 4);
+      }
+    }
   }
 
   for (const enemy of enemyShips) {
@@ -833,7 +869,7 @@ function drawMapOverlay() {
     const px = p.x;
     const py = p.y;
     if (px < x || px > x + w || py < y || py > y + h) continue;
-    drawMapTriangle(px, py, enemy.angle || 0, 7, "#ff3333");
+    drawMapTriangle(px, py, enemy.angle || 0, 7, currentWorldIsEnd ? "#c96cff" : "#ff3333");
   }
 
   const player = worldToMap(map, ship.x, ship.y);

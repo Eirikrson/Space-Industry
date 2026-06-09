@@ -195,9 +195,30 @@ function persistCurrentSavePreview() {
   return writeSaveSlot(currentSaveSlot, payload);
 }
 
+function createCelestialSaveReference(body) {
+  if (!body) return null;
+  if (body === blackHole) return { type: "blackhole" };
+  const starIndex = worldStars.indexOf(body);
+  if (starIndex >= 0) return { type: "star", index: starIndex };
+  const planetIndex = planets.indexOf(body);
+  if (planetIndex >= 0) return { type: "planet", index: planetIndex };
+  const asteroidIndex = asteroids.indexOf(body);
+  if (asteroidIndex >= 0) return { type: "asteroid", index: asteroidIndex };
+  return null;
+}
+
+function resolveCelestialSaveReference(reference) {
+  if (!reference) return null;
+  if (reference.type === "blackhole") return blackHole;
+  if (reference.type === "star") return worldStars[reference.index] || null;
+  if (reference.type === "planet") return planets[reference.index] || null;
+  if (reference.type === "asteroid") return asteroids[reference.index] || null;
+  return null;
+}
+
 function createSavePayload(name) {
   return {
-    version: 3,
+    version: 4,
     name: name || currentSaveName || text("menu.unnamedSave"),
     savedAt: new Date().toISOString(),
     preview: captureSavePreview(),
@@ -214,6 +235,26 @@ function createSavePayload(name) {
     }),
     camera: stripRuntimeState(camera),
     buildCamera: stripRuntimeState(buildCamera),
+    flightState: {
+      orbitModeActive,
+      orbitTarget: createCelestialSaveReference(orbitTarget),
+      orbitPhase,
+      orbitDesiredRadius,
+      orbitAngle: _orbitAngle,
+      orbitLockedSpeed,
+      landingModeActive,
+      landingTarget: createCelestialSaveReference(landingTarget),
+      shipLanded,
+      landedPlanet: createCelestialSaveReference(landedPlanet),
+      gravityOverride,
+      landingPhase,
+      landingStartAngle,
+      landingProgress,
+      landingDuration,
+      landingDirection,
+      landingEntrySpeed,
+      departureStartRadius
+    },
     res: stripRuntimeState(res),
     placedModules: stripRuntimeState(placedModules),
     salvageModules: stripRuntimeState(salvageModules),
@@ -309,6 +350,21 @@ function resetGameRuntime() {
   lockedApproachTarget = null;
   velocityAssistActive = false;
   velocityAssistDesiredDistance = null;
+  orbitModeActive = false;
+  orbitTarget = null;
+  orbitPhase = "approach";
+  orbitDesiredRadius = 0;
+  orbitApproachPoint = null;
+  orbitLockedSpeed = 0;
+  orbitEllipse = null;
+  shipLanded = false;
+  landedPlanet = null;
+  gravityOverride = false;
+  landingModeActive = false;
+  landingTarget = null;
+  landingPhase = "none";
+  landingProgress = 0;
+  planetMiningTimer = 0;
   matchRotateNose = true;
   adminInstantBuild = false;
   repairMode = true;
@@ -344,6 +400,11 @@ function resetGameRuntime() {
   blackHoleEndingActive = false;
   blackHoleEndingTimer = 0;
   blackHoleEndingResult = null;
+  quitAfterSavePending = false;
+  saveSelectionMode = null;
+  pendingSavePayload = null;
+  pendingSaveName = "";
+  pendingOverwriteSlot = null;
   blackHoleResultPlayerName = "";
   enemyShipsDestroyed = 0;
   endRobotDiscoveryShown = false;
@@ -738,6 +799,7 @@ function getBlackHoleReadiness() {
 }
 
 function canSurviveBlackHoleEntry() {
+  if (adminInstantBuild) return true;
   const ready = getBlackHoleReadiness();
   return ready.energy && ready.stabilizer && ready.quantum && ready.shields;
 }
@@ -802,7 +864,12 @@ function continueAfterBlackHoleEnding() {
   startEndWorldFromBlackHole();
 }
 
-function quitAfterBlackHoleEnding() {
+function finishBlackHoleQuit() {
+  quitAfterSavePending = false;
+  pendingSavePayload = null;
+  pendingSaveName = "";
+  pendingOverwriteSlot = null;
+  uiDialog = null;
   if (blackHoleEndingResult === "success") {
     blackHoleCompleted = true;
     localStorage.setItem("spaceIndustryBlackHoleCompleted", "1");
@@ -817,6 +884,20 @@ function quitAfterBlackHoleEnding() {
   stopAllLoopSounds();
 }
 
+function quitAfterBlackHoleEnding() {
+  if (blackHoleEndingResult === "success") {
+    blackHoleCompleted = true;
+    localStorage.setItem("spaceIndustryBlackHoleCompleted", "1");
+  }
+  pendingSavePayload = createSavePayload(currentSaveName || text("menu.unnamedSave"));
+  pendingSaveName = pendingSavePayload.name;
+  pendingOverwriteSlot = null;
+  saveSelectionMode = "manual";
+  quitAfterSavePending = true;
+  blackHoleEndingActive = false;
+  appState = "paused";
+}
+
 function getBlackHoleEndingLayout() {
   const w = Math.min(620, VIEW.w - 64);
   const h = 330;
@@ -824,7 +905,7 @@ function getBlackHoleEndingLayout() {
   const y = VIEW.h / 2 - h / 2;
   return {
     x, y, w, h,
-    downloadButton: { x: x + w - 184, y: y + 18, w: 148, h: 30 },
+    downloadButton: { x: x + 36, y: y + h - 126, w: w - 72, h: 38 },
     continueButton: { x: x + 36, y: y + h - 72, w: 180, h: 38 },
     loadAutosaveButton: { x: x + 36, y: y + h - 72, w: 220, h: 38 },
     quitButton: { x: x + w - 216, y: y + h - 72, w: 180, h: 38 }
@@ -887,23 +968,28 @@ function openAutosaveChoiceDialog() {
 
 function drawBlackHoleEnding() {
   const t = blackHoleEndingTimer;
-  const shake = blackHoleEndingResult === "success" ? Math.sin(t * 80) * Math.min(8, t * 8) : 0;
   ctx.save();
-  ctx.translate(shake, -shake * 0.4);
-  ctx.fillStyle = "rgba(0,0,0,0.82)";
+  ctx.fillStyle = "rgba(0,0,0,0.9)";
   ctx.fillRect(-20, -20, VIEW.w + 40, VIEW.h + 40);
 
   const cx = VIEW.w / 2;
   const cy = VIEW.h / 2;
-  const rings = blackHoleEndingResult === "success" ? 11 : 6;
-  for (let i = rings; i >= 1; i--) {
-    const r = 42 + i * 34 + Math.sin(t * 5 + i) * 10;
+  const maxRadius = Math.hypot(VIEW.w, VIEW.h) * 0.58;
+  for (let i = 0; i < 120; i++) {
+    const seed = ((i * 73) % 127) / 127;
+    const phase = (seed + t * (0.18 + (i % 7) * 0.012)) % 1;
+    const angle = ((i * 2.3999632297) + Math.sin(i * 17.13) * 0.35) % (Math.PI * 2);
+    const radius = Math.pow(phase, 1.7) * maxRadius;
+    const innerRadius = Math.max(0, radius - 8 - phase * 48);
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
     ctx.beginPath();
-    ctx.ellipse(cx, cy, r * (1 + i * 0.035), r * 0.28, t * 0.7 + i * 0.16, 0, Math.PI * 2);
+    ctx.moveTo(cx + cos * innerRadius, cy + sin * innerRadius);
+    ctx.lineTo(cx + cos * radius, cy + sin * radius);
     ctx.strokeStyle = blackHoleEndingResult === "success"
-      ? `rgba(150,90,255,${0.05 + i * 0.018})`
-      : `rgba(255,70,70,${0.05 + i * 0.02})`;
-    ctx.lineWidth = 2 + i * 0.25;
+      ? `rgba(175,215,255,${0.1 + phase * 0.75})`
+      : `rgba(255,105,105,${0.08 + phase * 0.55})`;
+    ctx.lineWidth = 0.7 + phase * 2.2;
     ctx.stroke();
   }
   ctx.restore();
@@ -911,7 +997,7 @@ function drawBlackHoleEnding() {
   const layout = getBlackHoleEndingLayout();
   ctx.fillStyle = "rgba(4, 8, 22, 0.94)";
   ctx.fillRect(layout.x, layout.y, layout.w, layout.h);
-  ctx.strokeStyle = blackHoleEndingResult === "success" ? "rgba(160,110,255,0.9)" : "rgba(80,160,255,0.95)";
+  ctx.strokeStyle = "rgba(80,160,255,0.95)";
   ctx.lineWidth = 2;
   ctx.strokeRect(layout.x, layout.y, layout.w, layout.h);
 
@@ -946,8 +1032,8 @@ function drawBlackHoleEnding() {
   }
 
   if (blackHoleEndingResult === "success") {
-    drawBtn("Download result", layout.downloadButton.x, layout.downloadButton.y, layout.downloadButton.w, layout.downloadButton.h, false);
-    drawBtn("Continue", layout.continueButton.x, layout.continueButton.y, layout.continueButton.w, layout.continueButton.h, true);
+    drawBtn("Download result", layout.downloadButton.x, layout.downloadButton.y, layout.downloadButton.w, layout.downloadButton.h, true);
+    drawBtn("Continue", layout.continueButton.x, layout.continueButton.y, layout.continueButton.w, layout.continueButton.h, false);
   } else {
     const autosaveLabel = `Load Autosave [${formatAutosaveAge(readSaveSlot("auto"))}]`;
     drawBtn(autosaveLabel, layout.loadAutosaveButton.x, layout.loadAutosaveButton.y, layout.loadAutosaveButton.w, layout.loadAutosaveButton.h, hasAutosaveSlot());
@@ -1030,8 +1116,9 @@ function drawResultShipModule(targetCtx, module, com, scale, centerX, centerY) {
   targetCtx.translate(centerX + rel.x, centerY + rel.y);
   targetCtx.rotate(rot * Math.PI / 2);
   if (sprite?.image?.complete && sprite.image.naturalWidth > 0) {
-    const frameW = sprite.image.width / (sprite.frames || 1);
-    targetCtx.drawImage(sprite.image, 0, 0, frameW, sprite.image.height, -sw / 2, -sh / 2, sw, sh);
+    const frames = sprite.frames || 1;
+    const frameHeight = sprite.image.height / frames;
+    targetCtx.drawImage(sprite.image, 0, 0, sprite.image.width, frameHeight, -sw / 2, -sh / 2, sw, sh);
   } else {
     targetCtx.fillStyle = module.type === "Computer" ? "#66ffff" : "rgba(45,58,86,0.95)";
     targetCtx.fillRect(-sw / 2, -sh / 2, sw, sh);
@@ -1062,11 +1149,17 @@ function downloadBlackHoleResultImage(playerName) {
     outCtx.fillRect(x, y, i % 7 === 0 ? 3 : 2, i % 7 === 0 ? 3 : 2);
   }
 
-  outCtx.fillStyle = "white";
-  outCtx.font = "bold 34px Consolas, monospace";
+  if (logoImage.complete && logoImage.naturalWidth > 0) {
+    const logoScale = Math.min(520 / logoImage.naturalWidth, 64 / logoImage.naturalHeight);
+    const logoWidth = logoImage.naturalWidth * logoScale;
+    const logoHeight = logoImage.naturalHeight * logoScale;
+    outCtx.drawImage(logoImage, out.width / 2 - logoWidth / 2, 28, logoWidth, logoHeight);
+  }
+  outCtx.font = "bold 28px Consolas, monospace";
+  outCtx.fillStyle = "rgba(255,255,255,0.9)";
   outCtx.textAlign = "center";
   outCtx.textBaseline = "top";
-  outCtx.fillText(`Congratulations! ${playerName} has finished the game.`, out.width / 2, 38);
+  outCtx.fillText(`Congratulations! ${playerName} has finished the game.`, out.width / 2, 104);
 
   const com = getCenterOfMass();
   const shipW = Math.max(1, ...placedModules.map(module => module.x + (module.w || 1))) - Math.min(...placedModules.map(module => module.x));
@@ -1078,28 +1171,19 @@ function downloadBlackHoleResultImage(playerName) {
   outCtx.font = "bold 25px Consolas, monospace";
   outCtx.textAlign = "left";
   outCtx.textBaseline = "bottom";
+  outCtx.fillText(`Enemy ships destroyed: ${enemyShipsDestroyed}`, 42, out.height - 78);
   outCtx.fillText(`Time ${formatWorldPlayTime(worldPlayTime)}`, 42, out.height - 44);
 
-  outCtx.textAlign = "right";
-  outCtx.textBaseline = "top";
-  outCtx.fillText(`Enemy ships destroyed: ${enemyShipsDestroyed}`, out.width - 42, 92);
-
-  const logoW = 250;
-  const logoH = 82;
-  if (logoImage.complete && logoImage.naturalWidth > 0) {
-    const scaleLogo = Math.min(logoW / logoImage.naturalWidth, logoH / logoImage.naturalHeight);
-    const w = logoImage.naturalWidth * scaleLogo;
-    const h = logoImage.naturalHeight * scaleLogo;
-    outCtx.drawImage(logoImage, out.width - w - 42, out.height - 176, w, h);
-  } else {
-    outCtx.font = "bold 28px Consolas, monospace";
-    outCtx.fillText("Space Industry", out.width - 42, out.height - 170);
-  }
-
-  const date = new Date().toLocaleDateString();
+  const now = new Date();
+  const date = [
+    String(now.getDate()).padStart(2, "0"),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    now.getFullYear()
+  ].join(".");
   outCtx.font = "18px Consolas, monospace";
   outCtx.fillStyle = "rgba(255,255,255,0.78)";
   outCtx.textAlign = "right";
+  outCtx.textBaseline = "bottom";
   outCtx.fillText(`${date} - ${text("game.version")}`, out.width - 42, out.height - 84);
   outCtx.fillText("by Eirikrson", out.width - 42, out.height - 56);
 
@@ -1174,6 +1258,61 @@ function loadSavePayload(payload) {
   Object.assign(camera, payload.camera || { x: ship.x, y: ship.y, scale: 1 });
   Object.assign(buildCamera, payload.buildCamera || { x: ship.x, y: ship.y });
 
+  const flightState = payload.flightState || {};
+  orbitTarget = resolveCelestialSaveReference(flightState.orbitTarget);
+  orbitModeActive = !!flightState.orbitModeActive && !!orbitTarget;
+  orbitPhase = flightState.orbitPhase === "free" ? "free" : "approach";
+  orbitDesiredRadius = Number(flightState.orbitDesiredRadius) || (orbitTarget ? getDesiredOrbitRadius(orbitTarget) : 0);
+  _orbitAngle = Number.isFinite(flightState.orbitAngle)
+    ? flightState.orbitAngle
+    : orbitTarget
+      ? Math.atan2(ship.y - orbitTarget.y, ship.x - orbitTarget.x)
+      : 0;
+  orbitLockedSpeed = Number(flightState.orbitLockedSpeed) || 0;
+  orbitApproachPoint = null;
+  orbitEllipse = null;
+
+  landingTarget = resolveCelestialSaveReference(flightState.landingTarget);
+  landedPlanet = resolveCelestialSaveReference(flightState.landedPlanet);
+  shipLanded = !!flightState.shipLanded && !!landedPlanet;
+  landingModeActive = !!flightState.landingModeActive && !!(landingTarget || landedPlanet);
+  if (shipLanded) {
+    landingTarget = landingTarget || landedPlanet;
+    landingModeActive = true;
+  }
+  gravityOverride = !!flightState.gravityOverride || shipLanded;
+  landingPhase = shipLanded
+    ? "landed"
+    : ["descend", "ascend"].includes(flightState.landingPhase)
+      ? flightState.landingPhase
+      : "none";
+  landingStartAngle = Number(flightState.landingStartAngle) || 0;
+  landingProgress = Math.max(0, Math.min(1, Number(flightState.landingProgress) || 0));
+  landingDuration = Math.max(0.1, Number(flightState.landingDuration) || 3);
+  landingDirection = Number(flightState.landingDirection) || 1;
+  landingEntrySpeed = Number(flightState.landingEntrySpeed) || 0;
+  departureStartRadius = Number(flightState.departureStartRadius) || 0;
+
+  if (shipLanded && landedPlanet) {
+    ship.x = landedPlanet.x;
+    ship.y = landedPlanet.y;
+    ship.vx = 0;
+    ship.vy = 0;
+    ship.angularVelocity = 0;
+    camera.x = ship.x;
+    camera.y = ship.y;
+  } else if (orbitModeActive && orbitPhase === "free" && orbitTarget) {
+    const radius = orbitDesiredRadius || getDesiredOrbitRadius(orbitTarget);
+    const orbitDir = orbitTarget.orbitDir || 1;
+    const speed = orbitLockedSpeed || getOrbitTangentSpeed(orbitTarget, radius);
+    ship.x = orbitTarget.x + Math.cos(_orbitAngle) * radius;
+    ship.y = orbitTarget.y + Math.sin(_orbitAngle) * radius;
+    ship.vx = -Math.sin(_orbitAngle) * orbitDir * speed;
+    ship.vy = Math.cos(_orbitAngle) * orbitDir * speed;
+    camera.x = ship.x;
+    camera.y = ship.y;
+  }
+
   unlockedResearch.clear();
   for (const item of payload.research || BASE_UNLOCKED_BUILDINGS) unlockedResearch.add(item);
   newlyUnlockedResearch.clear();
@@ -1221,9 +1360,12 @@ function saveGameToSlot(slot, name) {
   pendingSaveName = "";
   saveSelectionMode = null;
   pendingOverwriteSlot = null;
+  const shouldQuitAfterSave = quitAfterSavePending;
   if (slot !== "auto") {
     selectedMenuSaveSlot = null;
-    if (appState !== "paused") {
+    if (shouldQuitAfterSave) {
+      finishBlackHoleQuit();
+    } else if (appState !== "paused") {
       appState = "menu";
       stopAllLoopSounds();
     }
@@ -2284,11 +2426,15 @@ function handleGameInterfaceClick(mx, my) {
       return true;
     }
     if (button === "close") {
-      appState = "menu";
-      saveSelectionMode = null;
-      pendingSavePayload = null;
-      pendingOverwriteSlot = null;
-      stopAllLoopSounds();
+      if (quitAfterSavePending) {
+        finishBlackHoleQuit();
+      } else {
+        appState = "menu";
+        saveSelectionMode = null;
+        pendingSavePayload = null;
+        pendingOverwriteSlot = null;
+        stopAllLoopSounds();
+      }
       return true;
     }
 
@@ -2419,6 +2565,14 @@ function loop(now) {
       }
     }
 
+    if (currentWorldIsEnd) {
+      for (const planet of planets) {
+        if (!(planet instanceof EndTwinPlanet)) continue;
+        planet.update(stepDt);
+        planet.draw();
+      }
+    }
+
     // Free asteroids
     for (const asteroid of asteroids) {
       if (!isPointInActiveChunks(asteroid.x, asteroid.y, activeWorldChunks)) continue;
@@ -2445,8 +2599,13 @@ function loop(now) {
     updateRepairs(dt);
     updateHangarDroneRepairs(dt);
     updateResources(dt);
-    camera.x += (ship.x - camera.x) * 0.08;
-    camera.y += (ship.y - camera.y) * 0.08;
+    if (landingModeActive) {
+      camera.x = ship.x;
+      camera.y = ship.y;
+    } else {
+      camera.x += (ship.x - camera.x) * 0.08;
+      camera.y += (ship.y - camera.y) * 0.08;
+    }
   }
 
   if (gameplayActive) {

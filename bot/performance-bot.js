@@ -318,6 +318,47 @@ async function configureScenario(page, scenario) {
       res.ammo = Math.max(res.ammo || 0, 100000);
     }
 
+    if (config.extraModules) {
+      const anchor = placedModules.reduce((best, module) =>
+        !best || module.x + (module.w || 1) > best.x + (best.w || 1) ? module : best
+      , null);
+      const startX = anchor.x + (anchor.w || 1);
+      const startY = anchor.y;
+      for (let i = 0; i < config.extraModules; i++) {
+        placedModules.push({
+          id: nextModuleId++,
+          x: startX + i,
+          y: startY,
+          type: "Warehouse MK1",
+          w: 1,
+          h: 1,
+          rot: 0,
+          hp: 1
+        });
+      }
+    }
+
+    if (config.endWorld) {
+      setEndWorldSeed();
+      resetGeneratedWorld();
+    }
+    if (config.landing) {
+      const target = config.endWorld
+        ? planets.find(planet => planet instanceof EndTwinPlanet)
+        : planets[0];
+      if (target) {
+        const radius = getDesiredOrbitRadius(target);
+        ship.x = target.x + radius;
+        ship.y = target.y;
+        ship.vx = 0;
+        ship.vy = MAX_SHIP_SPEED * 0.7;
+        camera.x = ship.x;
+        camera.y = ship.y;
+        landingTarget = target;
+        landingModeActive = true;
+        landingPhase = "none";
+      }
+    }
     if (Number.isFinite(config.zoom)) camera.scale = config.zoom;
     if (config.buildMode) {
       buildMode = true;
@@ -475,8 +516,9 @@ function aggregateScenarioRuns(scenario, runs) {
 
 async function collectScenario(page, scenario) {
   const runs = [];
-  for (let run = 1; run <= SCENARIO_RUNS; run++) {
-    console.log(`  Run ${run}/${SCENARIO_RUNS}`);
+  const runCount = scenario.runs || SCENARIO_RUNS;
+  for (let run = 1; run <= runCount; run++) {
+    console.log(`  Run ${run}/${runCount}`);
     runs.push(await collectScenarioRun(page, scenario));
   }
   return aggregateScenarioRuns(scenario, runs);
@@ -539,6 +581,139 @@ async function testSavePreviewHover(page) {
   });
 }
 
+async function testMovingTargetTurretAccuracy(page) {
+  await prepareWorld(page, 246810);
+  const setup = await page.evaluate(() => {
+    const anchor = placedModules.reduce((best, module) =>
+      !best || module.x + (module.w || 1) > best.x + (best.w || 1) ? module : best
+    , null);
+    const turret = {
+      id: nextModuleId++,
+      x: anchor.x + (anchor.w || 1),
+      y: anchor.y,
+      type: "Gun Turret",
+      w: 2,
+      h: 2,
+      rot: 0,
+      hp: 1
+    };
+    placedModules.push(turret);
+    res.energy = 100000;
+    res.ammo = 100000;
+
+    const enemy = createEnemyShip(1, ship.x + CONFIG.GRID_SIZE * 20, ship.y + CONFIG.GRID_SIZE * 4, -999);
+    enemy.vx = -45;
+    enemy.vy = 35;
+    enemy.resources.fuel = 0;
+    enemy.role = "patrol";
+    window.__turretAccuracyEnemyId = enemy.id;
+    window.__turretAccuracyInitialHealth = enemy.modules.reduce((sum, module) => sum + getModuleHealth(module), 0);
+    return { enemyId: enemy.id, initialHealth: window.__turretAccuracyInitialHealth };
+  });
+
+  await page.waitForTimeout(6500);
+  return page.evaluate(({ enemyId, initialHealth }) => {
+    const enemy = getEnemyById(enemyId);
+    const finalHealth = enemy
+      ? enemy.modules.reduce((sum, module) => sum + getModuleHealth(module), 0)
+      : 0;
+    return {
+      name: "Moving-target turret accuracy",
+      passed: finalHealth < initialHealth,
+      details: `enemy health ${initialHealth.toFixed(2)} -> ${finalHealth.toFixed(2)}`
+    };
+  }, setup);
+}
+
+async function testEndTwinPlanetResources(page) {
+  await prepareWorld(page, 135790);
+  return page.evaluate(() => {
+    setEndWorldSeed();
+    resetGeneratedWorld();
+    const planet = planets.find(candidate => candidate instanceof EndTwinPlanet);
+    placedModules.push(
+      { id: nextModuleId++, x: 20, y: 0, type: "Drill", w: 1, h: 2, rot: 0, hp: 1 },
+      { id: nextModuleId++, x: 21, y: 0, type: "Warehouse MK2", w: 2, h: 2, rot: 0, hp: 1 },
+      { id: nextModuleId++, x: 23, y: 0, type: "Tank MK2", w: 2, h: 2, rot: 0, hp: 1, tankContent: "helium3", tankCap: 600 }
+    );
+    shipLanded = true;
+    landedPlanet = planet;
+    landingTarget = planet;
+    landingModeActive = true;
+    landingPhase = "landed";
+    planetMiningTimer = 1.1;
+    resourceRateTimer = 0;
+    updateResources(1.1);
+
+    mapVisible = true;
+    mapFocusSystem = null;
+    const map = getCachedMapLayout();
+    const point = worldToMap(map, planet.x, planet.y);
+    const hit = getMapBodyAt(point.x, point.y);
+    const rates = getPlanetMiningRates(planet);
+    const iconLoaded = !!getImageSprite("Helium3");
+    const mined = (res.helium3 || 0) > 0 && (res.uranium || 0) > 0 && (res.nickel || 0) > 0;
+    const rateVisible = (resourceRates.uranium || 0) > 0 && (resourceRates.nickel || 0) > 0;
+
+    return {
+      name: "End-world central planet resources",
+      passed: !!planet && hit?.planet === planet && iconLoaded && mined && rateVisible,
+      details: `mapHover=${hit?.planet === planet}, icon=${iconLoaded}, helium3=${(res.helium3 || 0).toFixed(2)}, uraniumRate=${(resourceRates.uranium || 0).toFixed(2)}/s, resources=${Object.keys(rates).join(",")}`
+    };
+  });
+}
+
+async function testFlightStatePersistence(page) {
+  await prepareWorld(page, 97531);
+  return page.evaluate(() => {
+    const orbitBody = planets[0];
+    orbitTarget = orbitBody;
+    orbitModeActive = true;
+    orbitPhase = "free";
+    orbitDesiredRadius = getDesiredOrbitRadius(orbitBody);
+    _orbitAngle = 1.234;
+    orbitLockedSpeed = 6.75;
+    ship.x = orbitBody.x + Math.cos(_orbitAngle) * orbitDesiredRadius;
+    ship.y = orbitBody.y + Math.sin(_orbitAngle) * orbitDesiredRadius;
+    const orbitPayload = createSavePayload("Orbit persistence");
+    const orbitLoaded = loadSavePayload(orbitPayload);
+    const orbitRestored = orbitLoaded &&
+      orbitModeActive &&
+      orbitPhase === "free" &&
+      orbitTarget === planets[0] &&
+      Math.abs(_orbitAngle - 1.234) < 0.001 &&
+      Math.abs(orbitLockedSpeed - 6.75) < 0.001;
+
+    const landedBody = planets[1];
+    orbitModeActive = false;
+    orbitTarget = null;
+    landingTarget = landedBody;
+    landedPlanet = landedBody;
+    landingModeActive = true;
+    shipLanded = true;
+    gravityOverride = true;
+    landingPhase = "landed";
+    ship.x = landedBody.x;
+    ship.y = landedBody.y;
+    const landingPayload = createSavePayload("Landing persistence");
+    const landingLoaded = loadSavePayload(landingPayload);
+    const landingRestored = landingLoaded &&
+      landingModeActive &&
+      shipLanded &&
+      landingPhase === "landed" &&
+      landedPlanet === planets[1] &&
+      landingTarget === planets[1] &&
+      ship.x === planets[1].x &&
+      ship.y === planets[1].y;
+
+    return {
+      name: "Orbit and landing save persistence",
+      passed: orbitRestored && landingRestored,
+      details: `orbit=${orbitRestored}, landed=${landingRestored}`
+    };
+  });
+}
+
 function formatNumber(value, digits = 2) {
   return Number(value || 0).toFixed(digits);
 }
@@ -568,8 +743,8 @@ function createReport(results, generatedAt, checks, realSaveUsed) {
     "## Scenario Summary",
     "",
     realSaveUsed
-      ? `Every scenario reloads performance-test-save.json. Values are medians from ${SCENARIO_RUNS} runs.`
-      : `Each synthetic scenario uses world seed ${PERFORMANCE_WORLD_SEED}. Values are medians from ${SCENARIO_RUNS} runs.`,
+      ? `Every scenario reloads performance-test-save.json. Standard values are medians from ${SCENARIO_RUNS} runs; zoom sweep entries use one run.`
+      : `Each synthetic scenario uses world seed ${PERFORMANCE_WORLD_SEED}. Standard values are medians from ${SCENARIO_RUNS} runs; zoom sweep entries use one run.`,
     "Complete game-loop timings are the primary comparison. Headless-browser FPS can vary because of frame scheduling.",
     "",
     "| Scenario | Zoom | Turrets | Visible modules | Canvas calls/frame | FPS | Loop average | Loop P95 |",
@@ -647,16 +822,18 @@ async function main() {
   await ensureServer();
   const browser = await chromium.launch({ headless: true, executablePath: EDGE_PATH });
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const zoomSweep = [0.04, 0.06, 0.08, 0.12, 0.2, 0.35, 0.6, 1, 2, 3];
   let scenarios = [
     { name: "Baseline flight" },
-    { name: "Zoomed out", zoom: 0.25 },
-    { name: "Maximum zoom", zoom: 3 },
+    ...zoomSweep.map(zoom => ({ name: `Camera zoom ${zoom.toFixed(2)}`, zoom, runs: 1 })),
     { name: "Notification stack", notifications: 8 },
     { name: "5 nearby enemies", nearbyEnemies: 5 },
     { name: "12 nearby asteroids", asteroids: 12 },
-    { name: "6 turrets", turrets: 6, zoom: 1 },
-    { name: "6 turrets maximum zoom", turrets: 6, zoom: 3 },
-    { name: "6 turrets and 3 enemies", turrets: 6, nearbyEnemies: 3, zoom: 3 },
+    { name: "8 turrets", turrets: 8, zoom: 1 },
+    { name: "8 turrets and 4 enemies", turrets: 8, nearbyEnemies: 4, zoom: 1 },
+    { name: "End world with 4 enemies", nearbyEnemies: 4, endWorld: true, zoom: 1 },
+    { name: "End world central planet landing", endWorld: true, landing: true, zoom: 0.08 },
+    { name: "150 additional buildings", extraModules: 150, zoom: 1 },
     { name: "Build mode maximum zoom", buildMode: true, zoom: 3 },
     { name: "Maximum zoom without UI", zoom: 3, disableUi: true }
   ];
@@ -670,14 +847,15 @@ async function main() {
       realSaveUsed = true;
       scenarios = [
         { name: "Savegame baseline", exportedSave },
-        { name: "Savegame zoomed out", exportedSave, zoom: 0.25 },
-        { name: "Savegame maximum zoom", exportedSave, zoom: 3 },
+        ...zoomSweep.map(zoom => ({ name: `Savegame camera zoom ${zoom.toFixed(2)}`, exportedSave, zoom, runs: 1 })),
         { name: "Savegame notification stack", exportedSave, notifications: 8 },
         { name: "Savegame + 5 nearby enemies", exportedSave, nearbyEnemies: 5 },
         { name: "Savegame + 12 nearby asteroids", exportedSave, asteroids: 12 },
-        { name: "Savegame + 6 turrets", exportedSave, turrets: 6, zoom: 1 },
-        { name: "Savegame + 6 turrets maximum zoom", exportedSave, turrets: 6, zoom: 3 },
-        { name: "Savegame + 6 turrets and 3 enemies", exportedSave, turrets: 6, nearbyEnemies: 3, zoom: 3 },
+        { name: "Savegame + 8 turrets", exportedSave, turrets: 8, zoom: 1 },
+        { name: "Savegame + 8 turrets and 4 enemies", exportedSave, turrets: 8, nearbyEnemies: 4, zoom: 1 },
+        { name: "Savegame end world + 4 enemies", exportedSave, nearbyEnemies: 4, endWorld: true, zoom: 1 },
+        { name: "Savegame end world central planet landing", exportedSave, endWorld: true, landing: true, zoom: 0.08 },
+        { name: "Savegame + 150 buildings", exportedSave, extraModules: 150, zoom: 1 },
         { name: "Savegame build mode maximum zoom", exportedSave, buildMode: true, zoom: 3 },
         { name: "Savegame maximum zoom without UI", exportedSave, zoom: 3, disableUi: true }
       ];
@@ -695,6 +873,12 @@ async function main() {
     }
     console.log("Testing: Save preview hover");
     checks.push(await testSavePreviewHover(page));
+    console.log("Testing: Moving-target turret accuracy");
+    checks.push(await testMovingTargetTurretAccuracy(page));
+    console.log("Testing: End-world central planet resources");
+    checks.push(await testEndTwinPlanetResources(page));
+    console.log("Testing: Orbit and landing save persistence");
+    checks.push(await testFlightStatePersistence(page));
     for (const scenario of scenarios) {
       console.log(`Testing: ${scenario.name}`);
       results.push(await collectScenario(page, scenario));

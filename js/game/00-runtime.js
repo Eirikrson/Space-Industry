@@ -404,6 +404,7 @@ let tutorialTypewriterDone = false;
 let pendingTutorialEvent = null;
 const tutorialSeen = new Set();
 let saveSelectionMode = null;
+let quitAfterSavePending = false;
 let pendingSavePayload = null;
 let pendingSaveName = "";
 let pendingOverwriteSlot = null;
