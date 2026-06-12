@@ -16,12 +16,11 @@ if not exist "%NODE_EXE%" (
 if errorlevel 1 (
   echo.
   echo The Balance Bot stopped with an error.
-  echo Check the newest folder in bots\balance-bot\archive for details.
+  echo Check the newest folder in bots\balance-bot\report for details.
   pause
   exit /b 1
 )
 
 echo.
 echo The Balance Bot has stopped.
-echo The run is stored in bots\balance-bot\archive.
 pause

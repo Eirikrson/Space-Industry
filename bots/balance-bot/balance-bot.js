@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const readline = require("readline/promises");
 const { chromium } = require("playwright");
 
 const BOT_DIR = __dirname;
@@ -11,15 +12,22 @@ const args = process.argv.slice(2);
 const requestedResumeSave = args
   .find(arg => arg.startsWith("--resume-save="))
   ?.slice("--resume-save=".length);
+const requestedWorldNumber = args
+  .find(arg => arg.startsWith("--world="))
+  ?.slice("--world=".length);
+const requestedMode = args
+  .find(arg => arg.startsWith("--mode="))
+  ?.slice("--mode=".length);
+const smokeLoopLimit = Math.max(2, Number(
+  args.find(arg => arg.startsWith("--smoke-loops="))?.slice("--smoke-loops=".length)
+) || 2);
 
 function loadConfig() {
   const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
-  if (config.mode !== "survival") {
-    throw new Error(`Unsupported Balance Bot mode: ${config.mode}. Only "survival" is implemented.`);
-  }
+  config.mode = "survival";
   config.skill = Math.max(1, Math.min(100, Number(config.skill) || 1));
   config.decisionIntervalMs = Math.max(500, Number(config.decisionIntervalMs) || 2500);
-  config.saveIntervalMs = Math.max(10000, Number(config.saveIntervalMs) || 60000);
+  config.saveIntervalMs = 60000;
   config.softlockMinutes = Math.max(1, Number(config.softlockMinutes) || 10);
   config.viewport = {
     width: Math.max(800, Number(config.viewport?.width) || 1280),
@@ -57,14 +65,16 @@ const config = loadConfig();
 const smokeTest = args.includes("--smoke-test");
 const visibleWindow = config.visibleWindow && !args.includes("--headless");
 const runId = formatLocalTimestamp(new Date(), true);
-const archiveRoot = path.join(BOT_DIR, "archive");
-const runDir = path.join(archiveRoot, runId);
-const savePath = path.join(runDir, "save.json");
-const metricsPath = path.join(runDir, "metrics.json");
-const reportPath = path.join(runDir, "report.md");
-const statusPath = path.join(runDir, "status.json");
-
-fs.mkdirSync(runDir, { recursive: true });
+const reportRoot = path.join(BOT_DIR, "report");
+const worldRoot = path.join(BOT_DIR, "world");
+let worldNumber = null;
+let worldPath = null;
+let createFreshWorld = false;
+let runDir = null;
+let savePath = null;
+let metricsPath = null;
+let reportPath = null;
+let statusPath = null;
 
 const startedAt = Date.now();
 let stopping = false;
@@ -81,14 +91,21 @@ let currentPlan = [];
 let actionCount = 0;
 let saveCount = 0;
 let waitingForPlayerInterface = false;
+let cleanupStarted = false;
+let browserCloseReported = false;
+let terminal = null;
+const terminalAnswers = [];
+const terminalWaiters = [];
 
 const metrics = {
   runId,
+  worldNumber: null,
   mode: config.mode,
   skill: config.skill,
   startedAt: formatLocalTimestamp(new Date(startedAt)),
   resumedSave: false,
   resumedFrom: null,
+  initialState: null,
   result: "running",
   resultReason: "",
   actions: {},
@@ -112,25 +129,194 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2), "utf8");
 }
 
+async function askTerminal(question) {
+  if (!terminal) {
+    terminal = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+    terminal.on("line", answer => {
+      const waiter = terminalWaiters.shift();
+      if (waiter) waiter(answer);
+      else terminalAnswers.push(answer);
+    });
+  }
+  process.stdout.write(question);
+  if (terminalAnswers.length > 0) return terminalAnswers.shift();
+  return new Promise(resolve => terminalWaiters.push(resolve));
+}
+
+function closeTerminal() {
+  if (!terminal) return;
+  terminal.close();
+  terminal = null;
+  while (terminalWaiters.length > 0) terminalWaiters.shift()("");
+  terminalAnswers.length = 0;
+}
+
+function formatWorldNumber(value) {
+  return String(value).padStart(3, "0");
+}
+
+function getWorldPath(number) {
+  return path.join(worldRoot, `${number}.json`);
+}
+
+function findSmallestFreeWorldNumber() {
+  const usedReportNumbers = new Set(
+    fs.readdirSync(reportRoot, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name.match(/-(\d{3})$/)?.[1])
+      .filter(Boolean)
+  );
+  for (let value = 0; value <= 999; value++) {
+    const number = formatWorldNumber(value);
+    if (!fs.existsSync(getWorldPath(number)) && !usedReportNumbers.has(number)) return number;
+  }
+  throw new Error("All world numbers from 000 to 999 are already in use.");
+}
+
+async function selectWorld() {
+  fs.mkdirSync(reportRoot, { recursive: true });
+  fs.mkdirSync(worldRoot, { recursive: true });
+
+  if (requestedResumeSave) {
+    worldNumber = "test";
+    worldPath = null;
+  } else if (requestedWorldNumber) {
+    if (!/^\d{3}$/.test(requestedWorldNumber)) {
+      throw new Error("--world must contain exactly three digits.");
+    }
+    worldNumber = requestedWorldNumber;
+    worldPath = getWorldPath(worldNumber);
+    if (!fs.existsSync(worldPath)) {
+      throw new Error(`World ${worldNumber} does not exist.`);
+    }
+  } else {
+    while (true) {
+      const answer = (await askTerminal(
+        "Welt laden (000-999) oder Enter fuer eine neue Welt: "
+      )).trim();
+      if (answer === "") {
+        worldNumber = findSmallestFreeWorldNumber();
+        worldPath = null;
+        createFreshWorld = true;
+        break;
+      }
+      if (!/^\d{3}$/.test(answer)) {
+        console.log("Bitte genau drei Ziffern eingeben, zum Beispiel 007.");
+        continue;
+      }
+      const candidate = getWorldPath(answer);
+      if (!fs.existsSync(candidate)) {
+        console.log(`Die Welt ${answer} existiert noch nicht. Enter erstellt automatisch eine neue Welt.`);
+        continue;
+      }
+      worldNumber = answer;
+      worldPath = candidate;
+      break;
+    }
+  }
+
+  const sessionName = `${runId}-${worldNumber}`;
+  runDir = path.join(reportRoot, sessionName);
+  savePath = path.join(runDir, "save.json");
+  metricsPath = path.join(runDir, "metrics.json");
+  reportPath = path.join(runDir, "report.md");
+  statusPath = path.join(runDir, "status.json");
+  fs.mkdirSync(runDir, { recursive: true });
+  if (worldPath) {
+    fs.copyFileSync(worldPath, savePath);
+  } else if (requestedResumeSave) {
+    fs.copyFileSync(path.resolve(ROOT, requestedResumeSave), savePath);
+  }
+  metrics.worldNumber = worldNumber;
+}
+
+async function selectMode() {
+  if (requestedMode) {
+    if (requestedMode !== "survival") {
+      throw new Error('Only "--mode=survival" is currently available.');
+    }
+    config.mode = requestedMode;
+    metrics.mode = requestedMode;
+    return;
+  }
+  if (requestedResumeSave || requestedWorldNumber) {
+    config.mode = "survival";
+    metrics.mode = "survival";
+    return;
+  }
+
+  while (true) {
+    const answer = (await askTerminal(
+      "Spielmodus waehlen: s = Survival, c = Creative: "
+    )).trim().toLowerCase();
+    if (answer === "s" || answer === "survival") {
+      config.mode = "survival";
+      metrics.mode = "survival";
+      return;
+    }
+    if (answer === "c" || answer === "creative") {
+      console.log("Creative ist noch nicht verfuegbar. Bitte Survival waehlen.");
+      continue;
+    }
+    console.log("Bitte s fuer Survival oder c fuer Creative eingeben.");
+  }
+}
+
 function writeReport() {
   const lines = [
     "# Space Industry Balance Bot Report",
     "",
     `Run: ${runId}`,
+    `World: ${worldNumber}`,
     `Mode: ${config.mode}`,
     `Skill: ${config.skill}`,
     `Started: ${metrics.startedAt}`,
     `Result: ${metrics.result}`,
     metrics.resultReason ? `Reason: ${metrics.resultReason}` : "",
     "",
+    "## Starting State",
+    "",
+    `Template: ${metrics.resumedFrom || "new world"}`,
+    `Existing world play time: ${Number(metrics.initialState?.worldPlayTime || 0).toFixed(1)} s`,
+    `Existing research: ${(metrics.initialState?.research || []).join(", ") || "none"}`,
+    "",
+    "### Starting Resources",
+    "",
+    "| Resource | Amount |",
+    "|---|---:|"
+  ];
+  for (const [resource, amount] of Object.entries(metrics.initialState?.resources || {})) {
+    if (!Number.isFinite(amount) || amount === 0) continue;
+    lines.push(`| ${resource} | ${Number(amount.toFixed(3))} |`);
+  }
+  lines.push(
+    "",
+    "### Starting Buildings",
+    "",
+    "| Building | Count |",
+    "|---|---:|"
+  );
+  for (const [building, count] of Object.entries(metrics.initialState?.buildings || {})) {
+    lines.push(`| ${building} | ${count} |`);
+  }
+  lines.push(
+    "",
     "## Building Timings",
     "",
     "| Building | Materials ready | Completed | Total time | Attempts |",
     "|---|---:|---:|---:|---:|"
-  ];
+  );
   for (const [name, item] of Object.entries(metrics.buildings)) {
+    const materialTime = item.materialsAvailableAtStart
+      ? "available at start"
+      : item.materialReadyAfterSeconds !== undefined
+        ? `${item.materialReadyAfterSeconds} s`
+        : "-";
     lines.push(
-      `| ${name} | ${item.materialReadyAfterSeconds ?? "-"} s | ` +
+      `| ${name} | ${materialTime} | ` +
       `${item.completedAtSeconds ?? "-"} s | ${item.durationSeconds ?? "-"} s | ${item.attempts} |`
     );
   }
@@ -142,8 +328,13 @@ function writeReport() {
     "|---|---:|---:|---:|---:|"
   );
   for (const [name, item] of Object.entries(metrics.research)) {
+    const materialTime = item.materialsAvailableAtStart
+      ? "available at start"
+      : item.materialReadyAfterSeconds !== undefined
+        ? `${item.materialReadyAfterSeconds} s`
+        : "-";
     lines.push(
-      `| ${name} | ${item.materialReadyAfterSeconds ?? "-"} s | ` +
+      `| ${name} | ${materialTime} | ` +
       `${item.completedAtSeconds ?? "-"} s | ${item.durationSeconds ?? "-"} s | ${item.attempts} |`
     );
   }
@@ -151,11 +342,14 @@ function writeReport() {
     "",
     "## Resource Milestones",
     "",
-    "| Resource | Amount | Reached after | World time |",
-    "|---|---:|---:|---:|"
+    "| Resource | Amount | Reached after | Origin | World time |",
+    "|---|---:|---:|---|---:|"
   );
   for (const item of Object.values(metrics.resourceMilestones)) {
-    lines.push(`| ${item.resource} | ${item.amount} | ${item.elapsedSeconds} s | ${item.worldPlayTime.toFixed(1)} s |`);
+    lines.push(
+      `| ${item.resource} | ${item.amount} | ${item.elapsedSeconds} s | ` +
+      `${item.availableAtStart ? "starting inventory" : "earned during run"} | ${item.worldPlayTime.toFixed(1)} s |`
+    );
   }
   lines.push(
     "",
@@ -186,9 +380,18 @@ function countAction(name) {
   actionCount++;
 }
 
+function handleBrowserClosed() {
+  if (cleanupStarted || browserCloseReported || stopping) return;
+  browserCloseReported = true;
+  stopReason = "manual-browser-close";
+  stopping = true;
+  console.log("\nBrowser wurde geschlossen.");
+}
+
 function updateStatus(state = null) {
   writeJson(statusPath, {
     runId,
+    worldNumber,
     mode: config.mode,
     skill: config.skill,
     visibleWindow,
@@ -221,28 +424,6 @@ function updateStatus(state = null) {
 function getFreePort() {
   const base = 8800 + Math.floor(Math.random() * 800);
   return base;
-}
-
-function findLatestResumeSave() {
-  if (!fs.existsSync(archiveRoot)) return null;
-  const runs = fs.readdirSync(archiveRoot, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && entry.name !== runId)
-    .map(entry => {
-      const directory = path.join(archiveRoot, entry.name);
-      const candidateSave = path.join(directory, "save.json");
-      const candidateStatus = path.join(directory, "status.json");
-      if (!fs.existsSync(candidateSave) || !fs.existsSync(candidateStatus)) return null;
-      try {
-        const status = JSON.parse(fs.readFileSync(candidateStatus, "utf8"));
-        const resumable = ["running", "stopping", "stopped", "error"].includes(status.result || status.status);
-        return resumable ? { name: entry.name, save: candidateSave } : null;
-      } catch (error) {
-        return null;
-      }
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.name.localeCompare(a.name));
-  return runs[0]?.save || null;
 }
 
 function delay(ms) {
@@ -282,28 +463,34 @@ async function initializeGame(url) {
     viewport: visibleWindow ? null : config.viewport
   });
   page = await context.newPage();
+  browser.on("disconnected", handleBrowserClosed);
+  page.on("close", handleBrowserClosed);
   page.on("dialog", dialog => dialog.dismiss().catch(() => {}));
   await page.goto(url);
   await page.waitForFunction(() => typeof resetGameToNew === "function" && typeof createSavePayload === "function");
 
   await page.evaluate(() => localStorage.clear());
-  const resumePath = requestedResumeSave
-    ? path.resolve(ROOT, requestedResumeSave)
-    : findLatestResumeSave();
+  const resumePath = !createFreshWorld && fs.existsSync(savePath) ? savePath : null;
   if (resumePath) {
     const payload = JSON.parse(fs.readFileSync(resumePath, "utf8"));
     const loaded = await page.evaluate(save => loadSavePayload(save), payload);
     if (!loaded) throw new Error("The Balance Bot savegame could not be loaded.");
     metrics.resumedSave = true;
-    metrics.resumedFrom = path.basename(path.dirname(resumePath));
-    logEvent("save-loaded", { run: metrics.resumedFrom });
+    metrics.resumedFrom = requestedResumeSave
+      ? path.basename(requestedResumeSave)
+      : path.basename(worldPath);
+    logEvent("save-loaded", {
+      worldNumber,
+      template: metrics.resumedFrom,
+      sessionCopy: resumePath
+    });
   } else {
     const seed = Math.floor(Math.random() * 0xffffffff) >>> 0;
     await page.evaluate(({ name, seedValue }) => {
       resetGameToNew(name, seedValue);
       resetTutorialForNewWorld();
-    }, { name: "Balance Bot", seedValue: seed });
-    logEvent("world-created", { seed });
+    }, { name: `Balance Bot ${worldNumber}`, seedValue: seed });
+    logEvent("world-created", { seed, worldNumber });
   }
 
   await page.evaluate(() => {
@@ -728,9 +915,21 @@ async function publishGoalQueue(state) {
 function markIntent(kind, name, state, materialsReady = false) {
   const key = `${kind}:${name}`;
   if (!metrics[kind][name]) {
+    const cost = kind === "buildings"
+      ? state.buildCosts[name]
+      : state.availableResearch.find(item => item.name === name)?.cost;
+    const startingResources = metrics.initialState?.resources || {};
+    const materialsAvailableAtStart = Object.entries(cost || {}).every(
+      ([resource, amount]) => (startingResources[resource] || 0) >= amount
+    );
     metrics[kind][name] = {
       firstIntentAtSeconds: Number(elapsedSeconds().toFixed(1)),
       firstIntentWorldTime: state.worldPlayTime,
+      cost: { ...(cost || {}) },
+      startingResources: Object.fromEntries(
+        Object.keys(cost || {}).map(resource => [resource, startingResources[resource] || 0])
+      ),
+      materialsAvailableAtStart,
       completedAtSeconds: null,
       completedWorldTime: null,
       attempts: 0
@@ -740,9 +939,9 @@ function markIntent(kind, name, state, materialsReady = false) {
   const measurement = metrics[kind][name];
   if (materialsReady && measurement.materialReadyAtSeconds === undefined) {
     measurement.materialReadyAtSeconds = Number(elapsedSeconds().toFixed(1));
-    measurement.materialReadyAfterSeconds = Number(
-      (measurement.materialReadyAtSeconds - measurement.firstIntentAtSeconds).toFixed(1)
-    );
+    measurement.materialReadyAfterSeconds = measurement.materialsAvailableAtStart
+      ? 0
+      : Number((measurement.materialReadyAtSeconds - measurement.firstIntentAtSeconds).toFixed(1));
     logEvent("goal-materials-ready", {
       kind,
       name,
@@ -780,7 +979,8 @@ function recordResourceMilestones(state) {
         resource: key,
         amount: threshold,
         elapsedSeconds: Number(elapsedSeconds().toFixed(1)),
-        worldPlayTime: state.worldPlayTime
+        worldPlayTime: state.worldPlayTime,
+        availableAtStart: (metrics.initialState?.resources?.[key] || 0) >= threshold
       };
     }
   }
@@ -1109,9 +1309,13 @@ async function steerTowardTarget(targetKind, maximumMs) {
       let desiredVelocity;
       let speedTolerance = 0.15;
       let flightPhase = null;
-      if (kind === "asteroid") {
+      const controlledApproach = kind === "asteroid" || kind === "belt";
+      if (controlledApproach) {
         const grid = CONFIG.GRID_SIZE;
         const travelGap = waypoint ? distance : gap;
+        const cruiseSpeed = kind === "asteroid"
+          ? (waypoint ? 2.0 : 1.5)
+          : 2.2;
         const massFactor = getMassAccelerationFactor(placedModules);
         const reverseThrust = placedModules.reduce((best, module) => {
           const stats = BUILDING_STATS[module.type];
@@ -1121,18 +1325,35 @@ async function steerTowardTarget(targetKind, maximumMs) {
           return isReverse ? Math.max(best, stats.thrust * 0.12 * massFactor) : best;
         }, 0);
         const brakingDistance = Math.max(0, closingSpeed) ** 2 * 30 / Math.max(0.02, reverseThrust);
-        const reactionDistance = Math.max(0, closingSpeed) * 60 * 2.2;
         const brakingMargin = Math.max(
-          waypoint ? grid * 8 : grid * 12,
-          reactionDistance
+          waypoint ? grid * 10 : grid * 16,
+          Math.max(0, closingSpeed) * 60 * 1.5
         );
         const stateKey = `${waypointKey}:${waypoint ? "waypoint" : "target"}`;
         let flightState = window.__balanceBotFlightState;
         if (flightState?.key !== stateKey) {
-          flightState = { key: stateKey, phase: "accelerate" };
+          flightState = {
+            key: stateKey,
+            phase: relativeSpeed > cruiseSpeed + 0.3 ? "stabilize" : "accelerate"
+          };
           window.__balanceBotFlightState = flightState;
         }
+        if (flightState.phase === "stabilize" &&
+            relativeSpeed <= cruiseSpeed + 0.05) {
+          flightState.phase = travelGap <= brakingDistance + brakingMargin
+            ? "brake"
+            : "coast";
+        }
         if (flightState.phase === "accelerate" &&
+            relativeSpeed >= cruiseSpeed - 0.12) {
+          flightState.phase = "coast";
+        }
+        if (flightState.phase === "coast" &&
+            relativeSpeed < cruiseSpeed * 0.65 &&
+            travelGap > brakingDistance + brakingMargin * 1.5) {
+          flightState.phase = "accelerate";
+        }
+        if ((flightState.phase === "accelerate" || flightState.phase === "coast") &&
             travelGap <= brakingDistance + brakingMargin) {
           flightState.phase = "brake";
         }
@@ -1140,13 +1361,17 @@ async function steerTowardTarget(targetKind, maximumMs) {
           flightState.phase = "final";
         }
         flightPhase = flightState.phase;
+        const finalFarSpeed = kind === "asteroid" ? 0.14 : 0.35;
+        const finalNearSpeed = kind === "asteroid" ? 0.06 : 0.16;
         const approachSpeed = flightPhase === "accelerate"
-          ? Math.max(relativeSpeed + 4, 8)
-          : flightPhase === "brake"
+          ? cruiseSpeed
+          : flightPhase === "coast"
+            ? cruiseSpeed
+          : flightPhase === "brake" || flightPhase === "stabilize"
             ? 0
             : travelGap > grid * 2
-              ? 0.18
-              : 0.07;
+              ? finalFarSpeed
+              : finalNearSpeed;
         speedTolerance = flightPhase === "final" ? 0.05 : 0.12;
         desiredVelocity = {
           x: (waypoint ? 0 : targetVx) + directionX * approachSpeed,
@@ -1198,7 +1423,7 @@ async function steerTowardTarget(targetKind, maximumMs) {
         relativeSpeed <= 0.35
       );
       let selectedThruster;
-      if (kind === "asteroid") {
+      if (controlledApproach && flightPhase !== "stabilize") {
         const forwardThruster = thrusterCandidates
           .filter(candidate => candidate.key === "w")
           .map(candidate => {
@@ -1215,9 +1440,9 @@ async function steerTowardTarget(targetKind, maximumMs) {
           .sort((a, b) => b.thrust - a.thrust)[0];
         selectedThruster = {
           ...forwardThruster,
-          key: flightPhase === "brake" && reverseThruster ? "s" : "w"
+          key: flightPhase === "brake" && closingSpeed > 0.05 && reverseThruster ? "s" : "w"
         };
-      } else if (needsMiningAlignment) {
+      } else if (needsMiningAlignment && flightPhase !== "stabilize") {
         selectedThruster = thrusterCandidates
           .filter(candidate => candidate.key === "w")
           .map(candidate => {
@@ -1236,8 +1461,9 @@ async function steerTowardTarget(targetKind, maximumMs) {
       return {
         angleError: selectedThruster.angleError,
         thrustKey: selectedThruster.key,
-        shouldThrust: kind === "asteroid" && flightPhase === "accelerate"
-          ? true
+        shouldThrust: controlledApproach
+          ? flightPhase === "accelerate" ||
+            (flightPhase !== "coast" && correctionMagnitude > speedTolerance)
           : correctionMagnitude > speedTolerance,
         flightPhase,
         gap,
@@ -1279,17 +1505,19 @@ async function steerTowardTarget(targetKind, maximumMs) {
         : Math.min(260, 70 + Math.abs(command.angleError) * 90);
       await pressBotFlightKey(key, turnMs);
     } else if (!command.alignOnly && command.shouldThrust) {
-      const thrustMs = targetKind === "asteroid"
-        ? command.flightPhase === "accelerate" ? 1400 :
-          command.flightPhase === "brake" ? 900 :
-          120
+      const controlledApproach = targetKind === "asteroid" || targetKind === "belt";
+      const thrustMs = controlledApproach
+        ? command.flightPhase === "accelerate" ? 320 :
+          command.flightPhase === "brake" || command.flightPhase === "stabilize" ? 360 :
+          90
         : command.gap > 40 * 30 ? 650 : 300;
       await pressBotFlightKey(command.thrustKey || "w", thrustMs);
     }
-    await delay(targetKind === "asteroid"
-      ? command.flightPhase === "accelerate" ? 80 :
-        command.shouldThrust ? 140 :
-        300
+    await delay(targetKind === "asteroid" || targetKind === "belt"
+      ? command.flightPhase === "coast" ? 250 :
+        command.flightPhase === "accelerate" ? 100 :
+        command.shouldThrust ? 120 :
+        260
       : 80);
   }
   logEvent("target-approach-timeout", {
@@ -1579,11 +1807,17 @@ async function decide(state) {
 
 async function saveGame(reason = "interval") {
   if (!page || page.isClosed()) return;
-  const payload = await page.evaluate(() => createSavePayload(currentSaveName || "Balance Bot"));
+  const payload = await page.evaluate(number =>
+    createSavePayload(`Balance Bot ${number}`)
+  , worldNumber);
   writeJson(savePath, payload);
   lastSaveAt = Date.now();
   saveCount++;
-  logEvent("save-written", { reason, worldPlayTime: payload.worldPlayTime });
+  logEvent("save-written", {
+    reason,
+    worldNumber,
+    worldPlayTime: payload.worldPlayTime
+  });
 }
 
 function finishResult(result, reason) {
@@ -1605,6 +1839,10 @@ function checkTerminalState(state) {
     finishResult("success", "black-hole-completed");
     return true;
   }
+  if ((state.res.fuel || 0) <= 0 && (state.res.water || 0) <= 0) {
+    finishResult("softlock", "fuel-and-water-empty");
+    return true;
+  }
   const canProduceFuel = moduleCount(state, "Electrolyser") > 0 &&
     moduleCount(state, "Fuel Processor") > 0 &&
     (state.res.water || 0) > 0 &&
@@ -1620,7 +1858,22 @@ function checkTerminalState(state) {
   return false;
 }
 
+function removeAbortedRunData() {
+  const reportRootAbsolute = path.resolve(reportRoot);
+  const sessionAbsolute = path.resolve(runDir);
+  const insideDirectory = (candidate, directory) =>
+    candidate.startsWith(`${directory}${path.sep}`);
+
+  if (!insideDirectory(sessionAbsolute, reportRootAbsolute)) {
+    throw new Error("Refusing to delete a session outside the report directory.");
+  }
+  if (fs.existsSync(sessionAbsolute)) {
+    fs.rmSync(sessionAbsolute, { recursive: true, force: true });
+  }
+}
+
 async function cleanup() {
+  cleanupStarted = true;
   try {
     if (page && !page.isClosed()) await saveGame("shutdown");
   } catch (error) {
@@ -1633,7 +1886,6 @@ async function cleanup() {
     metrics.resultReason = stopReason;
   }
   writeJson(metricsPath, metrics);
-  writeReport();
   updateStatus();
   if (page && !page.isClosed()) {
     await page.evaluate(() => {
@@ -1644,18 +1896,57 @@ async function cleanup() {
   }
   if (browser) await browser.close().catch(() => {});
   if (server && server.exitCode === null) server.kill();
+
+  const manuallyStopped = stopReason === "manual-terminal-stop" ||
+    stopReason === "manual-browser-close" ||
+    stopReason === "manual-stop";
+  let createEvaluation = !manuallyStopped || smokeTest;
+  if (manuallyStopped && !smokeTest && process.stdin.isTTY) {
+    const answer = (await askTerminal(
+      "\nReport erstellen und Laufordner behalten? (j/N, N loescht den Laufordner): "
+    )).trim().toLowerCase();
+    createEvaluation = ["j", "ja", "y", "yes"].includes(answer);
+  }
+  if (createEvaluation) {
+    writeReport();
+    console.log(`Auswertung erstellt: ${reportPath}`);
+  } else {
+    removeAbortedRunData();
+    console.log(`Run verworfen. Die Vorlage ${worldNumber} wurde nicht veraendert.`);
+    closeTerminal();
+    return;
+  }
+  console.log(`Lauf-Spielstand gespeichert: ${savePath}`);
+  if (worldPath) console.log(`Vorlage unveraendert: ${worldPath}`);
+  else if (createFreshWorld) console.log("Der Lauf wurde mit einer frisch generierten Welt gestartet.");
+  console.log(`Laufdaten: ${runDir}`);
+  closeTerminal();
 }
 
 async function main() {
+  await selectWorld();
+  await selectMode();
   writeJson(metricsPath, metrics);
-  writeReport();
   logEvent("run-started", {
     runId,
+    worldNumber,
     config,
     resumedSave: metrics.resumedSave
   });
   const url = await startServer(getFreePort());
   await initializeGame(url);
+  const initialState = await readState();
+  metrics.initialState = {
+    worldPlayTime: initialState.worldPlayTime,
+    resources: { ...initialState.res },
+    research: initialState.research.slice().sort(),
+    buildings: initialState.modules.reduce((counts, module) => {
+      counts[module.type] = (counts[module.type] || 0) + 1;
+      return counts;
+    }, {})
+  };
+  logEvent("starting-state-recorded", metrics.initialState);
+  await saveGame("initial");
 
   let loopCount = 0;
   while (!stopping) {
@@ -1672,14 +1963,13 @@ async function main() {
     await publishGoalQueue(state);
     updateStatus(state);
     writeJson(metricsPath, metrics);
-    writeReport();
 
     if (checkTerminalState(state)) break;
     if (Date.now() - lastSaveAt >= config.saveIntervalMs) await saveGame();
 
     await decide(state);
     loopCount++;
-    if (smokeTest && loopCount >= 2) {
+    if (smokeTest && loopCount >= smokeLoopLimit) {
       stopReason = "smoke-test-complete";
       stopping = true;
       break;
@@ -1697,14 +1987,18 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 
 main()
   .catch(error => {
+    if (stopReason === "manual-browser-close") return;
     stopping = true;
     stopReason = "error";
     metrics.result = "error";
     metrics.resultReason = error?.message || String(error);
     metrics.error = error?.stack || String(error);
-    writeJson(metricsPath, metrics);
-    updateStatus();
+    if (metricsPath) writeJson(metricsPath, metrics);
+    if (statusPath) updateStatus();
     console.error(error);
     process.exitCode = 1;
   })
-  .finally(cleanup);
+  .finally(async () => {
+    if (runDir) await cleanup();
+    else closeTerminal();
+  });

@@ -1,9 +1,7 @@
 {
-  "mode": "survival",
   "skill": 70,
   "visibleWindow": true,
   "decisionIntervalMs": 2500,
-  "saveIntervalMs": 60000,
   "softlockMinutes": 10,
   "viewport": {
     "width": 1280,
