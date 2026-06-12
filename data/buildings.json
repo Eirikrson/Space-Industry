@@ -429,7 +429,7 @@
       "energyProd": 10
     },
     "Solar Panel": {
-      "energyProdBase": 1
+      "energyProdBase": 3
     },
     "Battery MK1": {
       "energyCap": 200
@@ -669,21 +669,21 @@
       "copperPlate": 5
     },
     "Solar Panel": {
-      "ironPlate": 8,
-      "copperPlate": 8,
-      "silicon": 2
+      "ironOre": 8,
+      "copperOre": 8,
+      "siliconOre": 2
     },
     "Laboratory": {
-      "ironPlate": 15,
-      "copperPlate": 10
+      "ironOre": 15,
+      "copperOre": 10
     },
     "Smelter": {
-      "ironPlate": 20,
-      "copperPlate": 10
+      "ironOre": 20,
+      "copperOre": 10
     },
     "Drill": {
-      "ironPlate": 25,
-      "copperPlate": 10
+      "ironOre": 25,
+      "copperOre": 10
     },
     "Tank MK1": {
       "ironPlate": 12,
@@ -724,8 +724,7 @@
     },
     "Assembler": {
       "ironPlate": 40,
-      "copperPlate": 20,
-      "gears": 5
+      "copperPlate": 20
     },
     "Hangar MK1": {
       "ironPlate": 30,
@@ -881,14 +880,15 @@
         {
           "name": "Smelter",
           "cost": {
-            "ironPlate": 10,
-            "copperPlate": 5
+            "ironOre": 10,
+            "copperOre": 5
           }
         },
         {
           "name": "Drill",
           "cost": {
-            "ironPlate": 10
+            "ironOre": 10,
+            "copperOre": 5
           }
         },
         {
@@ -910,7 +910,7 @@
           "cost": {
             "ironPlate": 30,
             "copperPlate": 20,
-            "circuits": 5
+            "siliconOre": 5
           }
         }
       ]

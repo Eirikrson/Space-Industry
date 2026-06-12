@@ -3,12 +3,12 @@ const path = require("path");
 const { spawn } = require("child_process");
 const { chromium } = require("playwright");
 
-const ROOT = path.resolve(__dirname, "..");
-const BOT_DIR = __dirname;
-const REPORT_PATH = path.join(BOT_DIR, "performance-report-latest.md");
-const DATA_PATH = path.join(BOT_DIR, "performance-data-latest.json");
-const ERROR_LOG_PATH = path.join(BOT_DIR, "performance-bot-error-latest.log");
-const REAL_SAVE_PATH = path.join(BOT_DIR, "performance-test-save.json");
+const ROOT = path.resolve(__dirname, "..", "..");
+const PERFORMANCE_BOT_DIR = __dirname;
+const REPORT_PATH = path.join(PERFORMANCE_BOT_DIR, "performance-report-latest.md");
+const DATA_PATH = path.join(PERFORMANCE_BOT_DIR, "performance-data-latest.json");
+const ERROR_LOG_PATH = path.join(PERFORMANCE_BOT_DIR, "performance-bot-error-latest.log");
+const REAL_SAVE_PATH = path.join(PERFORMANCE_BOT_DIR, "performance-test-save.json");
 const SERVER_URL = "http://127.0.0.1:8765/index.html";
 const EDGE_PATH = "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
 const NODE_PATH = process.execPath;
@@ -226,7 +226,7 @@ async function installProfiler(page) {
 async function configureScenario(page, scenario) {
   await page.evaluate(config => {
     if (config.notifications) {
-      for (let i = 0; i < config.notifications; i++) flash(`Bot message ${i + 1}`);
+      for (let i = 0; i < config.notifications; i++) flash(`Performance Bot message ${i + 1}`);
     }
 
     if (config.enemies) {
@@ -255,7 +255,7 @@ async function configureScenario(page, scenario) {
           id: nextSmallShipId++,
           hangarId: -1000 - i,
           hangarType: "Small Hangar",
-          name: `Bot Drone ${i + 1}`,
+          name: `Performance Bot Drone ${i + 1}`,
           capacityTiles: 2,
           modules: [
             { id: nextModuleId++, x: 0, y: 0, type: "Computer", w: 1, h: 1, rot: 0, hp: 1 },
@@ -528,7 +528,7 @@ async function testSavePreviewHover(page) {
   await prepareWorld(page, 987654);
   await page.evaluate(() => {
     localStorage.clear();
-    resetGameToNew("Preview Bot Test", 987654);
+    resetGameToNew("Performance Bot Preview Test", 987654);
     appState = "playing";
     saveInitialWorldToSlot(1);
   });
@@ -725,7 +725,7 @@ function createReport(results, generatedAt, checks, realSaveUsed) {
     `Generated: ${generatedAt}`,
     "This file always contains only the latest test run.",
     "",
-    "## Bot Checks",
+    "## Performance Bot Checks",
     "",
     "| Check | Result | Details |",
     "|---|---|---|"

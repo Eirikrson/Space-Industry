@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0.."
+cd /d "%~dp0..\.."
 
 set "NODE_ROOT=%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\node"
 set "NODE_EXE=%NODE_ROOT%\bin\node.exe"
@@ -12,16 +12,16 @@ if not exist "%NODE_EXE%" (
   exit /b 1
 )
 
-"%NODE_EXE%" "bot\performance-bot.js"
+"%NODE_EXE%" "%~dp0performance-bot.js"
 if errorlevel 1 (
   echo.
   echo The performance test failed.
-  echo Details are available in bot\performance-bot-error-latest.log
+  echo Details are available in bots\performance-bot\performance-bot-error-latest.log
   pause
   exit /b 1
 )
 echo.
-echo The newest report is available as bot\performance-report-latest.md
-echo The newest raw measurements are available as bot\performance-data-latest.json
+echo The newest report is available as bots\performance-bot\performance-report-latest.md
+echo The newest raw measurements are available as bots\performance-bot\performance-data-latest.json
 echo Both files are overwritten on every run.
 pause

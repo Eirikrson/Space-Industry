@@ -800,6 +800,16 @@ window.addEventListener("keydown", e => {
   unlockAudio();
 
   const key = e.key.toLowerCase();
+  const botFlightKeys = new Set(["w", "a", "s", "d", "q", "e", " "]);
+  const botPermission = window.__balanceBotKeyPermission;
+  const botKeyAllowed = botPermission?.type === "keydown" && botPermission.key === key;
+  if (window.__balanceBotInputLock && botFlightKeys.has(key) && !botKeyAllowed) {
+    keys[key] = false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    return;
+  }
+  if (botKeyAllowed) window.__balanceBotKeyPermission = null;
   keys[key] = true;
 
   if (uiDialog) {

@@ -1241,6 +1241,48 @@ function drawUI() {
     ctx.fillText(text, x + 8, y);
   }
 
+  function drawBalanceBotGoals() {
+    const goals = Array.isArray(window.__balanceBotGoals) ? window.__balanceBotGoals.slice(0, 8) : [];
+    if (goals.length === 0) return;
+    const shorten = (value, maxLength) => {
+      const text = String(value || "");
+      return text.length <= maxLength ? text : `${text.slice(0, maxLength - 3)}...`;
+    };
+
+    const width = 235;
+    const x = VIEW.w - width - 15;
+    const y = 245;
+    const headerH = 28;
+    const rowH = 44;
+    const height = headerH + goals.length * rowH + 8;
+
+    ctx.fillStyle = "rgba(4, 10, 30, 0.9)";
+    ctx.fillRect(x, y, width, height);
+    ctx.strokeStyle = "rgba(100,150,255,0.6)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, width, height);
+
+    ctx.fillStyle = "#88aaff";
+    ctx.font = "bold 12px Consolas, monospace";
+    ctx.textAlign = "left";
+    ctx.fillText("BALANCE BOT PLAN", x + 9, y + 15);
+
+    for (let i = 0; i < goals.length; i++) {
+      const goal = goals[i] || {};
+      const rowY = y + headerH + i * rowH;
+      ctx.fillStyle = i === 0 ? "rgba(80,190,255,0.16)" : "rgba(255,255,255,0.035)";
+      ctx.fillRect(x + 6, rowY, width - 12, rowH - 4);
+
+      ctx.fillStyle = i === 0 ? "#ccf6ff" : "rgba(255,255,255,0.86)";
+      ctx.font = `${i === 0 ? "bold " : ""}12px Consolas, monospace`;
+      ctx.fillText(`${i + 1}. ${shorten(goal.action || "Planning", 27)}`, x + 12, rowY + 14);
+
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
+      ctx.font = "10px Consolas, monospace";
+      ctx.fillText(shorten(goal.reason || "", 31), x + 27, rowY + 31);
+    }
+  }
+
   drawInfoBadge(`Time ${formatWorldPlayTime(worldPlayTime)}`, 15, VIEW.h - 18, 132);
   drawInfoBadge(`FPS ${performanceHudFps}  TPS ${performanceHudTps}`, 15, VIEW.h - 49, 132);
 
@@ -1253,6 +1295,7 @@ function drawUI() {
     drawStatusBadge("[O] Orbit", 165, orbitModeActive, "orbit");
     drawStatusBadge("[L] Landing", 193, landingModeActive, "landing");
     drawStatusBadge("[N] Automatic blueprint", 221, autoBlueprintRepair, "autoBlueprint");
+    drawBalanceBotGoals();
   }
   drawSmallShipConfigUI();
   drawResearchWindow();

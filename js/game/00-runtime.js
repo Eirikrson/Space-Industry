@@ -210,14 +210,14 @@ function stopLayeredSound(name) {
   nextLayeredSoundAt[name] = 0;
 }
 
-function updateLayeredSound(name, active, restartMs) {
+function updateLayeredSound(name, active, restartMs, maxLayers = 2) {
   if (!active || !audioUnlocked || typeof Audio === "undefined" || !SOUND_FILES[name]) {
     stopLayeredSound(name);
     return;
   }
 
   if (!activeLayeredSounds[name]) activeLayeredSounds[name] = new Set();
-  if (activeLayeredSounds[name].size >= 2) return;
+  if (activeLayeredSounds[name].size >= maxLayers) return;
   const now = performance.now();
   if ((nextLayeredSoundAt[name] || 0) > now) return;
 

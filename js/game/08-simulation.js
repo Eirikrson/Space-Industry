@@ -618,7 +618,7 @@ function updateResources(dt) {
     }
   }
 
-  const crewFoodUse = res.crew * 0.25;
+  const crewFoodUse = res.crew * 0.025;
   if (crewFoodUse > 0) {
     res.food = Math.max(0, res.food - crewFoodUse * dt);
   }
@@ -1112,15 +1112,20 @@ function updateGameSounds() {
     || smallShips.some(smallShip => smallShip._thrusting)
     || enemyShips.some(enemy => enemy._thrusting);
 
+  const repairPartsAvailable = canPayRepairChunk();
   const buildingActive = performance.now() < buildWorkSoundUntil
-    || (repairMode && !!getMostDamagedModule())
-    || smallShips.some(smallShip => smallShip.repairTargetModuleId || smallShip.status === "building");
+    || (repairMode && (res.crew || 0) > 0 && repairPartsAvailable && !!getMostDamagedModule())
+    || smallShips.some(smallShip =>
+      smallShip.status === "building" ||
+      (smallShip.repairTargetModuleId && repairPartsAvailable &&
+        ((smallShip.crew || 0) > 0 || (res.crew || 0) > 0))
+    );
 
   updateLayeredSound("thruster", thrusterActive, 7000);
   updateLoopSound("building", buildingActive);
   updateLoopSound("assembler", placedModules.some(module => module._machineActive === "assembler"));
   updateLoopSound("turbine", placedModules.some(module => module._machineActive === "turbine"));
-  updateLayeredSound("smelter", placedModules.some(module => module._machineActive === "smelter"), 1000);
+  updateLayeredSound("smelter", placedModules.some(module => module._machineActive === "smelter"), 1000, Infinity);
   const drillActive = shipLanded || placedModules.some(module => module._machineActive === "drill");
   updateLayeredSound("drill", drillActive, 1000);
   updateLoopSound("turretTurn", placedModules.some(module => isTurretType(module.type) && module._turning));

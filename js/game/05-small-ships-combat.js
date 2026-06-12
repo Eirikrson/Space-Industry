@@ -1403,6 +1403,12 @@ function returnHeldSalvageModule() {
 }
 
 function updateEnemySpawning() {
+  const firstTurretResearched = TURRET_CONTROL_TYPES.some(type => unlockedResearch.has(type));
+  if (!firstTurretResearched) {
+    nextEnemySpawnAt = performance.now() + 90000;
+    return;
+  }
+
   const enemyLimit = currentWorldIsEnd
     ? Math.max(4, Math.floor(getPlayerStrengthScore() / 45))
     : Math.max(1, Math.floor(getPlayerStrengthScore() / 90));

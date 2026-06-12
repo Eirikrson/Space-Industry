@@ -759,6 +759,19 @@ class GalaxyPlanet {
     if (p.x < -r*2 || p.x > VIEW.w+r*2 || p.y < -r*2 || p.y > VIEW.h+r*2) return;
 
     const colors = this.def.colors;
+    if (camera.scale <= 0.06 || r <= 18) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(2, r), 0, Math.PI * 2);
+      ctx.fillStyle = colors[1] || colors[0];
+      ctx.fill();
+      if (r > 5) {
+        ctx.strokeStyle = this.def.atmosphere || "rgba(130,190,255,0.45)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      return;
+    }
+
     // Main body gradient
     const grad = ctx.createRadialGradient(p.x - r*0.3, p.y - r*0.3, r*0.05, p.x, p.y, r);
     grad.addColorStop(0, colors[2]);
@@ -1113,6 +1126,18 @@ class GalaxyStar {
     if (p.x < -r*3 || p.x > VIEW.w+r*3 || p.y < -r*3 || p.y > VIEW.h+r*3) return;
 
     const st = this.starType;
+    if (camera.scale <= 0.06 || r <= 20) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(3, r), 0, Math.PI * 2);
+      ctx.fillStyle = st.color1;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(1.5, r * 0.45), 0, Math.PI * 2);
+      ctx.fillStyle = st.color0;
+      ctx.fill();
+      return;
+    }
+
     // Corona
     const coronaR = r * 2.2;
     const coronaGrad = ctx.createRadialGradient(p.x, p.y, r*0.5, p.x, p.y, coronaR);
@@ -1500,7 +1525,8 @@ function drawGalaxyBackground() {
   // Galaxy dust toward center
   const cp = worldToScreen(CONFIG.GALAXY_CENTER_X, CONFIG.GALAXY_CENTER_Y);
   const gr = CONFIG.GALAXY_RADIUS * camera.scale;
-  if (gr > 5 && camera.scale <= 0.25) {
+  const maxUsefulGradientRadius = Math.hypot(VIEW.w, VIEW.h) * 1.5;
+  if (gr > 5 && gr <= maxUsefulGradientRadius && camera.scale <= 0.25) {
     const dustGrad = ctx.createRadialGradient(cp.x, cp.y, 0, cp.x, cp.y, gr);
     dustGrad.addColorStop(0, "rgba(180,100,255,0.12)");
     dustGrad.addColorStop(0.3, "rgba(80,40,160,0.06)");
