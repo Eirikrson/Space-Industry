@@ -187,6 +187,21 @@ function getAssemblerRecipeKeys() {
   return Object.keys(BUILDING_STATS.Assembler?.recipes || {});
 }
 
+function getSmelterRecipes() {
+  const stats = BUILDING_STATS.Smelter || {};
+  const inputAmount = stats.oreUse || 1;
+  const outputAmount = stats.materialProd || 1;
+  return {
+    ironPlate: { inputs: { ironOre: inputAmount }, outputs: { ironPlate: outputAmount } },
+    copperPlate: { inputs: { copperOre: inputAmount }, outputs: { copperPlate: outputAmount } },
+    silicon: { inputs: { siliconOre: inputAmount }, outputs: { silicon: outputAmount } }
+  };
+}
+
+function getSmelterRecipeKeys() {
+  return Object.keys(getSmelterRecipes());
+}
+
 function getDefaultAssemblerTargets() {
   return Object.fromEntries(getAssemblerRecipeKeys().map(key => [key, 0]));
 }
@@ -195,6 +210,16 @@ function ensureAssemblerTargets(module) {
   const defaults = getDefaultAssemblerTargets();
   module.assemblerTargets = { ...defaults, ...(module.assemblerTargets || {}) };
   return module.assemblerTargets;
+}
+
+function getDefaultSmelterTargets() {
+  return Object.fromEntries(getSmelterRecipeKeys().map(key => [key, 0]));
+}
+
+function ensureSmelterTargets(module) {
+  const defaults = getDefaultSmelterTargets();
+  module.smelterTargets = { ...defaults, ...(module.smelterTargets || {}) };
+  return module.smelterTargets;
 }
 
 function formatRecipeResources(resources) {
@@ -377,6 +402,7 @@ function openAssemblerSettings(module) {
   ensureAssemblerTargets(module);
 
   assemblerWindowModule = module;
+  smelterWindowModule = null;
   researchWindowOpen = false;
   flash("Assembler settings open");
 }
@@ -425,12 +451,90 @@ function setAssemblerTarget(key) {
   });
 }
 
+function openSmelterSettings(module) {
+  ensureSmelterTargets(module);
+
+  smelterWindowModule = module;
+  assemblerWindowModule = null;
+  researchWindowOpen = false;
+  flash("Smelter settings open");
+}
+
+function getSmelterWindowLayout() {
+  const width = 360;
+  const height = 64 + getSmelterRecipeKeys().length * 42;
+  return {
+    x: VIEW.w / 2 - width / 2,
+    y: VIEW.h / 2 - height / 2,
+    width,
+    height,
+    rowH: 34
+  };
+}
+
+function getSmelterTargetButtonAt(mx, my) {
+  if (!smelterWindowModule) return null;
+
+  const layout = getSmelterWindowLayout();
+  const keys = getSmelterRecipeKeys();
+
+  for (let i = 0; i < keys.length; i++) {
+    const y = layout.y + 56 + i * 42;
+    if (
+      mx >= layout.x + 14 &&
+      mx <= layout.x + layout.width - 14 &&
+      my >= y &&
+      my <= y + layout.rowH
+    ) {
+      return keys[i];
+    }
+  }
+
+  return null;
+}
+
+function setSmelterTarget(key) {
+  if (!smelterWindowModule) return;
+
+  const targets = ensureSmelterTargets(smelterWindowModule);
+  openInputDialog(`Target ${formatResourceName(key)}`, "Amount", targets[key] || 0, "number", value => {
+    targets[key] = Math.max(0, Math.floor(Number(value) || 0));
+    smelterWindowModule.smelterTargets = targets;
+    flash("Smelter target updated");
+  });
+}
+
+function getSmelterProduct(module) {
+  const targets = ensureSmelterTargets(module);
+  const recipes = getSmelterRecipes();
+  let best = null;
+  let bestDeficit = 0;
+
+  for (const key of getSmelterRecipeKeys()) {
+    const recipe = recipes[key];
+    const canProduce = Object.entries(recipe?.inputs || {})
+      .every(([inputKey, amount]) => (res[inputKey] || 0) >= Math.min(amount, 0.001));
+    if (!canProduce) continue;
+    const deficit = (targets[key] || 0) - (res[key] || 0);
+    if (deficit > bestDeficit) {
+      best = key;
+      bestDeficit = deficit;
+    }
+  }
+
+  return best;
+}
+
 function getAssemblerProduct(module) {
   const targets = ensureAssemblerTargets(module);
   let best = null;
   let bestDeficit = 0;
 
   for (const key of getAssemblerRecipeKeys()) {
+    const recipe = BUILDING_STATS.Assembler?.recipes?.[key];
+    const canCraft = Object.entries(recipe?.inputs || {})
+      .every(([inputKey, amount]) => (res[inputKey] || 0) >= amount);
+    if (!canCraft) continue;
     const deficit = (targets[key] || 0) - (res[key] || 0);
     if (deficit > bestDeficit) {
       best = key;
@@ -511,7 +615,9 @@ function harvestAsteroid(asteroid) {
     const amount = asteroid.contents[key];
     if (amount > 0) {
       const stored = storeResource(key, amount);
-      asteroid.contents[key] = Math.max(0, amount - stored);
+      asteroid.contents[key] = isLiquidResource(key)
+        ? 0
+        : Math.max(0, amount - stored);
       collected += stored;
     }
   }
@@ -521,5 +627,8 @@ function harvestAsteroid(asteroid) {
   if (asteroid.totalItems <= 0) {
     asteroid.contents = {};
     notifyTutorialAsteroidMined();
+    const index = asteroids.indexOf(asteroid);
+    if (index >= 0) asteroids.splice(index, 1);
   }
+  return collected;
 }

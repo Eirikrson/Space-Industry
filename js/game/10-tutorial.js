@@ -20,7 +20,7 @@ const TUTORIAL_STEPS = [
   {
     id: "autopilot",
     title: "Relative flight assist",
-    body: "Point at an object and hold Space. The ship matches its relative velocity and returns to the distance it had when the assist started. Against enemies it also turns toward the target. Press R to align the ship nose manually.",
+    body: "Point at an object and hold Space. The ship matches its relative velocity and returns to the distance it had when the assist started. Against enemies it also turns toward the target.",
     waitFor: "ok"
   },
   {
@@ -30,21 +30,9 @@ const TUTORIAL_STEPS = [
     waitFor: "ok"
   },
   {
-    id: "orbit",
-    title: "Orbit pilot",
-    body: "Near a planet or star, press O to use the orbit pilot. It helps you settle into a stable orbit instead of falling into the body.",
-    waitFor: "ok"
-  },
-  {
-    id: "landing",
-    title: "Landing",
-    body: "When orbiting a planet, press L to land. A drill can mine useful items from a landed planet over time.",
-    waitFor: "ok"
-  },
-  {
     id: "build",
     title: "Build menu",
-    body: "Press B to open the build menu. Place blueprints, then press B again to commit them. Building consumes items from your inventory.",
+    body: "This is the build menu. Select a module on the right, place its blueprint on the ship, then press B again to commit the plan. Hover a module to read its name and purpose.",
     waitFor: "buildOpened",
     triggerOnly: true
   },
@@ -82,6 +70,14 @@ const TUTORIAL_STEPS = [
 ];
 
 const TUTORIAL_EVENT_STEPS = {
+  orbit: {
+    title: "Orbit pilot unlocked",
+    body: "Computer MK3 unlocks the orbit pilot. Near a planet or star, press O to enter a stable orbit."
+  },
+  landing: {
+    title: "Landing unlocked",
+    body: "While the orbit is stable around a planet, press L to land. A working Drill can collect resources from the planet."
+  },
   damage: {
     title: "Damage and crew repairs",
     body: "Your ship can take damage from asteroids, enemies, and dangerous orbits. Add crew modules to increase your people, then press V to repair damaged modules using parts."
@@ -104,7 +100,11 @@ const TUTORIAL_EVENT_STEPS = {
   },
   laboratory: {
     title: "Laboratory",
-    body: "Click a Laboratory to open research. Research unlocks buildings, and computer upgrades unlock the next technology tiers."
+    body: "The Laboratory unlocks new technology. Leave build mode, then click the Laboratory to open research. Computer upgrades reveal later research tiers."
+  },
+  drill: {
+    title: "Drill",
+    body: "Mount the Drill at the front of the ship. Point it toward an asteroid and stop close to the surface. The Drill only works while it has power and storage is available for the collected resources."
   },
   fusion: {
     title: "Fusion reactor",
@@ -138,11 +138,13 @@ function shouldBlockSimulationForOverlay() {
 
 function isTutorialFlightUiClear(options = {}) {
   const allowMap = !!options.allowMap;
+  const allowBuild = !!options.allowBuild;
   return appState === "playing" &&
-    !buildMode &&
+    (allowBuild || !buildMode) &&
     !uiDialog &&
     !researchWindowOpen &&
     !assemblerWindowModule &&
+    !smelterWindowModule &&
     !turretControlWindowOpen &&
     !activeSmallShipEdit &&
     !dysonPanelOpen &&
@@ -177,7 +179,8 @@ function showTutorialStep(index) {
   tutorialStepDelayTimer = 0;
   const step = TUTORIAL_STEPS[index];
   const allowMap = step.waitFor === "mapSystemClicked" || step.waitFor === "mapClosed";
-  tutorialOverlay = step.triggerOnly || !isTutorialFlightUiClear({ allowMap }) ? null : step;
+  const allowBuild = step.waitFor === "buildOpened";
+  tutorialOverlay = step.triggerOnly || !isTutorialFlightUiClear({ allowMap, allowBuild }) ? null : step;
   resetTutorialTypewriter();
 }
 
@@ -231,6 +234,7 @@ function notifyTutorialModuleBuilt(type) {
   if (type === "Shield Generator") tutorialEvent("shield");
   if (isHangarType(type)) tutorialEvent("hangar");
   if (type === "Laboratory") tutorialEvent("laboratory");
+  if (type === "Drill") tutorialEvent("drill");
   if (type === "Fusion Reactor") tutorialEvent("fusion");
   if (type === "Assembler") tutorialEvent("assembler");
   if (type === "Quarters") tutorialEvent("quarters");
@@ -239,7 +243,8 @@ function notifyTutorialModuleBuilt(type) {
 }
 
 function notifyTutorialResearch(type) {
-  notifyTutorialModuleBuilt(type);
+  if (type === "Computer MK3") tutorialEvent("orbit");
+  if (type === "Quantum Computer") notifyTutorialQuantumComputerBuilt();
 }
 
 function notifyTutorialAsteroidMined() {
@@ -249,9 +254,10 @@ function notifyTutorialAsteroidMined() {
 function notifyTutorialBuildOpened() {
   if (tutorialSkipped || tutorialSeen.has("buildOpened")) return;
   tutorialSeen.add("buildOpened");
-  tutorialStepIndex = Math.max(tutorialStepIndex, 7);
+  const buildIndex = TUTORIAL_STEPS.findIndex(step => step.id === "build");
+  tutorialStepIndex = Math.max(tutorialStepIndex, buildIndex);
   pendingTutorialEvent = null;
-  tutorialOverlay = isTutorialFlightUiClear() ? TUTORIAL_STEPS[7] : null;
+  tutorialOverlay = isTutorialFlightUiClear({ allowBuild: true }) ? TUTORIAL_STEPS[buildIndex] : null;
   resetTutorialTypewriter();
 }
 
@@ -337,7 +343,8 @@ function updateTutorial(dt) {
   if (!step) return;
 
   const allowMapStep = step.waitFor === "mapSystemClicked" || step.waitFor === "mapClosed" || step.waitFor === "mapOpened";
-  if (!isTutorialFlightUiClear({ allowMap: allowMapStep })) return;
+  const allowBuildStep = step.waitFor === "buildOpened";
+  if (!isTutorialFlightUiClear({ allowMap: allowMapStep, allowBuild: allowBuildStep })) return;
 
   if (step.waitFor === "ok" && tutorialSeen.has(step.id)) {
     if (mapVisible || buildMode) return;
@@ -391,11 +398,13 @@ function updateTutorial(dt) {
 
   if (mapVisible || buildMode) return;
   tutorialFlightTime += dt;
-  if (tutorialFlightTime > 60 && tutorialStepIndex < 11) {
-    showTutorialStep(11);
+  const mapReturnIndex = TUTORIAL_STEPS.findIndex(candidate => candidate.id === "map-return");
+  const precisionIndex = TUTORIAL_STEPS.findIndex(candidate => candidate.id === "precision");
+  if (tutorialFlightTime > 60 && mapReturnIndex >= 0 && tutorialStepIndex < mapReturnIndex) {
+    showTutorialStep(mapReturnIndex);
   }
-  if (tutorialFlightTime > 70 && tutorialStepIndex < 12) {
-    showTutorialStep(12);
+  if (tutorialFlightTime > 70 && precisionIndex >= 0 && tutorialStepIndex < precisionIndex) {
+    showTutorialStep(precisionIndex);
   }
 }
 

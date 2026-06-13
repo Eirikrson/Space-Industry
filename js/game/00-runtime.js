@@ -433,6 +433,7 @@ let adminInstantBuild = false;
 let researchWindowOpen = false;
 let hoveredResearchItem = null;
 let assemblerWindowModule = null;
+let smelterWindowModule = null;
 let turretControlWindowOpen = false;
 const turretControlRects = [];
 const turretTypeEnabled = {};

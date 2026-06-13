@@ -661,9 +661,10 @@ function handlePlayingEscapeKey() {
     return true;
   }
 
-  if (researchWindowOpen || assemblerWindowModule) {
+  if (researchWindowOpen || assemblerWindowModule || smelterWindowModule) {
     researchWindowOpen = false;
     assemblerWindowModule = null;
+    smelterWindowModule = null;
     hoveredResearchItem = null;
     playSound("toggle", 120);
     return true;
@@ -1108,6 +1109,13 @@ window.addEventListener("mousedown", e => {
     }
     if (assemblerWindowModule) return;
 
+    const smelterTarget = getSmelterTargetButtonAt(mouse.x, mouse.y);
+    if (smelterTarget) {
+      setSmelterTarget(smelterTarget);
+      return;
+    }
+    if (smelterWindowModule) return;
+
     if (researchWindowOpen) {
       const researchItem = getResearchItemAt(mouse.x, mouse.y);
       if (researchItem) {
@@ -1152,6 +1160,7 @@ window.addEventListener("mousedown", e => {
       if (!buildMode && result && result.module.type === "Laboratory") {
         researchWindowOpen = !researchWindowOpen;
         assemblerWindowModule = null;
+        smelterWindowModule = null;
         playSound("toggle", 120);
         flash(researchWindowOpen ? "Research open" : "Research closed");
         return;
@@ -1159,6 +1168,12 @@ window.addEventListener("mousedown", e => {
 
       if (!buildMode && result && result.module.type === "Assembler") {
         openAssemblerSettings(result.module);
+        playSound("toggle", 120);
+        return;
+      }
+
+      if (!buildMode && result && result.module.type === "Smelter") {
+        openSmelterSettings(result.module);
         playSound("toggle", 120);
         return;
       }

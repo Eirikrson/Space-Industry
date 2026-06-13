@@ -1,5 +1,6 @@
 {
-  "skill": 70,
+  "mode": "survival",
+  "skill": 1000,
   "visibleWindow": true,
   "decisionIntervalMs": 2500,
   "softlockMinutes": 10,

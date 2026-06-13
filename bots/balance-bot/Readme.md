@@ -17,6 +17,7 @@ The Balance Bot directory contains only:
 
 Edit `balance-bot-configuration.json`:
 
+- `mode`: `survival` or `creative`. Creative is reserved for the future and currently stops with a clear message.
 - `skill`: playing quality from `1` to `100`.
 - `visibleWindow`: whether the game browser is visible.
 - `viewport`: initial visible window size and the fixed size used for invisible runs. A visible game resizes with its tab after startup.
@@ -35,13 +36,13 @@ While the Balance Bot is active, manual flight keys (`W`, `A`, `S`, `D`, `Q`, `E
 
 The bot first builds an ore-based Laboratory, researches the Drill with ore, and mounts the ore-built Drill at the front. It then keeps one selected asteroid until it is empty or no longer exists.
 
-During asteroid flights the bot uses a limited safe cruising speed, coasts between short thrust phases, brakes early, and performs the final approach very slowly. The ship keeps its nose pointed toward the target and uses reverse thrust to slow down. It checks the route for planets, stars, and non-target asteroids and keeps a stable detour waypoint when the route is blocked. An asteroid approach only finishes after the Drill has actually acquired that asteroid.
+During asteroid flights the bot uses a limited safe cruising speed, coasts between short thrust phases, brakes early, and performs the final approach very slowly. Before a larger direction change it first slows down instead of turning while continuing to drift sideways. The ship keeps its nose pointed toward the target and uses reverse thrust to slow down. It checks both the planned route and its current projected movement for planets, stars, and non-target asteroids. A predicted collision forces an immediate stabilization before the bot continues along a stable detour waypoint. An asteroid approach only finishes after the Drill has actually acquired that asteroid.
 
-The goal list keeps the complete production purpose visible. Travel and gathering steps are followed by processing, crafting, building, or research steps instead of replacing them. Below 30 fuel or 30 percent of fuel capacity, whichever is higher, restoring fuel production becomes the primary goal.
+The goal list keeps the complete production purpose visible. Travel and gathering steps are followed by processing, crafting, building, or research steps instead of replacing them. Below 75 percent fuel capacity, or when the water reserve drops below 20, establishing and supplying fuel production becomes the primary goal.
 
 ## Running
 
-Start `Run-Balance-Bot.bat`. First enter an existing three-digit template number such as `007`, or press Enter to generate a completely new world without a template. Then enter `s` for Survival or `c` for Creative. Creative is not implemented yet, so choosing it displays a message and asks for the mode again.
+Set the mode in `balance-bot-configuration.json`, then start `Run-Balance-Bot.bat`. Enter an existing three-digit template number such as `007`, or press Enter to generate a completely new world without a template. The terminal no longer asks for the game mode.
 
 World templates are stored in `world/`. `NNN.json` is a reusable example and is not treated as a numbered world:
 

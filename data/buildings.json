@@ -576,12 +576,12 @@
       "crewCap": 2
     },
     "Main Thruster": {
-      "fuelUse": 3,
+      "fuelUse": 1.5,
       "thrust": 36,
       "thrustDir": -1.5707963267949
     },
     "RCS Thruster": {
-      "fuelUse": 1,
+      "fuelUse": 0.5,
       "thrust": 12,
       "thrustDir": -1.5707963267949
     },
@@ -1319,11 +1319,11 @@
       "Destroys incoming asteroid"
     ],
     "Main Thruster": [
-      "INPUT Fuel          -3/sec while active",
+      "INPUT Fuel          -1.5/sec while active",
       "INPUT Energy        control power"
     ],
     "RCS Thruster": [
-      "INPUT Fuel          -1/sec while active",
+      "INPUT Fuel          -0.5/sec while active",
       "INPUT Energy        control power"
     ],
     "Hangar MK1": [

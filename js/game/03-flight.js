@@ -484,7 +484,7 @@ function isAsteroidInBelt(asteroid, belt) {
   return dist >= belt.innerR && dist <= belt.outerR;
 }
 
-function createDynamicBeltAsteroid(belt, maxTiles = 50) {
+function createDynamicLocalAsteroid(belt = null, maxTiles = 50) {
   const shipEdgeRadius = getShipCollisionRadius();
   const minRadius = shipEdgeRadius + CONFIG.GRID_SIZE * 20;
   const maxRadius = shipEdgeRadius + CONFIG.GRID_SIZE * maxTiles;
@@ -494,23 +494,27 @@ function createDynamicBeltAsteroid(belt, maxTiles = 50) {
     const radius = minRadius + Math.random() * Math.max(CONFIG.GRID_SIZE, maxRadius - minRadius);
     const x = ship.x + Math.cos(angle) * radius;
     const y = ship.y + Math.sin(angle) * radius;
-    const dist = Math.hypot(x - belt.star.x, y - belt.star.y);
+    const dist = belt ? Math.hypot(x - belt.star.x, y - belt.star.y) : 0;
+    if (belt && (dist < belt.innerR || dist > belt.outerR)) continue;
 
-    if (dist < belt.innerR || dist > belt.outerR) continue;
-
-    const asteroid = new Asteroid(x, y, belt.kind === "outer" && Math.random() < 0.18 ? "ice" : "rock");
+    const asteroid = new Asteroid(x, y, belt?.kind === "outer" && Math.random() < 0.18 ? "ice" : "rock");
     if (isInsideCelestialBody(asteroid.x, asteroid.y, asteroid.size + CONFIG.GRID_SIZE * 2)) continue;
-    asteroid._beltDynamic = true;
-    asteroid._beltStar = belt.star;
-    asteroid._beltDist = dist;
-    asteroid._beltAngle = Math.atan2(y - belt.star.y, x - belt.star.x);
-    asteroid._beltOrbitSpeed = (belt.kind === "inner" ? 0.000045 : 0.000018) * (Math.random() < 0.5 ? 1 : -1) * (belt.innerR / Math.max(dist, 1));
-    asteroid.size *= belt.kind === "inner" ? 0.9 : 1.1;
+    asteroid._localDynamic = true;
+    if (belt) {
+      asteroid._beltDynamic = true;
+      asteroid._beltStar = belt.star;
+      asteroid._beltDist = dist;
+      asteroid._beltAngle = Math.atan2(y - belt.star.y, x - belt.star.x);
+      asteroid._beltOrbitSpeed = (belt.kind === "inner" ? 0.000045 : 0.000018) * (Math.random() < 0.5 ? 1 : -1) * (belt.innerR / Math.max(dist, 1));
+      asteroid.size *= belt.kind === "inner" ? 0.9 : 1.1;
+    }
     return asteroid;
   }
 
   return null;
 }
+
+let nextOpenSpaceAsteroidSpawnAt = 0;
 
 function updateDynamicBeltAsteroids() {
   const activeBelt = getBeltAtShip();
@@ -521,26 +525,38 @@ function updateDynamicBeltAsteroids() {
     const tooFar = Math.hypot(asteroid.x - ship.x, asteroid.y - ship.y) > keepRadius;
     const wrongBelt = asteroid._beltDynamic && !isAsteroidInBelt(asteroid, activeBelt);
     const insideCelestial = isInsideCelestialBody(asteroid.x, asteroid.y, asteroid.size + CONFIG.GRID_SIZE * 2);
+    const obsoletePermanentAmbient = asteroid._ambientSystemAsteroid || asteroid._ambientGalaxyAsteroid;
 
-    if (tooFar || wrongBelt || insideCelestial) {
+    if ((asteroid._localDynamic && tooFar) ||
+        wrongBelt ||
+        insideCelestial ||
+        obsoletePermanentAmbient) {
       asteroids.splice(i, 1);
     }
   }
 
-  if (!activeBelt) return;
-
   const localRadius = keepRadius;
-  const targetLocalCount = activeBelt.kind === "inner" ? 5 : 2;
+  const targetLocalCount = activeBelt ? 10 : 1;
   const localCount = asteroids.filter(asteroid =>
-    asteroid._beltDynamic &&
+    asteroid._localDynamic &&
     asteroid.totalItems > 0 &&
-    isAsteroidInBelt(asteroid, activeBelt) &&
+    (!activeBelt || isAsteroidInBelt(asteroid, activeBelt)) &&
     Math.hypot(asteroid.x - ship.x, asteroid.y - ship.y) <= localRadius
   ).length;
 
+  if (!activeBelt && (
+    localCount >= targetLocalCount ||
+    worldPlayTime < nextOpenSpaceAsteroidSpawnAt
+  )) {
+    return;
+  }
+
   for (let i = localCount; i < targetLocalCount; i++) {
-    const asteroid = createDynamicBeltAsteroid(activeBelt, 65);
-    if (asteroid) asteroids.push(asteroid);
+    const asteroid = createDynamicLocalAsteroid(activeBelt, 65);
+    if (asteroid) {
+      asteroids.push(asteroid);
+      if (!activeBelt) nextOpenSpaceAsteroidSpawnAt = worldPlayTime + 60;
+    }
   }
 }
 

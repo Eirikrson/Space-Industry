@@ -24,7 +24,13 @@ const smokeLoopLimit = Math.max(2, Number(
 
 function loadConfig() {
   const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
-  config.mode = "survival";
+  config.mode = String(requestedMode || config.mode || "survival").trim().toLowerCase();
+  if (!["survival", "creative"].includes(config.mode)) {
+    throw new Error('Configuration "mode" must be "survival" or "creative".');
+  }
+  if (config.mode === "creative") {
+    throw new Error('Creative mode is not implemented yet. Set "mode" to "survival".');
+  }
   config.skill = Math.max(1, Math.min(100, Number(config.skill) || 1));
   config.decisionIntervalMs = Math.max(500, Number(config.decisionIntervalMs) || 2500);
   config.saveIntervalMs = 60000;
@@ -231,38 +237,6 @@ async function selectWorld() {
     fs.copyFileSync(path.resolve(ROOT, requestedResumeSave), savePath);
   }
   metrics.worldNumber = worldNumber;
-}
-
-async function selectMode() {
-  if (requestedMode) {
-    if (requestedMode !== "survival") {
-      throw new Error('Only "--mode=survival" is currently available.');
-    }
-    config.mode = requestedMode;
-    metrics.mode = requestedMode;
-    return;
-  }
-  if (requestedResumeSave || requestedWorldNumber) {
-    config.mode = "survival";
-    metrics.mode = "survival";
-    return;
-  }
-
-  while (true) {
-    const answer = (await askTerminal(
-      "Spielmodus waehlen: s = Survival, c = Creative: "
-    )).trim().toLowerCase();
-    if (answer === "s" || answer === "survival") {
-      config.mode = "survival";
-      metrics.mode = "survival";
-      return;
-    }
-    if (answer === "c" || answer === "creative") {
-      console.log("Creative ist noch nicht verfuegbar. Bitte Survival waehlen.");
-      continue;
-    }
-    console.log("Bitte s fuer Survival oder c fuer Creative eingeben.");
-  }
 }
 
 function writeReport() {
@@ -532,6 +506,7 @@ async function prepareBotInterface() {
       tutorial: !!tutorialOverlay || !!tutorialActive,
       research: !!researchWindowOpen,
       assembler: !!assemblerWindowModule,
+      smelter: !!smelterWindowModule,
       turret: !!turretControlWindowOpen,
       map: !!mapVisible,
       build: !!buildMode,
@@ -544,7 +519,7 @@ async function prepareBotInterface() {
     }
     const playerInterfaceOpen = state.build || state.smallShipEditor || state.uiDialog ||
       state.appState === "paused" || state.seedDialog || state.research ||
-      state.assembler || state.turret || state.map;
+      state.assembler || state.smelter || state.turret || state.map;
     if (playerInterfaceOpen) {
       waitingForPlayerInterface = true;
       lastDecision = "Paused while the player uses an open window";
@@ -562,6 +537,7 @@ async function isPlayerInterfaceOpen() {
     !!seedDialogOpen ||
     !!researchWindowOpen ||
     !!assemblerWindowModule ||
+    !!smelterWindowModule ||
     !!turretControlWindowOpen ||
     !!mapVisible ||
     !!buildMode ||
@@ -581,12 +557,43 @@ async function readState() {
       if (typeof value === "number") rateCopy[key] = value;
     }
     let lockedAsteroid = window.__balanceBotAsteroidTarget;
-    if (!lockedAsteroid || !asteroids.includes(lockedAsteroid) || lockedAsteroid.totalItems <= 0) {
-      lockedAsteroid = asteroids
-        .filter(asteroid => asteroid.totalItems > 0)
-        .sort((a, b) =>
-          Math.hypot(a.x - ship.x, a.y - ship.y) - Math.hypot(b.x - ship.x, b.y - ship.y)
-        )[0] || null;
+    const fuelInfrastructureComplete =
+      placedModules.some(module => module.type === "Electrolyser" && getModuleHealth(module) > 0) &&
+      placedModules.some(module => module.type === "Fuel Processor" && getModuleHealth(module) > 0);
+    const fuelRecoveryActive =
+      (res.fuel || 0) < Math.max(45, (res.fuelCap || 100) * 0.75) ||
+      ((res.water || 0) < 20 && !fuelInfrastructureComplete);
+    const asteroidRecoveryValue = asteroid => {
+      if (!fuelRecoveryActive) return 0;
+      const contents = asteroid.contents || {};
+      return (contents.water || 0) * 100 +
+        (contents.ironOre || 0) * 4 +
+        (contents.copperOre || 0) * 4 +
+        (contents.siliconOre || 0) * 2;
+    };
+    const asteroidDistance = asteroid => Math.hypot(asteroid.x - ship.x, asteroid.y - ship.y);
+    const asteroidReachable = asteroid => !!asteroid &&
+      (res.fuel || 0) >= Math.max(3, asteroidDistance(asteroid) / 180 + 3);
+    const bestAsteroid = asteroids
+      .filter(asteroid => asteroid.totalItems > 0)
+      .sort((a, b) =>
+        Number(asteroidReachable(b)) - Number(asteroidReachable(a)) ||
+        asteroidRecoveryValue(b) - asteroidRecoveryValue(a) ||
+        asteroidDistance(a) - asteroidDistance(b)
+      )[0] || null;
+    const lockedRecoveryValue = lockedAsteroid ? asteroidRecoveryValue(lockedAsteroid) : 0;
+    const betterRecoveryTarget = fuelRecoveryActive &&
+      bestAsteroid &&
+      bestAsteroid !== lockedAsteroid &&
+      asteroidReachable(bestAsteroid) &&
+      (!asteroidReachable(lockedAsteroid) ||
+        asteroidRecoveryValue(bestAsteroid) > lockedRecoveryValue);
+    if (!lockedAsteroid ||
+        !asteroids.includes(lockedAsteroid) ||
+        lockedAsteroid.totalItems <= 0 ||
+        (fuelRecoveryActive && lockedRecoveryValue <= 0) ||
+        betterRecoveryTarget) {
+      lockedAsteroid = bestAsteroid;
       if (lockedAsteroid && !lockedAsteroid._balanceBotTargetId) {
         window.__balanceBotNextTargetId = (window.__balanceBotNextTargetId || 0) + 1;
         lockedAsteroid._balanceBotTargetId = window.__balanceBotNextTargetId;
@@ -608,7 +615,8 @@ async function readState() {
             getShipCollisionRadius()
         ),
         contents: { ...lockedAsteroid.contents },
-        totalItems: lockedAsteroid.totalItems
+        totalItems: lockedAsteroid.totalItems,
+        fuelRecoveryValue: asteroidRecoveryValue(lockedAsteroid)
       }
       : null;
     const asteroidMining = placedModules.some(module =>
@@ -641,7 +649,8 @@ async function readState() {
       h: module.h || 1,
       rot: module.rot || 0,
       hp: getModuleHealth(module),
-      assemblerTargets: module.assemblerTargets ? { ...module.assemblerTargets } : null
+      assemblerTargets: module.assemblerTargets ? { ...module.assemblerTargets } : null,
+      smelterTargets: module.smelterTargets ? { ...module.smelterTargets } : null
     }));
     const availableResearch = RESEARCH_TIERS.flatMap((tier, tierIndex) =>
       tier.items.map(item => ({
@@ -746,15 +755,23 @@ function getResourceGoals(resource, finalGoal, state, visited = new Set()) {
 }
 
 function getFuelThreshold(state) {
-  return Math.max(30, (state.res.fuelCap || 100) * 0.3);
+  return Math.max(45, (state.res.fuelCap || 100) * 0.75);
 }
 
 function getFuelRecoveryTarget(state) {
-  if ((state.res.fuel || 0) >= getFuelThreshold(state)) return null;
+  const fuelInfrastructureComplete =
+    moduleCount(state, "Electrolyser") > 0 &&
+    moduleCount(state, "Fuel Processor") > 0;
+  const waterReserveLow = (state.res.water || 0) < 20;
+  if ((state.res.fuel || 0) >= getFuelThreshold(state) &&
+      (!waterReserveLow || fuelInfrastructureComplete)) {
+    return null;
+  }
   const priorities = [
     ...((state.res.fuelCap || 0) > 0 ? [] : ["Tank MK1"]),
     "Smelter",
     "Electrolyser",
+    "Computer MK2",
     "Fuel Processor"
   ];
   for (const name of priorities) {
@@ -785,7 +802,7 @@ function addFuelRecoveryGoals(goals, state) {
       reason: `Restore fuel production before fuel drops further`
     });
   } else {
-    if ((state.res.water || 0) < 10) {
+    if ((state.res.water || 0) < 20) {
       goals.push({ action: "Gather Water", reason: "Run the Electrolyser for fuel production" });
     }
     if ((state.res.energyNet || 0) <= 0) {
@@ -1239,19 +1256,20 @@ async function steerTowardTarget(targetKind, maximumMs) {
         : `${kind}:${Math.round(target.x)}:${Math.round(target.y)}`;
       let waypoint = window.__balanceBotFlightWaypoint;
       if (waypoint?.key !== waypointKey ||
-          Math.hypot(waypoint.x - ship.x, waypoint.y - ship.y) <= CONFIG.GRID_SIZE * 3) {
+          Math.hypot(waypoint.x - ship.x, waypoint.y - ship.y) <= CONFIG.GRID_SIZE * 2) {
         waypoint = null;
         window.__balanceBotFlightWaypoint = null;
       }
 
+      const obstacles = kind === "blackhole" ? [] : [
+        ...worldStars.map(body => ({ x: body.x, y: body.y, radius: body.radius, type: "star" })),
+        ...planets.map(body => ({ x: body.x, y: body.y, radius: body.radius, type: "planet" })),
+        ...asteroids
+          .filter(body => body !== target && body.totalItems > 0)
+          .map(body => ({ x: body.x, y: body.y, radius: body.size, type: "asteroid" }))
+      ];
+
       if (!waypoint && kind !== "blackhole") {
-        const obstacles = [
-          ...worldStars.map(body => ({ x: body.x, y: body.y, radius: body.radius, type: "star" })),
-          ...planets.map(body => ({ x: body.x, y: body.y, radius: body.radius, type: "planet" })),
-          ...asteroids
-            .filter(body => body !== target && body.totalItems > 0)
-            .map(body => ({ x: body.x, y: body.y, radius: body.size, type: "asteroid" }))
-        ];
         let blocking = null;
         for (const obstacle of obstacles) {
           const pathLengthSq = finalDx * finalDx + finalDy * finalDy;
@@ -1271,11 +1289,17 @@ async function steerTowardTarget(targetKind, maximumMs) {
 
         if (blocking) {
           const pathLength = Math.max(1, Math.hypot(finalDx, finalDy));
+          const forwardX = finalDx / pathLength;
+          const forwardY = finalDy / pathLength;
           const perpendicularX = -finalDy / pathLength;
           const perpendicularY = finalDx / pathLength;
           const candidates = [-1, 1].map(side => ({
-            x: blocking.x + perpendicularX * blocking.clearance * side,
-            y: blocking.y + perpendicularY * blocking.clearance * side,
+            x: blocking.x +
+              perpendicularX * blocking.clearance * side +
+              forwardX * blocking.clearance * 0.75,
+            y: blocking.y +
+              perpendicularY * blocking.clearance * side +
+              forwardY * blocking.clearance * 0.75,
             side
           }));
           candidates.sort((a, b) =>
@@ -1306,6 +1330,25 @@ async function steerTowardTarget(targetKind, maximumMs) {
       const relativeSpeed = Math.hypot(relativeVx, relativeVy);
       const closingSpeed = relativeVx * directionX + relativeVy * directionY;
       const gap = Math.max(0, finalDistance - (target.radius || target.size || 0) - shipRadius);
+      const velocitySq = ship.vx * ship.vx + ship.vy * ship.vy;
+      const emergencyObstacle = velocitySq > 0.04
+        ? obstacles
+          .map(obstacle => {
+            const obstacleDx = obstacle.x - ship.x;
+            const obstacleDy = obstacle.y - ship.y;
+            const framesAhead = (obstacleDx * ship.vx + obstacleDy * ship.vy) / velocitySq;
+            if (framesAhead <= 0 || framesAhead > 240) return null;
+            const closestX = ship.x + ship.vx * framesAhead;
+            const closestY = ship.y + ship.vy * framesAhead;
+            const clearance = obstacle.radius + shipRadius + CONFIG.GRID_SIZE * 6;
+            const missDistance = Math.hypot(obstacle.x - closestX, obstacle.y - closestY);
+            return missDistance < clearance
+              ? { ...obstacle, framesAhead, missDistance, clearance }
+              : null;
+          })
+          .filter(Boolean)
+          .sort((a, b) => a.framesAhead - b.framesAhead)[0] || null
+        : null;
       let desiredVelocity;
       let speedTolerance = 0.15;
       let flightPhase = null;
@@ -1314,8 +1357,8 @@ async function steerTowardTarget(targetKind, maximumMs) {
         const grid = CONFIG.GRID_SIZE;
         const travelGap = waypoint ? distance : gap;
         const cruiseSpeed = kind === "asteroid"
-          ? (waypoint ? 2.0 : 1.5)
-          : 2.2;
+          ? (waypoint ? 4.0 : 3.0)
+          : 4.4;
         const massFactor = getMassAccelerationFactor(placedModules);
         const reverseThrust = placedModules.reduce((best, module) => {
           const stats = BUILDING_STATS[module.type];
@@ -1338,11 +1381,19 @@ async function steerTowardTarget(targetKind, maximumMs) {
           };
           window.__balanceBotFlightState = flightState;
         }
+        const desiredCourseAngle = Math.atan2(dy, dx);
+        const currentVelocityAngle = relativeSpeed > 0.05
+          ? Math.atan2(relativeVy, relativeVx)
+          : desiredCourseAngle;
+        const courseChange = Math.abs(normalizeAngle(desiredCourseAngle - currentVelocityAngle));
+        if (emergencyObstacle || (courseChange > 0.32 && relativeSpeed > 0.65)) {
+          flightState.phase = "stabilize";
+        }
         if (flightState.phase === "stabilize" &&
-            relativeSpeed <= cruiseSpeed + 0.05) {
+            relativeSpeed <= 0.28) {
           flightState.phase = travelGap <= brakingDistance + brakingMargin
             ? "brake"
-            : "coast";
+            : "accelerate";
         }
         if (flightState.phase === "accelerate" &&
             relativeSpeed >= cruiseSpeed - 0.12) {
@@ -1350,7 +1401,7 @@ async function steerTowardTarget(targetKind, maximumMs) {
         }
         if (flightState.phase === "coast" &&
             relativeSpeed < cruiseSpeed * 0.65 &&
-            travelGap > brakingDistance + brakingMargin * 1.5) {
+            travelGap > brakingDistance + brakingMargin) {
           flightState.phase = "accelerate";
         }
         if ((flightState.phase === "accelerate" || flightState.phase === "coast") &&
@@ -1361,8 +1412,8 @@ async function steerTowardTarget(targetKind, maximumMs) {
           flightState.phase = "final";
         }
         flightPhase = flightState.phase;
-        const finalFarSpeed = kind === "asteroid" ? 0.14 : 0.35;
-        const finalNearSpeed = kind === "asteroid" ? 0.06 : 0.16;
+        const finalFarSpeed = kind === "asteroid" ? 0.28 : 0.7;
+        const finalNearSpeed = kind === "asteroid" ? 0.12 : 0.32;
         const approachSpeed = flightPhase === "accelerate"
           ? cruiseSpeed
           : flightPhase === "coast"
@@ -1394,6 +1445,7 @@ async function steerTowardTarget(targetKind, maximumMs) {
       const correctionX = desiredVelocity ? desiredVelocity.x - ship.vx : target.x - ship.x;
       const correctionY = desiredVelocity ? desiredVelocity.y - ship.vy : target.y - ship.y;
       const correctionMagnitude = Math.hypot(correctionX, correctionY);
+      const correctionAlongPath = correctionX * directionX + correctionY * directionY;
       const correctionAngle = Math.atan2(correctionY, correctionX);
       const thrusterCandidates = [];
       for (const module of placedModules) {
@@ -1417,6 +1469,22 @@ async function steerTowardTarget(targetKind, maximumMs) {
         module._drillAsteroid === target &&
         target.totalItems > 0
       );
+      const drillAlignment = kind === "asteroid"
+        ? placedModules
+          .filter(module => module.type === "Drill" && getModuleHealth(module) > 0)
+          .map(module => {
+            const drillLocalFront =
+              (module.rot || 0) * Math.PI / 2 - Math.PI / 2 - SHIP_NOSE_OFFSET;
+            const desiredShipAngle = normalizeAngle(
+              Math.atan2(target.y - ship.y, target.x - ship.x) - drillLocalFront
+            );
+            return {
+              module,
+              angleError: normalizeAngle(desiredShipAngle - ship.angle)
+            };
+          })
+          .sort((a, b) => Math.abs(a.angleError) - Math.abs(b.angleError))[0]
+        : null;
       const needsMiningAlignment = miningActive || (
         kind === "asteroid" &&
         gap <= CONFIG.GRID_SIZE * 3 &&
@@ -1440,7 +1508,13 @@ async function steerTowardTarget(targetKind, maximumMs) {
           .sort((a, b) => b.thrust - a.thrust)[0];
         selectedThruster = {
           ...forwardThruster,
-          key: flightPhase === "brake" && closingSpeed > 0.05 && reverseThruster ? "s" : "w"
+          key: (
+            (flightPhase === "brake" && closingSpeed > 0.05) ||
+            (flightPhase === "final" && correctionAlongPath < -0.02)
+          ) && reverseThruster ? "s" : "w",
+          angleError: needsMiningAlignment && drillAlignment
+            ? drillAlignment.angleError
+            : forwardThruster.angleError
         };
       } else if (needsMiningAlignment && flightPhase !== "stabilize") {
         selectedThruster = thrusterCandidates
@@ -1461,6 +1535,7 @@ async function steerTowardTarget(targetKind, maximumMs) {
       return {
         angleError: selectedThruster.angleError,
         thrustKey: selectedThruster.key,
+        correctionMagnitude,
         shouldThrust: controlledApproach
           ? flightPhase === "accelerate" ||
             (flightPhase !== "coast" && correctionMagnitude > speedTolerance)
@@ -1475,10 +1550,19 @@ async function steerTowardTarget(targetKind, maximumMs) {
           obstacleType: waypoint.obstacleType,
           distance
         } : null,
+        emergencyObstacle: emergencyObstacle ? {
+          type: emergencyObstacle.type,
+          framesAhead: emergencyObstacle.framesAhead,
+          missDistance: emergencyObstacle.missDistance,
+          clearance: emergencyObstacle.clearance
+        } : null,
         miningActive,
-        alignOnly: miningActive,
+        alignOnly: miningActive && relativeSpeed <= 0.25,
+        drillAligned: !drillAlignment || Math.abs(drillAlignment.angleError) <= 0.035,
         close: kind === "asteroid"
-          ? miningActive && relativeSpeed <= 0.25
+          ? miningActive &&
+            relativeSpeed <= 0.25 &&
+            (!drillAlignment || Math.abs(drillAlignment.angleError) <= 0.035)
           : gap <= CONFIG.GRID_SIZE * (kind === "blackhole" ? 2 : 4),
         ended: appState === "blackHoleEnd"
       };
@@ -1497,11 +1581,13 @@ async function steerTowardTarget(targetKind, maximumMs) {
       });
       return true;
     }
-    const rotationTolerance = targetKind === "asteroid" ? 0.045 : 0.1;
+    const rotationTolerance = targetKind === "asteroid"
+      ? command.flightPhase === "final" || command.miningActive ? 0.04 : 0.08
+      : 0.1;
     if (Math.abs(command.angleError) > rotationTolerance) {
       const key = command.angleError < 0 ? "a" : "d";
       const turnMs = targetKind === "asteroid"
-        ? Math.min(120, 35 + Math.abs(command.angleError) * 45)
+        ? Math.min(80, 18 + Math.abs(command.angleError) * 32)
         : Math.min(260, 70 + Math.abs(command.angleError) * 90);
       await pressBotFlightKey(key, turnMs);
     } else if (!command.alignOnly && command.shouldThrust) {
@@ -1509,7 +1595,7 @@ async function steerTowardTarget(targetKind, maximumMs) {
       const thrustMs = controlledApproach
         ? command.flightPhase === "accelerate" ? 320 :
           command.flightPhase === "brake" || command.flightPhase === "stabilize" ? 360 :
-          90
+          220
         : command.gap > 40 * 30 ? 650 : 300;
       await pressBotFlightKey(command.thrustKey || "w", thrustMs);
     }
@@ -1525,37 +1611,75 @@ async function steerTowardTarget(targetKind, maximumMs) {
     maximumMs,
     gap: lastCommand?.gap ?? null,
     relativeSpeed: lastCommand?.relativeSpeed ?? null,
-    closingSpeed: lastCommand?.closingSpeed ?? null
+    closingSpeed: lastCommand?.closingSpeed ?? null,
+    waypoint: lastCommand?.waypoint ?? null,
+    emergencyObstacle: lastCommand?.emergencyObstacle ?? null,
+    flightPhase: lastCommand?.flightPhase ?? null,
+    angleError: lastCommand?.angleError ?? null,
+    shouldThrust: lastCommand?.shouldThrust ?? null,
+    thrustKey: lastCommand?.thrustKey ?? null,
+    correctionMagnitude: lastCommand?.correctionMagnitude ?? null
   });
   return true;
 }
 
 async function approachAsteroid(state) {
   if (!state.nearestAsteroid || state.res.fuel <= 2) return false;
+  const estimatedFuel = Math.max(3, state.nearestAsteroid.distance / 180 + 3);
+  const fuelRecoveryActive = !!getFuelRecoveryTarget(state);
+  if (state.res.fuel < estimatedFuel) {
+    lastDecision = `Waiting for a reachable fuel recovery target`;
+    logEvent("flight-not-started", {
+      targetKind: "asteroid",
+      reason: "estimated-fuel-insufficient",
+      fuel: state.res.fuel,
+      estimatedFuel: Number(estimatedFuel.toFixed(1)),
+      distance: state.nearestAsteroid.distance,
+      fuelRecoveryActive,
+      targetRecoveryValue: state.nearestAsteroid.fuelRecoveryValue || 0,
+      contents: state.nearestAsteroid.contents
+    });
+    return false;
+  }
   lastDecision = "Approaching a resource asteroid";
   logEvent("decision", {
     decision: "approach-asteroid",
     distance: state.nearestAsteroid.distance,
-    contents: state.nearestAsteroid.contents
+    contents: state.nearestAsteroid.contents,
+    estimatedFuel: Number(estimatedFuel.toFixed(1)),
+    fuelRecoveryActive
   });
-  await steerTowardTarget("asteroid", Math.max(45000, 75000 - config.skill * 200));
+  const reached = await steerTowardTarget("asteroid", Math.max(45000, 75000 - config.skill * 200));
   countAction("approach-asteroid");
-  return true;
+  return reached;
 }
 
 async function approachResourceBelt(state) {
-  if (!state.nearestBelt || state.res.fuel <= 12) return false;
+  if (!state.nearestBelt) return false;
+  const estimatedFuel = Math.max(5, state.nearestBelt.distance / 160 + 5);
+  if (state.res.fuel < estimatedFuel) {
+    lastDecision = "Waiting for enough fuel to reach the asteroid belt";
+    logEvent("flight-not-started", {
+      targetKind: "belt",
+      reason: "estimated-fuel-insufficient",
+      fuel: state.res.fuel,
+      estimatedFuel: Number(estimatedFuel.toFixed(1)),
+      distance: state.nearestBelt.distance
+    });
+    return false;
+  }
   lastDecision = "Flying to the nearest asteroid belt";
   logEvent("decision", {
     decision: "approach-resource-belt",
     distance: state.nearestBelt.distance,
     beltKind: state.nearestBelt.kind,
     ship: { x: state.ship.x, y: state.ship.y },
-    target: { x: state.nearestBelt.x, y: state.nearestBelt.y }
+    target: { x: state.nearestBelt.x, y: state.nearestBelt.y },
+    estimatedFuel: Number(estimatedFuel.toFixed(1))
   });
-  await steerTowardTarget("belt", Math.max(7000, 16000 - config.skill * 55));
+  const reached = await steerTowardTarget("belt", Math.max(7000, 16000 - config.skill * 55));
   countAction("approach-resource-belt");
-  return true;
+  return reached;
 }
 
 async function approachBlackHole() {
@@ -1617,6 +1741,51 @@ async function setAssemblerTargets(state) {
   return true;
 }
 
+async function setSmelterTargets(state) {
+  const smelter = state.modules.find(module => module.type === "Smelter");
+  if (!smelter) return false;
+  const desired = {
+    ironPlate: 60,
+    copperPlate: 60,
+    silicon: 40
+  };
+  const target = Object.entries(desired).find(([key, value]) =>
+    (smelter.smelterTargets?.[key] || 0) !== value
+  );
+  if (!target) return false;
+
+  const [key, value] = target;
+  const modulePoint = await page.evaluate(id => {
+    const module = placedModules.find(candidate => candidate.id === id);
+    if (!module) return null;
+    const world = moduleWorldCenter(module);
+    return worldToScreen(world.x, world.y);
+  }, smelter.id);
+  if (!modulePoint) return false;
+  await clickPoint(modulePoint);
+  const rowPoint = await page.evaluate(targetKey => {
+    const layout = getSmelterWindowLayout();
+    const index = getSmelterRecipeKeys().indexOf(targetKey);
+    return index < 0 ? null : {
+      x: layout.x + layout.width / 2,
+      y: layout.y + 56 + index * 42 + layout.rowH / 2
+    };
+  }, key);
+  if (!rowPoint) {
+    await page.keyboard.press("Escape");
+    return false;
+  }
+  await clickPoint(rowPoint);
+  await page.keyboard.press("Control+A");
+  await page.keyboard.type(String(value));
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Escape");
+  lastDecision = `Setting ${key} smelting target to ${value}`;
+  logEvent("decision", { decision: "smelter-target", resource: key, target: value });
+  countAction("smelter-target");
+  return true;
+}
+
 async function handleFuelRecovery(state) {
   const target = getFuelRecoveryTarget(state);
   if (!target) return { active: false, acted: false, wait: false };
@@ -1641,14 +1810,16 @@ async function handleFuelRecovery(state) {
     return { active: true, acted: false, wait: false };
   }
 
-  lastDecision = `Producing fuel until the reserve reaches ${Math.ceil(getFuelThreshold(state))}`;
-  return { active: true, acted: false, wait: true };
+  lastDecision = (state.res.water || 0) < 20
+    ? "Gathering water for fuel production"
+    : `Producing fuel until the reserve reaches ${Math.ceil(getFuelThreshold(state))}`;
+  return { active: true, acted: false, wait: false };
 }
 
 function chooseResearch(state) {
   const priorities = [
-    "Drill", "Smelter", "Tank MK1", "Electrolyser", "Assembler", "Fuel Processor",
-    "Main Thruster", "Battery MK1", "Computer MK2", "Reactor", "Turbine",
+    "Drill", "Smelter", "Electrolyser", "Computer MK2", "Fuel Processor",
+    "Tank MK1", "Assembler", "Main Thruster", "Battery MK1", "Reactor", "Turbine",
     "Hangar MK1", "Computer MK3", "Warehouse MK2", "Tank MK2", "Gun Turret",
     "Shield Generator", "Condenser Turbine", "Scooper", "Solar Wind Collector",
     "Battery MK2", "Cannon Turret", "Railgun Turret", "Missile Turret",
@@ -1675,8 +1846,8 @@ function chooseBuilding(state) {
   if (counts("Smelter") === 0 && affordable("Smelter")) return "Smelter";
   if (counts("Drill") === 0 && affordable("Drill")) return "Drill";
   if (counts("Assembler") === 0 && affordable("Assembler")) return "Assembler";
-  if (counts("Electrolyser") === 0 && state.res.fuel < 60 && affordable("Electrolyser")) return "Electrolyser";
-  if (counts("Fuel Processor") === 0 && state.res.fuel < 60 && affordable("Fuel Processor")) return "Fuel Processor";
+  if (counts("Electrolyser") === 0 && affordable("Electrolyser")) return "Electrolyser";
+  if (counts("Fuel Processor") === 0 && affordable("Fuel Processor")) return "Fuel Processor";
   if (counts("Main Thruster") === 0 && affordable("Main Thruster")) return "Main Thruster";
   if (counts("Reactor") === 0 && (state.res.uranium || 0) >= 10 && affordable("Reactor")) return "Reactor";
   if (counts("Reactor") > 0 && counts("Turbine") === 0 && affordable("Turbine")) return "Turbine";
@@ -1736,6 +1907,8 @@ async function decide(state) {
     return false;
   }
 
+  if (await setSmelterTargets(state)) return true;
+
   const fuelRecovery = await handleFuelRecovery(state);
   if (fuelRecovery.acted || fuelRecovery.wait) return fuelRecovery.acted;
 
@@ -1790,7 +1963,7 @@ async function decide(state) {
   }
 
   const hasOperationalDrill = moduleCount(state, "Drill") > 0;
-  const minimumFlightFuel = fuelRecovery.active ? 8 : getFuelThreshold(state);
+  const minimumFlightFuel = fuelRecovery.active ? 2 : getFuelThreshold(state);
   if (hasOperationalDrill &&
       state.nearestAsteroid &&
       !state.asteroidMining &&
@@ -1925,7 +2098,6 @@ async function cleanup() {
 
 async function main() {
   await selectWorld();
-  await selectMode();
   writeJson(metricsPath, metrics);
   logEvent("run-started", {
     runId,

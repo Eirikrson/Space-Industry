@@ -461,18 +461,21 @@ function updateResources(dt) {
     }
 
     if (m.type === "Smelter" && canUsePower(m)) {
-      const recipes = [
-        { input: "ironOre", output: "ironPlate" },
-        { input: "copperOre", output: "copperPlate" },
-        { input: "siliconOre", output: "silicon" }
-      ];
-      const recipe = recipes.find(entry => (res[entry.input] || 0) >= stats.oreUse * dt);
-
+      const product = getSmelterProduct(m);
+      const recipe = getSmelterRecipes()[product];
       if (recipe) {
-        res[recipe.input] -= stats.oreUse * dt;
-        storeResource(recipe.output, stats.materialProd * dt);
-        eUse += stats.energyUse;
-        m._machineActive = "smelter";
+        const [inputKey, inputPerSecond] = Object.entries(recipe.inputs)[0];
+        const [outputKey, outputPerSecond] = Object.entries(recipe.outputs)[0];
+        const target = ensureSmelterTargets(m)[outputKey] || 0;
+        const outputAmount = Math.min(outputPerSecond * dt, Math.max(0, target - (res[outputKey] || 0)));
+        const inputAmount = outputAmount * inputPerSecond / Math.max(0.001, outputPerSecond);
+
+        if (outputAmount > 0 && (res[inputKey] || 0) >= inputAmount) {
+          res[inputKey] -= inputAmount;
+          storeResource(outputKey, outputAmount);
+          eUse += stats.energyUse;
+          m._machineActive = "smelter";
+        }
       }
     }
 
@@ -1088,6 +1091,7 @@ function updateGameSounds() {
     || mapVisible
     || researchWindowOpen
     || !!assemblerWindowModule
+    || !!smelterWindowModule
     || turretControlWindowOpen
     || !!activeSmallShipEdit
     || dysonPanelOpen
