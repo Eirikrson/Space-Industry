@@ -30,3 +30,28 @@ The complete `report/` directory is ignored by Git.
 - `creativeStrategies`: number of Creative strategies; values below 100 are raised to 100
 - `creativeMaxHours`: maximum simulated game time for each strategy
 - `viewport`: Survival browser size
+
+## Creative Simulation Scope
+
+The default 120 strategies are 20 deterministic variations of each of six
+play styles: energy, mining, research, balanced, maximum expansion, and
+minimum expansion. They are simulations, not 120 browser windows.
+
+Creative mode simulates production recipes, asteroid mining trips, research,
+first-build timings, building costs, power, fuel, crew supplies, storage
+pressure, defensive ammunition, repairs, mining drones, planet resource
+income, and the black-hole requirements. It researches the complete
+technology tree and builds at least one building of every unlocked type.
+Gun, cannon, railgun, missile, and laser turrets are all built and operated.
+Their individual ammunition or energy use and the resulting ship repairs are
+included in the simulated resource demand.
+
+The simulation keeps a strategic fuel reserve, produces fuel incrementally
+when water is scarce, and expands storage before the next mining load would
+overflow it. In the playable game, new Electrolysers and Fuel Processors start
+with safe minimum targets, fuel production protects a critical water reserve,
+and hangar drones cannot empty the mother ship's emergency fuel.
+
+Detailed drone flight paths, combat positioning, manual ship layout, and
+navigation mistakes are not simulated. Their resource and time costs are
+represented in the event simulation.

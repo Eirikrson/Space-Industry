@@ -56,6 +56,76 @@ function getResourceStorageFree(key) {
   return 0;
 }
 
+function getAutoDisposeLimits() {
+  if (!res.autoDisposeLimits || typeof res.autoDisposeLimits !== "object") {
+    res.autoDisposeLimits = {};
+  }
+  return res.autoDisposeLimits;
+}
+
+function getAutoDisposeLimit(key) {
+  const value = getAutoDisposeLimits()[key];
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : null;
+}
+
+function applyAutoDisposeLimits() {
+  const limits = getAutoDisposeLimits();
+  for (const [key, limit] of Object.entries(limits)) {
+    if (!SOLID_RESOURCES.has(key) || !Number.isFinite(limit)) continue;
+    res[key] = Math.min(res[key] || 0, Math.max(0, Math.floor(limit)));
+  }
+}
+
+function openResourceDisposalWindow(key) {
+  if (!SOLID_RESOURCES.has(key) || (res[key] || 0) <= 0) return false;
+  disposalWindowResource = key;
+  const current = Math.max(0, Math.floor(res[key] || 0));
+  disposalKeepAmount = Math.min(current, getAutoDisposeLimit(key) ?? current);
+  disposalSliderDragging = false;
+  return true;
+}
+
+function closeResourceDisposalWindow() {
+  disposalWindowResource = null;
+  disposalKeepAmount = 0;
+  disposalSliderDragging = false;
+}
+
+function setResourceDisposalKeepFromMouse(mx) {
+  if (!disposalWindowResource) return;
+  const layout = getResourceDisposalWindowLayout();
+  const current = Math.max(0, Math.floor(res[disposalWindowResource] || 0));
+  const ratio = Math.max(0, Math.min(1, (mx - layout.slider.x) / layout.slider.w));
+  disposalKeepAmount = Math.round(current * ratio);
+}
+
+function dumpSelectedResource() {
+  if (!disposalWindowResource) return;
+  const current = Math.max(0, res[disposalWindowResource] || 0);
+  const keep = Math.max(0, Math.min(current, Math.floor(disposalKeepAmount)));
+  const dumped = Math.max(0, current - keep);
+  res[disposalWindowResource] = keep;
+  flash(`Dumped ${Math.floor(dumped)} ${formatResourceName(disposalWindowResource)}`);
+  closeResourceDisposalWindow();
+}
+
+function toggleSelectedResourceAutoDispose() {
+  if (!disposalWindowResource) return;
+  const limits = getAutoDisposeLimits();
+  const existing = getAutoDisposeLimit(disposalWindowResource);
+  const current = Math.max(0, Math.floor(res[disposalWindowResource] || 0));
+  const keep = Math.max(0, Math.floor(disposalKeepAmount));
+  if (existing !== null && keep === Math.min(current, existing)) {
+    delete limits[disposalWindowResource];
+    flash(`Auto Dispose disabled for ${formatResourceName(disposalWindowResource)}`);
+  } else {
+    limits[disposalWindowResource] = keep;
+    res[disposalWindowResource] = Math.min(res[disposalWindowResource] || 0, keep);
+    flash(`Auto Dispose keeps at most ${keep} ${formatResourceName(disposalWindowResource)}`);
+  }
+  closeResourceDisposalWindow();
+}
+
 function isBuildingUnlocked(type) {
   return adminInstantBuild || type === "Computer" || unlockedResearch.has(type);
 }
@@ -234,15 +304,19 @@ function ensureSmelterTargets(module) {
 
 function ensureElectrolyserTargets(module) {
   module.electrolyserTargets = {
-    hydrogen: 0,
-    oxygen: 0,
+    hydrogen: 40,
+    oxygen: 20,
     ...(module.electrolyserTargets || {})
   };
   return module.electrolyserTargets;
 }
 
 function ensureFuelProcessorTarget(module) {
-  module.fuelProcessorTarget = Math.max(0, Number(module.fuelProcessorTarget) || 0);
+  if (module.fuelProcessorTarget === undefined || module.fuelProcessorTarget === null) {
+    module.fuelProcessorTarget = Math.max(75, Math.floor((res.fuelCap || 100) * 0.75));
+  } else {
+    module.fuelProcessorTarget = Math.max(0, Number(module.fuelProcessorTarget) || 0);
+  }
   return module.fuelProcessorTarget;
 }
 

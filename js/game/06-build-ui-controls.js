@@ -434,6 +434,34 @@ function isMouseOverInventory() {
   );
 }
 
+function isPointInRect(mx, my, rect) {
+  return mx >= rect.x && mx <= rect.x + rect.w &&
+    my >= rect.y && my <= rect.y + rect.h;
+}
+
+function handleResourceDisposalMouseDown(mx, my) {
+  if (!disposalWindowResource) return false;
+  const layout = getResourceDisposalWindowLayout();
+  if (isPointInRect(mx, my, layout.slider)) {
+    disposalSliderDragging = true;
+    setResourceDisposalKeepFromMouse(mx);
+    return true;
+  }
+  if (isPointInRect(mx, my, layout.cancel)) {
+    closeResourceDisposalWindow();
+    return true;
+  }
+  if (isPointInRect(mx, my, layout.auto)) {
+    toggleSelectedResourceAutoDispose();
+    return true;
+  }
+  if (isPointInRect(mx, my, layout.dump)) {
+    dumpSelectedResource();
+    return true;
+  }
+  return true;
+}
+
 function removeBlueprintAt(grid) {
   const index = blueprints.findIndex(bp =>
     grid.x >= bp.x &&
@@ -1079,6 +1107,10 @@ window.addEventListener("mousedown", e => {
   if (e.button === 0) {
     mouseDown = true;
 
+    if (handleResourceDisposalMouseDown(mouse.x, mouse.y)) {
+      return;
+    }
+
     if (!buildMode && handleStatusBadgeClick(mouse.x, mouse.y)) {
       return;
     }
@@ -1095,6 +1127,12 @@ window.addEventListener("mousedown", e => {
       return;
     }
     if (mapVisible && !buildMode) return;
+
+    const cargoResource = getMotherShipCargoResourceAt(mouse.x, mouse.y);
+    if (cargoResource && openResourceDisposalWindow(cargoResource)) {
+      playSound("toggle", 120);
+      return;
+    }
 
     const salvageDeleteGroup = getSalvageDeleteGroupAt(mouse.x, mouse.y);
     if (salvageDeleteGroup && deleteSalvageGroup(salvageDeleteGroup)) {
@@ -1296,6 +1334,7 @@ window.addEventListener("mousedown", e => {
 window.addEventListener("mouseup", e => {
   if (e.button === 0) {
     volumeSliderDragging = false;
+    disposalSliderDragging = false;
     mouseDown = false;
     dragging = false;
     lastBlueprintKey = "";
@@ -1319,6 +1358,11 @@ function updateMouseFromEvent(e) {
 
   if (volumeSliderDragging) {
     updateGlobalVolumeSlider(mouse.x);
+    return;
+  }
+
+  if (disposalSliderDragging) {
+    setResourceDisposalKeepFromMouse(mouse.x);
     return;
   }
 

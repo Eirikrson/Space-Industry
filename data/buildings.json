@@ -432,7 +432,7 @@
       "energyProdBase": 3
     },
     "Battery MK1": {
-      "energyCap": 200
+      "energyCap": 300
     },
     "Battery MK2": {
       "energyCap": 5000
@@ -455,8 +455,8 @@
       "collectMax": 20
     },
     "Drill": {
-      "energyUse": 3,
-      "drillTime": 3.5,
+      "energyUse": 4,
+      "drillTime": 4,
       "rangeTiles": 1
     },
     "Scooper": {
@@ -543,10 +543,10 @@
       "energyUse": 4
     },
     "Warehouse MK1": {
-      "itemCap": 100
+      "itemCap": 150
     },
     "Warehouse MK2": {
-      "itemCap": 600
+      "itemCap": 800
     },
     "Shield Generator": {
       "energyUse": 2,
@@ -565,7 +565,7 @@
     },
     "Life Support": {
       "energyUse": 2,
-      "waterUse": 2
+      "waterUse": 0.02
     },
     "Farm Module": {
       "waterUse": 1,
@@ -706,12 +706,12 @@
       "nickel": 2
     },
     "Battery MK2": {
-      "copperPlate": 120,
-      "ironPlate": 80,
-      "circuits": 35,
-      "cables": 30,
-      "nickel": 20,
-      "silicon": 18
+      "copperPlate": 52,
+      "ironPlate": 42,
+      "circuits": 16,
+      "cables": 14,
+      "nickel": 9,
+      "silicon": 6
     },
     "Reactor": {
       "ironPlate": 60,
@@ -765,30 +765,30 @@
       "silicon": 6
     },
     "Event Horizon Shield": {
-      "ironPlate": 180,
-      "copperPlate": 120,
-      "circuits": 90,
-      "cables": 80,
-      "nickel": 55,
-      "silicon": 45,
-      "uranium": 10
+      "ironPlate": 95,
+      "copperPlate": 65,
+      "circuits": 48,
+      "cables": 42,
+      "nickel": 30,
+      "silicon": 24,
+      "uranium": 6
     },
     "Gravitational Pull Stabilizer": {
-      "ironPlate": 500,
-      "copperPlate": 360,
-      "circuits": 220,
-      "cables": 160,
-      "nickel": 140,
-      "silicon": 120,
-      "uranium": 40
+      "ironPlate": 125,
+      "copperPlate": 90,
+      "circuits": 54,
+      "cables": 42,
+      "nickel": 35,
+      "silicon": 30,
+      "uranium": 10
     },
     "Quantum Computer": {
-      "ironPlate": 220,
-      "copperPlate": 180,
-      "circuits": 180,
-      "cables": 120,
-      "silicon": 160,
-      "nickel": 50
+      "ironPlate": 75,
+      "copperPlate": 62,
+      "circuits": 58,
+      "cables": 42,
+      "silicon": 52,
+      "nickel": 18
     },
     "Condenser Turbine": {
       "ironPlate": 30,
@@ -830,13 +830,13 @@
       "cables": 10
     },
     "Fusion Reactor": {
-      "ironPlate": 180,
-      "copperPlate": 120,
-      "circuits": 80,
-      "cables": 40,
-      "uranium": 20,
-      "nickel": 50,
-      "silicon": 40
+      "ironPlate": 64,
+      "copperPlate": 42,
+      "circuits": 29,
+      "cables": 15,
+      "uranium": 8,
+      "nickel": 17,
+      "silicon": 14
     },
     "Gun Turret": {
       "ironPlate": 30,
@@ -859,18 +859,18 @@
       "silicon": 10
     },
     "Missile Turret": {
-      "ironPlate": 80,
-      "circuits": 30,
-      "cables": 20,
-      "fuel": 20,
-      "gears": 15
+      "ironPlate": 72,
+      "circuits": 27,
+      "cables": 18,
+      "fuel": 18,
+      "gears": 14
     },
     "Laser Turret": {
-      "ironPlate": 90,
-      "circuits": 40,
-      "cables": 35,
-      "silicon": 30,
-      "nickel": 20
+      "ironPlate": 63,
+      "circuits": 29,
+      "cables": 25,
+      "silicon": 21,
+      "nickel": 14
     }
   },
   "RESEARCH_TIERS": [
@@ -948,17 +948,17 @@
         {
           "name": "Battery MK2",
           "cost": {
-            "copperPlate": 120,
-            "ironPlate": 80,
-            "circuits": 35,
-            "nickel": 20
+            "copperPlate": 60,
+            "ironPlate": 45,
+            "circuits": 18,
+            "nickel": 10
           }
         },
         {
           "name": "Reactor",
           "cost": {
-            "ironPlate": 100,
-            "copperPlate": 50,
+            "ironPlate": 90,
+            "copperPlate": 45,
             "uranium": 10
           }
         },
@@ -982,10 +982,10 @@
         {
           "name": "Computer MK3",
           "cost": {
-            "ironPlate": 80,
-            "copperPlate": 45,
-            "circuits": 25,
-            "silicon": 10
+            "ironPlate": 50,
+            "copperPlate": 30,
+            "circuits": 15,
+            "silicon": 6
           }
         }
       ]
@@ -1092,20 +1092,20 @@
         {
           "name": "Laser Turret",
           "cost": {
-            "circuits": 45,
-            "cables": 35,
-            "silicon": 30,
-            "nickel": 20
+            "circuits": 40,
+            "cables": 30,
+            "silicon": 26,
+            "nickel": 18
           }
         },
         {
           "name": "Computer MK4",
           "cost": {
-            "ironPlate": 120,
-            "copperPlate": 80,
-            "circuits": 55,
-            "silicon": 25,
-            "nickel": 20
+            "ironPlate": 80,
+            "copperPlate": 55,
+            "circuits": 38,
+            "silicon": 18,
+            "nickel": 14
           }
         }
       ]
@@ -1126,45 +1126,45 @@
         {
           "name": "Fusion Reactor",
           "cost": {
-            "ironPlate": 180,
-            "copperPlate": 120,
-            "circuits": 80,
-            "cables": 40,
-            "uranium": 20,
-            "nickel": 30,
-            "silicon": 25
+            "ironPlate": 64,
+            "copperPlate": 42,
+            "circuits": 29,
+            "cables": 15,
+            "uranium": 8,
+            "nickel": 13,
+            "silicon": 10
           }
         },
         {
           "name": "Event Horizon Shield",
           "cost": {
-            "ironPlate": 180,
-            "circuits": 90,
-            "cables": 80,
-            "nickel": 55,
-            "silicon": 45,
-            "uranium": 10
+            "ironPlate": 95,
+            "circuits": 48,
+            "cables": 42,
+            "nickel": 30,
+            "silicon": 24,
+            "uranium": 6
           }
         },
         {
           "name": "Gravitational Pull Stabilizer",
           "cost": {
-            "ironPlate": 500,
-            "copperPlate": 360,
-            "circuits": 220,
-            "nickel": 140,
-            "silicon": 120,
-            "uranium": 40
+            "ironPlate": 162,
+            "copperPlate": 116,
+            "circuits": 69,
+            "nickel": 46,
+            "silicon": 38,
+            "uranium": 13
           }
         },
         {
           "name": "Quantum Computer",
           "cost": {
-            "ironPlate": 220,
-            "copperPlate": 180,
-            "circuits": 180,
-            "silicon": 160,
-            "nickel": 50
+            "ironPlate": 108,
+            "copperPlate": 90,
+            "circuits": 85,
+            "silicon": 75,
+            "nickel": 26
           }
         }
       ]
@@ -1173,7 +1173,7 @@
   "BUILDING_DESCRIPTIONS": {
     "Solar Panel": [
       "",
-      "OUTPUT Energy        +1/sec"
+      "OUTPUT Energy        +3/sec"
     ],
     "Turbine": [
       "INPUT Steam         -100/sec",
@@ -1259,7 +1259,7 @@
       "OUTPUT Uranium      rare"
     ],
     "Drill": [
-      "INPUT Energy        -3/sec",
+      "INPUT Energy        -4/sec",
       "",
       "OUTPUT Asteroid contents",
       "Mines directly in front."
@@ -1309,10 +1309,10 @@
       "- Unlocks Tier 4 research"
     ],
     "Warehouse MK1": [
-      "Storage Capacity: 100 items"
+      "Storage Capacity: 150 items"
     ],
     "Warehouse MK2": [
-      "Storage Capacity: 600 items"
+      "Storage Capacity: 800 items"
     ],
     "Shield Generator": [
       "PASSIVE:",
@@ -1374,7 +1374,7 @@
     "Battery MK1": [
       "Stores electrical energy.",
       "",
-      "Capacity Energy 200"
+      "Capacity Energy 300"
     ],
     "Battery MK2": [
       "Stores large amounts of electrical energy.",

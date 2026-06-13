@@ -387,6 +387,9 @@ function resetGameRuntime() {
   electrolyserWindowModule = null;
   fuelProcessorWindowModule = null;
   farmWindowModule = null;
+  disposalWindowResource = null;
+  disposalKeepAmount = 0;
+  disposalSliderDragging = false;
   turretControlWindowOpen = false;
   hoveredResearchItem = null;
   activeSmallShipEdit = null;
@@ -2461,6 +2464,7 @@ function loop(now) {
 
   if (!appWindowActive && appState === "playing" && !uiDialog) {
     stopAllLoopSounds();
+    updateBackgroundSound(audioUnlocked);
     if (!inactiveOverlayDrawn) {
       drawInactiveWindowOverlay();
       drawGlobalVolumeControl();
@@ -2625,7 +2629,7 @@ function loop(now) {
     autosaveIfNeeded();
     updateGameSounds();
   } else {
-    updateBackgroundSound(false);
+    updateBackgroundSound(audioUnlocked);
     updateLayeredSound("thruster", false, 7000);
     updateLoopSound("building", false);
     updateLoopSound("assembler", false);
@@ -2653,6 +2657,7 @@ function loop(now) {
   drawTooltip();
   drawPlanetResourceTooltip();
   drawTutorialOverlay();
+  drawResourceDisposalWindow();
 
   if (appState === "paused") {
     drawPauseMenu();

@@ -2062,6 +2062,134 @@ function drawInventoryAmountRow(label, value, net, x, y, w) {
   ctx.fillText(`${Math.floor(value)}`, x + w - 58, y);
   drawInventoryNet(net, x + w - 8, y);
 }
+
+function getMotherShipCargoLayout(panelX = 10, panelY = 10) {
+  const panelW = 280;
+  const boxX = panelX + 8;
+  const boxW = panelW - 16;
+  const fluidRows = 8;
+  const cargoY = panelY + 34 + 58 + 40 + fluidRows * 18;
+  return {
+    boxX,
+    boxW,
+    cargoY,
+    rowY: cargoY + 34,
+    rowH: 16,
+    keys: Array.from(SOLID_RESOURCES)
+  };
+}
+
+function getMotherShipCargoResourceAt(mx, my) {
+  if (buildMode || disposalWindowResource) return null;
+  const layout = getMotherShipCargoLayout();
+  for (let index = 0; index < layout.keys.length; index++) {
+    const key = layout.keys[index];
+    const rowY = layout.rowY + index * layout.rowH;
+    if (
+      (res[key] || 0) > 0 &&
+      mx >= layout.boxX &&
+      mx <= layout.boxX + layout.boxW &&
+      my >= rowY - layout.rowH / 2 &&
+      my <= rowY + layout.rowH / 2
+    ) {
+      return key;
+    }
+  }
+  return null;
+}
+
+function getResourceDisposalWindowLayout() {
+  const w = Math.min(560, VIEW.w - 32);
+  const h = 250;
+  const x = VIEW.w / 2 - w / 2;
+  const y = VIEW.h / 2 - h / 2;
+  return {
+    x,
+    y,
+    w,
+    h,
+    slider: { x: x + 52, y: y + 112, w: w - 104, h: 22 },
+    cancel: { x: x + 24, y: y + h - 58, w: 130, h: 34 },
+    auto: { x: x + w / 2 - 82, y: y + h - 58, w: 164, h: 34 },
+    dump: { x: x + w - 154, y: y + h - 58, w: 130, h: 34 }
+  };
+}
+
+function drawResourceDisposalWindow() {
+  if (!disposalWindowResource) return;
+  const layout = getResourceDisposalWindowLayout();
+  const current = Math.max(0, Math.floor(res[disposalWindowResource] || 0));
+  disposalKeepAmount = Math.max(0, Math.min(current, Math.floor(disposalKeepAmount)));
+  const dumped = Math.max(0, current - disposalKeepAmount);
+  const ratio = current > 0 ? disposalKeepAmount / current : 0;
+  const existingLimit = getAutoDisposeLimit(disposalWindowResource);
+
+  ctx.fillStyle = "rgba(0, 2, 12, 0.68)";
+  ctx.fillRect(0, 0, VIEW.w, VIEW.h);
+  ctx.fillStyle = "rgba(4, 10, 30, 0.97)";
+  ctx.fillRect(layout.x, layout.y, layout.w, layout.h);
+  ctx.strokeStyle = "rgba(90, 165, 255, 0.95)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(layout.x, layout.y, layout.w, layout.h);
+
+  drawResourceIcon(disposalWindowResource, layout.x + 28, layout.y + 30, 22);
+  ctx.fillStyle = "#88aaff";
+  ctx.font = "bold 15px Consolas, monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(`DISPOSE ${formatResourceName(disposalWindowResource).toUpperCase()}`, layout.x + 62, layout.y + 30);
+
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.font = "11px Consolas, monospace";
+  ctx.fillText("Choose how much should remain in storage.", layout.x + 24, layout.y + 62);
+
+  ctx.fillStyle = "white";
+  ctx.font = "bold 12px Consolas, monospace";
+  ctx.textAlign = "left";
+  ctx.fillText(`Stored: ${current}`, layout.slider.x, layout.y + 88);
+  ctx.textAlign = "center";
+  ctx.fillText(`Keep: ${disposalKeepAmount}`, layout.x + layout.w / 2, layout.y + 88);
+  ctx.textAlign = "right";
+  ctx.fillStyle = dumped > 0 ? "#ff8877" : "rgba(255,255,255,0.65)";
+  ctx.fillText(`Dispose: ${dumped}`, layout.slider.x + layout.slider.w, layout.y + 88);
+
+  const trackY = layout.slider.y + layout.slider.h / 2;
+  ctx.fillStyle = "rgba(255,255,255,0.16)";
+  ctx.fillRect(layout.slider.x, trackY - 4, layout.slider.w, 8);
+  ctx.fillStyle = "rgba(55,155,255,0.85)";
+  ctx.fillRect(layout.slider.x, trackY - 4, layout.slider.w * ratio, 8);
+  const knobX = layout.slider.x + layout.slider.w * ratio;
+  ctx.fillStyle = "#bfe6ff";
+  ctx.fillRect(knobX - 6, trackY - 11, 12, 22);
+  ctx.strokeStyle = "#ffffff";
+  ctx.strokeRect(knobX - 6, trackY - 11, 12, 22);
+
+  drawBtn("Cancel", layout.cancel.x, layout.cancel.y, layout.cancel.w, layout.cancel.h, false);
+  const disableAuto =
+    existingLimit !== null &&
+    disposalKeepAmount === Math.min(current, existingLimit);
+  drawBtn(
+    disableAuto ? "Disable Auto" : "Auto Dispose",
+    layout.auto.x,
+    layout.auto.y,
+    layout.auto.w,
+    layout.auto.h,
+    existingLimit !== null
+  );
+  drawBtn("Dump", layout.dump.x, layout.dump.y, layout.dump.w, layout.dump.h, dumped > 0);
+
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.font = "10px Consolas, monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(
+    existingLimit === null
+      ? "Auto Dispose is currently off"
+      : `Auto Dispose currently keeps at most ${existingLimit}`,
+    layout.x + layout.w / 2,
+    layout.y + layout.h - 74
+  );
+}
+
 function formatResourceName(key) {
   const names = {
     cannonBalls: "Cannon Balls",
@@ -2342,6 +2470,16 @@ function drawMotherShipResourceUI(panelX, panelY) {
 
   rowY = y + 34;
   for (const key of cargoKeys) {
+    const hovered = !buildMode &&
+      !disposalWindowResource &&
+      getMotherShipCargoResourceAt(mouse.x, mouse.y) === key;
+    if (hovered) {
+      ctx.fillStyle = "rgba(55, 155, 255, 0.24)";
+      ctx.fillRect(boxX + 2, rowY - rowH / 2, boxW - 4, rowH);
+      ctx.strokeStyle = "rgba(80, 175, 255, 0.95)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(boxX + 2, rowY - rowH / 2, boxW - 4, rowH);
+    }
     drawInventoryAmountRow(`${formatResourceName(key)}${key === "food" ? " servings" : " t"}`, res[key] || 0, resourceRates[key] || 0, boxX, rowY, boxW);
     rowY += rowH;
   }

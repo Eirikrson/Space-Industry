@@ -384,6 +384,21 @@ function updateResources(dt) {
     if (m.type === "Asteroid Collector") asteroidCollectorCount++;
   }
 
+  const fuelProcessors = placedModules.filter(module => module.type === "Fuel Processor");
+  const hasFuelProductionChain =
+    fuelProcessors.length > 0 &&
+    placedModules.some(module => module.type === "Electrolyser");
+  const automaticFuelTarget = fuelProcessors.reduce(
+    (highest, module) => Math.max(highest, ensureFuelProcessorTarget(module)),
+    0
+  );
+  const fuelWaterReserve =
+    hasFuelProductionChain && (res.fuel || 0) < automaticFuelTarget
+      ? Math.min(25, Math.max(10, (res.waterCap || 100) * 0.2))
+      : 0;
+  const hasWaterBeyondFuelReserve = amount =>
+    (res.water || 0) - amount >= fuelWaterReserve;
+
   const solarFactor = getSolarEfficiency();
   res.itemUsed = getSolidStorageUsed();
 
@@ -421,7 +436,9 @@ function updateResources(dt) {
       m._machineActive = "turbine";
     }
 
-    if (m.type === "Reactor" && res.uranium >= stats.uraniumUse * dt && res.water >= stats.waterUse * dt) {
+    if (m.type === "Reactor" &&
+        res.uranium >= stats.uraniumUse * dt &&
+        hasWaterBeyondFuelReserve(stats.waterUse * dt)) {
       const steamAmount = Math.min(stats.steamProd * dt, getResourceStorageFree("steam"));
       if (steamAmount > 0) {
         const productionScale = steamAmount / Math.max(0.001, stats.steamProd * dt);
@@ -435,7 +452,9 @@ function updateResources(dt) {
       const fusionFuel = m.fusionFuelMode === "helium3" ? "helium3" : "tritium";
       const fusionFuelUse = fusionFuel === "helium3" ? stats.helium3Use : stats.tritiumUse;
 
-      if (res.deuterium >= stats.deuteriumUse * dt && res[fusionFuel] >= fusionFuelUse * dt && res.water >= stats.waterUse * dt) {
+      if (res.deuterium >= stats.deuteriumUse * dt &&
+          res[fusionFuel] >= fusionFuelUse * dt &&
+          hasWaterBeyondFuelReserve(stats.waterUse * dt)) {
         const steamAmount = Math.min(stats.steamProd * dt, getResourceStorageFree("steam"));
         if (steamAmount > 0) {
           const productionScale = steamAmount / Math.max(0.001, stats.steamProd * dt);
@@ -547,7 +566,9 @@ function updateResources(dt) {
       }
     }
 
-    if (m.type === "Farm Module" && canUsePower(m) && res.water >= stats.waterUse * dt) {
+    if (m.type === "Farm Module" &&
+        canUsePower(m) &&
+        hasWaterBeyondFuelReserve(stats.waterUse * dt)) {
       const target = ensureFarmTarget(m);
       const foodAmount = Math.min(
         stats.foodProd * dt,
@@ -688,6 +709,7 @@ function updateResources(dt) {
   }
 
   updatePlanetMining(dt);
+  applyAutoDisposeLimits();
 
   for (const key of ["water", "steam", "hydrogen", "oxygen", "fuel", "ironOre", "copperOre", "siliconOre", "ironPlate", "copperPlate", "silicon", "nickel", "carbon", "deuterium", "tritium", "helium3", "uranium", "food", "ammo", "cannonBalls", "railgunRods", "rocketAmmunition"]) {
     res[key] = Math.max(0, res[key]);
@@ -1153,7 +1175,7 @@ function updateGameSounds() {
     || !!tutorialOverlay;
 
   if (audioPaused) {
-    updateBackgroundSound(false);
+    updateBackgroundSound(audioUnlocked);
     updateLayeredSound("thruster", false, 7000);
     updateLoopSound("building", false);
     updateLoopSound("assembler", false);

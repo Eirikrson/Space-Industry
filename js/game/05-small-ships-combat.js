@@ -373,8 +373,7 @@ function getSmallShipEnergyCap(smallShip) {
   let cap = 0;
 
   for (const module of smallShip.modules) {
-    if (module.type === "Battery MK1") cap += 200;
-    if (module.type === "Battery MK2") cap += 5000;
+    cap += BUILDING_STATS[module.type]?.energyCap || 0;
   }
 
   return cap;
@@ -385,7 +384,10 @@ function smallShipHasModule(smallShip, type) {
 }
 
 function smallShipSolarOutput(smallShip) {
-  return smallShip.modules.filter(module => module.type === "Solar Panel").length;
+  return smallShip.modules.reduce(
+    (sum, module) => sum + (BUILDING_STATS[module.type]?.energyProdBase || 0),
+    0
+  );
 }
 
 function storeSmallShipCargo(smallShip, key, amount = 1) {
@@ -445,7 +447,14 @@ function loadSmallShipSupplies(smallShip, dt) {
   const energyNeed = Math.max(0, energyCap - (smallShip.energy || 0));
   const fuelNeed = Math.max(0, fuelCap - (smallShip.fuel || 0));
   const energyLoad = Math.min(energyNeed, res.energy, 80 * dt);
-  const fuelLoad = Math.min(fuelNeed, res.fuel, 60 * dt);
+  const hasFuelProductionChain =
+    placedModules.some(module => module.type === "Electrolyser") &&
+    placedModules.some(module => module.type === "Fuel Processor");
+  const motherShipFuelReserve = hasFuelProductionChain
+    ? Math.max(20, Math.min(45, (res.fuelCap || 100) * 0.25))
+    : 20;
+  const transferableFuel = Math.max(0, (res.fuel || 0) - motherShipFuelReserve);
+  const fuelLoad = Math.min(fuelNeed, transferableFuel, 60 * dt);
 
   smallShip.energy = Math.min(energyCap, (smallShip.energy || 0) + energyLoad);
   smallShip.fuel = Math.min(fuelCap, (smallShip.fuel || 0) + fuelLoad);
@@ -502,6 +511,35 @@ function hasMiningTargetNearMother(rangeTiles = 40) {
     if (asteroid.totalItems <= 0) return false;
     return Math.hypot(asteroid.x - ship.x, asteroid.y - ship.y) <= range;
   });
+}
+
+function findNearestMiningPlanet(x, y, maxDistance = Infinity) {
+  let best = null;
+  let bestDist = maxDistance;
+
+  for (const planet of planets) {
+    const rates = typeof getPlanetMiningRates === "function"
+      ? getPlanetMiningRates(planet)
+      : {};
+    const hasSolidResource = Object.keys(rates).some(key => SOLID_RESOURCES.has(key));
+    if (!hasSolidResource) continue;
+
+    const dist = Math.max(0, Math.hypot(planet.x - x, planet.y - y) - planet.radius);
+    if (dist < bestDist) {
+      best = planet;
+      bestDist = dist;
+    }
+  }
+
+  return best;
+}
+
+function hasMiningPlanetNearMother(rangeTiles = 50) {
+  return findNearestMiningPlanet(
+    ship.x,
+    ship.y,
+    CONFIG.GRID_SIZE * rangeTiles
+  ) !== null;
 }
 
 function findNearestGasPlanet(x, y, maxDistance = Infinity) {
@@ -710,10 +748,45 @@ function updateMiningSmallShip(smallShip, dt) {
   }
 
   if (!smallShip.targetAsteroid) {
-    smallShip.status = "returning";
+    smallShip.targetPlanet = findNearestMiningPlanet(
+      smallShip.x,
+      smallShip.y,
+      CONFIG.GRID_SIZE * 55
+    );
+    if (!smallShip.targetPlanet) {
+      smallShip.status = "returning";
+      return;
+    }
+
+    const planet = smallShip.targetPlanet;
+    const landingRadius = planet.radius + CONFIG.GRID_SIZE * 0.8;
+    const dist = Math.hypot(planet.x - smallShip.x, planet.y - smallShip.y);
+    if (dist > landingRadius) {
+      moveSmallShipToward(smallShip, planet.x, planet.y, dt, landingRadius);
+      smallShip.mineTimer = 0;
+      return;
+    }
+
+    smallShip.vx *= Math.max(0, 1 - dt * 4);
+    smallShip.vy *= Math.max(0, 1 - dt * 4);
+    smallShip.mineTimer += dt;
+    if (smallShip.mineTimer < 1) return;
+
+    const elapsed = smallShip.mineTimer;
+    smallShip.mineTimer = 0;
+    let accepted = 0;
+    for (const [key, rate] of Object.entries(getPlanetMiningRates(planet))) {
+      if (!SOLID_RESOURCES.has(key)) continue;
+      accepted += storeSmallShipCargo(smallShip, key, rate * elapsed);
+    }
+    if (accepted <= 0 || getSmallShipCargoUsed(smallShip) >= getSmallShipCargoCap(smallShip)) {
+      smallShip.status = "returning";
+      smallShip.targetPlanet = null;
+    }
     return;
   }
 
+  smallShip.targetPlanet = null;
   const asteroid = smallShip.targetAsteroid;
   const dist = Math.hypot(asteroid.x - smallShip.x, asteroid.y - smallShip.y);
   const mineDistance = asteroid.size + CONFIG.GRID_SIZE * 1.4;
@@ -921,7 +994,9 @@ function updateSmallShips(dt) {
       smallShip._hangarThinkTimer = Math.max(0, (smallShip._hangarThinkTimer || 0) - dt);
       if (smallShip._hangarThinkTimer <= 0) {
         smallShip._hangarThinkTimer = 0.5;
-        if (!recallSmallShips && smallShip.modeMining && hangar && smallShip.status === "hangar" && hasSmallShipTripSupplies(smallShip) && hasMiningTargetNearMother(40)) {
+        if (!recallSmallShips && smallShip.modeMining && hangar && smallShip.status === "hangar" &&
+            hasSmallShipTripSupplies(smallShip) &&
+            (hasMiningTargetNearMother(40) || hasMiningPlanetNearMother(50))) {
           launchSmallShip(smallShip, hangar);
         } else if (!recallSmallShips && smallShip.modeGas && hangar && smallShip.status === "hangar" && hasSmallShipTripSupplies(smallShip) && smallShipHasModule(smallShip, "Scooper") && hasGasPlanetNearMother(50)) {
           launchSmallShip(smallShip, hangar);

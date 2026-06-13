@@ -42,7 +42,8 @@ const {
   IMAGE_SPRITES,
   MASTER_SOUND_VOLUME,
   SOUND_VOLUMES,
-  SOUND_FILES
+  SOUND_FILES,
+  MUSIC_FILES
 } = unwrapJsonValues(gameData.assets);
 
 const {
@@ -102,10 +103,11 @@ const loadedImages = {};
 const soundCache = {};
 const loopSounds = {};
 const lastSoundAt = {};
-const activeBackgroundSounds = new Set();
 const activeLayeredSounds = {};
 const nextLayeredSoundAt = {};
-let nextBackgroundSoundAt = 0;
+let backgroundMusic = null;
+let backgroundMusicIndex = -1;
+const backgroundMusicHistory = [];
 const USER_VOLUME_STORAGE_KEY = "spaceIndustry.masterVolume";
 const SOUND_OUTPUT_GAIN = 0.25;
 const storedUserMasterVolumeRaw = localStorage.getItem(USER_VOLUME_STORAGE_KEY);
@@ -131,9 +133,7 @@ function setUserMasterVolume(value) {
   for (const name in soundCache) {
     soundCache[name].volume = getSoundVolume(name);
   }
-  for (const audio of activeBackgroundSounds) {
-    audio.volume = getSoundVolume("background");
-  }
+  if (backgroundMusic) backgroundMusic.volume = getSoundVolume("background");
   for (const name in activeLayeredSounds) {
     for (const audio of activeLayeredSounds[name]) {
       audio.volume = Math.max(0, Math.min(1, getSoundVolume(name) * (audio._volumeVariation || 1)));
@@ -233,28 +233,32 @@ function updateLayeredSound(name, active, restartMs, maxLayers = 2) {
 }
 
 function updateBackgroundSound(active) {
-  if (!active || !audioUnlocked || typeof Audio === "undefined" || !SOUND_FILES.background) {
-    for (const audio of activeBackgroundSounds) {
-      audio.pause();
-      audio.currentTime = 0;
-    }
-    activeBackgroundSounds.clear();
-    nextBackgroundSoundAt = 0;
-    return;
+  if (!active || !audioUnlocked || typeof Audio === "undefined" || !MUSIC_FILES?.length) return;
+  if (backgroundMusic && !backgroundMusic.paused && !backgroundMusic.ended) return;
+
+  const blocked = new Set(backgroundMusicHistory.slice(-2));
+  let candidates = MUSIC_FILES
+    .map((file, index) => ({ file, index }))
+    .filter(item => !blocked.has(item.index));
+  if (candidates.length === 0) {
+    candidates = MUSIC_FILES.map((file, index) => ({ file, index }));
   }
+  const selected = candidates[Math.floor(Math.random() * candidates.length)];
+  backgroundMusicIndex = selected.index;
+  backgroundMusicHistory.push(selected.index);
+  if (backgroundMusicHistory.length > 2) backgroundMusicHistory.shift();
 
-  const now = performance.now();
-  if (nextBackgroundSoundAt > now) return;
-
-  const audio = new Audio(SOUND_FILES.background);
-  audio.loop = false;
-  audio.volume = getSoundVolume("background");
-  audio.preload = "auto";
-  activeBackgroundSounds.add(audio);
-  audio.addEventListener("ended", () => activeBackgroundSounds.delete(audio), { once: true });
-  audio.play().catch(() => activeBackgroundSounds.delete(audio));
-
-  nextBackgroundSoundAt = now + 5000;
+  backgroundMusic = new Audio(selected.file);
+  backgroundMusic.loop = false;
+  backgroundMusic.volume = getSoundVolume("background");
+  backgroundMusic.preload = "auto";
+  backgroundMusic.addEventListener("ended", () => {
+    backgroundMusic = null;
+    updateBackgroundSound(true);
+  }, { once: true });
+  backgroundMusic.play().catch(() => {
+    backgroundMusic = null;
+  });
 }
 
 function stopAllLoopSounds() {
@@ -263,7 +267,6 @@ function stopAllLoopSounds() {
     updateLoopSound(name, false);
   }
   for (const name in activeLayeredSounds) stopLayeredSound(name);
-  updateBackgroundSound(false);
   updateMenuThrusterSound(false);
 }
 
@@ -437,6 +440,9 @@ let smelterWindowModule = null;
 let electrolyserWindowModule = null;
 let fuelProcessorWindowModule = null;
 let farmWindowModule = null;
+let disposalWindowResource = null;
+let disposalKeepAmount = 0;
+let disposalSliderDragging = false;
 let turretControlWindowOpen = false;
 const turretControlRects = [];
 const turretTypeEnabled = {};

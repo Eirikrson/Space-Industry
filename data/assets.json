@@ -363,5 +363,15 @@
     "drill": "Sounds/Drill.mp3",
     "labFinish": "Sounds/LabFinish.mp3",
     "tutorial": "Sounds/Tutorial.mp3"
-  }
+  },
+  "MUSIC_FILES": [
+    "Sounds/music/Denied Access - Density & Time.mp3",
+    "Sounds/music/Event Horizon - The Grey Room _ Density & Time.mp3",
+    "Sounds/music/False Vacuum Decay - The Grey Room _ Density & Time.mp3",
+    "Sounds/music/Laniakea - The Grey Room _ Density & Time.mp3",
+    "Sounds/music/Nebula - The Grey Room _ Density & Time.mp3",
+    "Sounds/music/Pulsar - The Grey Room _ Density & Time.mp3",
+    "Sounds/music/Singularity - The Grey Room _ Density & Time.mp3",
+    "Sounds/music/Spaghettification - The Grey Room _ Density & Time.mp3"
+  ]
 }

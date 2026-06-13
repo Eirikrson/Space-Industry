@@ -156,6 +156,20 @@ function createCreativeState(data, strategy) {
     miningTrips: 0,
     researchTime: 0,
     constructionTime: 0,
+    defenseAmmoDebt: {
+      ammo: 0,
+      cannonBalls: 0,
+      railgunRods: 0,
+      rocketAmmunition: 0
+    },
+    defenseEnergyDebt: 0,
+    repairDebt: 0,
+    drones: 0,
+    maintenanceActive: false,
+    storageExpansionActive: false,
+    autoDisposeLimits: {},
+    disposed: {},
+    lifeSupportOutageSeconds: 0,
     noProgressTime: 0,
     failed: false,
     failureReason: "",
@@ -173,6 +187,38 @@ function creativeSolidUsed(state, data) {
     (sum, key) => sum + Math.max(0, state.resources[key] || 0),
     0
   );
+}
+
+function creativeStoreSolid(state, data, key, amount) {
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  const limit = state.autoDisposeLimits[key];
+  const allowedByLimit = Number.isFinite(limit)
+    ? Math.max(0, limit - (state.resources[key] || 0))
+    : amount;
+  const storageFree = Math.max(
+    0,
+    (state.resources.itemCap || 0) - creativeSolidUsed(state, data)
+  );
+  const accepted = Math.max(0, Math.min(amount, allowedByLimit, storageFree));
+  if (accepted > 0) {
+    state.resources[key] = (state.resources[key] || 0) + accepted;
+    creativeRecord(state.produced, key, accepted);
+  }
+  creativeRecord(state.disposed, key, amount - accepted);
+  return accepted;
+}
+
+function creativeConfigureAutoDispose(state) {
+  state.autoDisposeLimits = {
+    ironOre: 250,
+    copperOre: 180,
+    siliconOre: 140,
+    nickel: 180,
+    carbon: 140,
+    uranium: 80,
+    deuterium: 80,
+    tritium: 40
+  };
 }
 
 function creativePower(state, data) {
@@ -222,10 +268,26 @@ function creativeAdvance(state, seconds, data, reason, activeEnergyUse = 0) {
     (state.buildings["Life Support"] || 0) *
     (data.buildings.BUILDING_STATS["Life Support"]?.waterUse || 0) *
     seconds;
-  state.resources.food = Math.max(0, (state.resources.food || 0) - crewFood);
-  state.resources.water = Math.max(0, (state.resources.water || 0) - lifeSupportWater);
-  creativeRecord(state.consumed, "food", crewFood);
-  creativeRecord(state.consumed, "water", lifeSupportWater);
+  const foodUsed = Math.min(state.resources.food || 0, crewFood);
+  const waterUsed = Math.min(state.resources.water || 0, lifeSupportWater);
+  state.resources.food = Math.max(0, (state.resources.food || 0) - foodUsed);
+  state.resources.water = Math.max(0, (state.resources.water || 0) - waterUsed);
+  creativeRecord(state.consumed, "food", foodUsed);
+  creativeRecord(state.consumed, "water", waterUsed);
+  if (lifeSupportWater > waterUsed && lifeSupportWater > 0) {
+    const supportedFraction = waterUsed / lifeSupportWater;
+    const outage = seconds * (1 - supportedFraction);
+    state.lifeSupportOutageSeconds += outage;
+    state.noProgressTime += outage;
+    state.idlePeriods.push({ start, seconds: outage, reason: "life support without water" });
+    creativeRecord(state.shortages, "water", lifeSupportWater - waterUsed);
+    if (state.lifeSupportOutageSeconds >= 120) {
+      state.failed = true;
+      state.failureReason = "life support failed from water shortage";
+    }
+  } else if (waterUsed > 0) {
+    state.lifeSupportOutageSeconds = Math.max(0, state.lifeSupportOutageSeconds - seconds * 0.5);
+  }
 
   const collectors = state.buildings["Asteroid Collector"] || 0;
   if (collectors > 0) {
@@ -234,23 +296,60 @@ function creativeAdvance(state, seconds, data, reason, activeEnergyUse = 0) {
     for (const key of new Set(pool)) {
       const share = pool.filter(item => item === key).length / pool.length;
       const amount = cycles * share;
-      state.resources[key] = (state.resources[key] || 0) + amount;
-      creativeRecord(state.produced, key, amount);
+      creativeStoreSolid(state, data, key, amount);
     }
   }
 
   const farmCount = state.buildings["Farm Module"] || 0;
   if (farmCount > 0 && state.resources.water > 0) {
     const stats = data.buildings.BUILDING_STATS["Farm Module"];
-    const possible = Math.min(
+    const foodTarget = Math.max(40, (state.resources.crew || 1) * 30);
+    const potential = Math.min(
       farmCount * stats.foodProd * seconds,
-      state.resources.water / Math.max(0.001, stats.waterUse)
+      state.resources.water / Math.max(0.001, stats.waterUse),
+      Math.max(0, foodTarget - (state.resources.food || 0))
     );
-    const waterUse = possible * stats.waterUse / Math.max(0.001, stats.foodProd);
+    const produced = creativeStoreSolid(state, data, "food", potential);
+    const waterUse = produced * stats.waterUse / Math.max(0.001, stats.foodProd);
     state.resources.water -= waterUse;
-    state.resources.food += possible;
     creativeRecord(state.consumed, "water", waterUse);
-    creativeRecord(state.produced, "food", possible);
+  }
+
+  const defenseLoads = [
+    ["Gun Turret", "ammo", 45, 1],
+    ["Cannon Turret", "cannonBalls", 75, 1],
+    ["Railgun Turret", "railgunRods", 120, 0.2],
+    ["Missile Turret", "rocketAmmunition", 150, 1]
+  ];
+  let defenseCount = 0;
+  for (const [turret, ammunition, encounterSeconds, amount] of defenseLoads) {
+    const count = state.buildings[turret] || 0;
+    if (count <= 0) continue;
+    defenseCount += count;
+    state.defenseAmmoDebt[ammunition] += seconds * count * amount / encounterSeconds;
+  }
+  const laserCount = state.buildings["Laser Turret"] || 0;
+  if (laserCount > 0) {
+    const laser = data.buildings.BUILDING_STATS["Laser Turret"];
+    defenseCount += laserCount;
+    state.defenseEnergyDebt +=
+      seconds * laserCount * laser.energyUse * laser.beamDuration / 90;
+  }
+  if (defenseCount > 0) {
+    state.repairDebt += seconds * defenseCount / 1200;
+  }
+
+  if (state.drones > 0) {
+    const droneYield = seconds * state.drones * 0.08;
+    const droneResources = {
+      ironOre: droneYield * 0.42,
+      copperOre: droneYield * 0.25,
+      nickel: droneYield * 0.18,
+      carbon: droneYield * 0.15
+    };
+    for (const [key, amount] of Object.entries(droneResources)) {
+      creativeStoreSolid(state, data, key, amount);
+    }
   }
 
   state.time += seconds;
@@ -277,12 +376,34 @@ function creativeMineBatch(state, data, allowFuelRecovery = true) {
   const yieldScale =
     (0.8 + state.strategy.mining * 0.35 + Math.log2(drills + 1) * 0.3) *
     Math.sqrt(drills);
+  const storageFree = Math.max(0, (state.resources.itemCap || 0) - creativeSolidUsed(state, data));
+  if (storageFree <= 0) {
+    if (state.storageExpansionActive) return false;
+    const warehouse = state.research.has("Warehouse MK2")
+      ? "Warehouse MK2"
+      : "Warehouse MK1";
+    state.storageExpansionActive = true;
+    try {
+      if (!creativeBuild(state, data, warehouse)) return false;
+    } finally {
+      state.storageExpansionActive = false;
+    }
+  }
   const travelSeconds = Math.max(14, 65 / state.strategy.mining / Math.sqrt(drills));
-  const fuelUse = Math.max(0.75, travelSeconds * 0.035 / Math.max(0.7, state.strategy.thrift));
+  const calculatedFuelUse = Math.max(
+    0.75,
+    travelSeconds * 0.035 / Math.max(0.7, state.strategy.thrift)
+  );
+  const hasFuelChain =
+    state.buildings.Electrolyser > 0 &&
+    state.buildings["Fuel Processor"] > 0;
+  const fuelUse = hasFuelChain
+    ? calculatedFuelUse
+    : Math.min(1.5, calculatedFuelUse);
   const fuelReserve = allowFuelRecovery &&
     state.buildings.Electrolyser > 0 &&
     state.buildings["Fuel Processor"] > 0
-    ? 25
+    ? 45
     : 0;
   if ((state.resources.fuel || 0) < fuelUse + fuelReserve) {
     if (
@@ -303,8 +424,12 @@ function creativeMineBatch(state, data, allowFuelRecovery = true) {
   for (const def of data.resources.ASTEROID_RESOURCE_TABLE) {
     const average = (def.min + def.max) / 2;
     const amount = average * yieldScale;
-    state.resources[def.key] = (state.resources[def.key] || 0) + amount;
-    creativeRecord(state.produced, def.key, amount);
+    if (data.resources.SOLID_RESOURCES.includes(def.key)) {
+      creativeStoreSolid(state, data, def.key, amount);
+    } else {
+      state.resources[def.key] = (state.resources[def.key] || 0) + amount;
+      creativeRecord(state.produced, def.key, amount);
+    }
   }
   state.miningTrips++;
   return true;
@@ -317,33 +442,51 @@ function creativeProduceFuel(state, data, amount) {
   }
   const fuelStats = data.buildings.BUILDING_STATS["Fuel Processor"];
   const electro = data.buildings.BUILDING_STATS.Electrolyser;
-  const seconds = amount / fuelStats.fuelProd;
-  const hydrogen = seconds * fuelStats.hydrogenUse;
-  const oxygen = seconds * fuelStats.oxygenUse;
-  const electroSeconds = Math.max(
-    hydrogen / electro.hydrogenProd,
-    oxygen / electro.oxygenProd
+  const waterPerFuel = (
+    Math.max(
+      fuelStats.hydrogenUse / fuelStats.fuelProd / electro.hydrogenProd,
+      fuelStats.oxygenUse / fuelStats.fuelProd / electro.oxygenProd
+    ) * electro.waterUse
   );
-  const water = electroSeconds * electro.waterUse;
-  while ((state.resources.water || 0) < water && state.buildings.Drill > 0) {
-    if (!creativeMineBatch(state, data, false)) return false;
+  let remaining = amount;
+  let guard = 0;
+  while (remaining > 0.001 && guard++ < 500) {
+    const availableFuel = Math.min(
+      remaining,
+      (state.resources.water || 0) / Math.max(0.001, waterPerFuel)
+    );
+    if (availableFuel <= 0.001) {
+      if (!(state.buildings.Drill > 0) || !creativeMineBatch(state, data, false)) {
+        return false;
+      }
+      continue;
+    }
+    const seconds = availableFuel / fuelStats.fuelProd;
+    const hydrogen = seconds * fuelStats.hydrogenUse;
+    const oxygen = seconds * fuelStats.oxygenUse;
+    const electroSeconds = Math.max(
+      hydrogen / electro.hydrogenProd,
+      oxygen / electro.oxygenProd
+    );
+    const water = electroSeconds * electro.waterUse;
+    state.resources.water -= water;
+    state.resources.fuel = (state.resources.fuel || 0) + availableFuel;
+    creativeRecord(state.consumed, "water", water);
+    creativeRecord(state.produced, "hydrogen", hydrogen);
+    creativeRecord(state.produced, "oxygen", oxygen);
+    creativeRecord(state.consumed, "hydrogen", hydrogen);
+    creativeRecord(state.consumed, "oxygen", oxygen);
+    creativeRecord(state.produced, "fuel", availableFuel);
+    creativeAdvance(
+      state,
+      electroSeconds + seconds,
+      data,
+      "fuel production",
+      electro.energyUse + fuelStats.energyUse
+    );
+    remaining -= availableFuel;
   }
-  if ((state.resources.water || 0) < water) return false;
-  state.resources.water -= water;
-  state.resources.fuel = (state.resources.fuel || 0) + amount;
-  creativeRecord(state.consumed, "water", water);
-  creativeRecord(state.produced, "hydrogen", hydrogen);
-  creativeRecord(state.produced, "oxygen", oxygen);
-  creativeRecord(state.consumed, "hydrogen", hydrogen);
-  creativeRecord(state.consumed, "oxygen", oxygen);
-  creativeRecord(state.produced, "fuel", amount);
-  creativeAdvance(
-    state,
-    electroSeconds + seconds,
-    data,
-    "fuel production",
-    electro.energyUse + fuelStats.energyUse
-  );
+  if (remaining > 0.001) return false;
   return true;
 }
 
@@ -378,9 +521,8 @@ function creativeEnsureResource(state, data, key, amount, depth = 0) {
     const input = smelterInputs[key];
     if (!creativeEnsureResource(state, data, input, missing, depth + 1)) return false;
     state.resources[input] -= missing;
-    state.resources[key] = (state.resources[key] || 0) + missing;
     creativeRecord(state.consumed, input, missing);
-    creativeRecord(state.produced, key, missing);
+    const produced = creativeStoreSolid(state, data, key, missing);
     creativeAdvance(
       state,
       missing / Math.max(1, state.buildings.Smelter || 1),
@@ -388,7 +530,7 @@ function creativeEnsureResource(state, data, key, amount, depth = 0) {
       `smelt ${key}`,
       data.buildings.BUILDING_STATS.Smelter.energyUse
     );
-    return true;
+    return produced + 0.000001 >= missing;
   }
 
   const recipe = data.buildings.BUILDING_STATS.Assembler?.recipes?.[key];
@@ -405,8 +547,7 @@ function creativeEnsureResource(state, data, key, amount, depth = 0) {
       creativeRecord(state.consumed, input, used);
     }
     const made = output * batches;
-    state.resources[key] = (state.resources[key] || 0) + made;
-    creativeRecord(state.produced, key, made);
+    const produced = creativeStoreSolid(state, data, key, made);
     creativeAdvance(
       state,
       batches / Math.max(1, state.buildings.Assembler || 1),
@@ -414,7 +555,7 @@ function creativeEnsureResource(state, data, key, amount, depth = 0) {
       `assemble ${key}`,
       data.buildings.BUILDING_STATS.Assembler.energyUse
     );
-    return true;
+    return produced + 0.000001 >= missing;
   }
   creativeRecord(state.shortages, key, missing);
   return false;
@@ -443,15 +584,126 @@ function creativeBuild(state, data, name, count = 1) {
   const cost = data.buildings.BUILD_COSTS[name];
   if (!cost) return false;
   for (let index = 0; index < count; index++) {
+    if (!creativeMaintainOperations(state, data)) return false;
+    if (
+      !state.storageExpansionActive &&
+      name !== "Warehouse MK1" &&
+      name !== "Warehouse MK2" &&
+      creativeSolidUsed(state, data) > (state.resources.itemCap || 0) * 0.75
+    ) {
+      const warehouse = state.research.has("Warehouse MK2")
+        ? "Warehouse MK2"
+        : "Warehouse MK1";
+      state.storageExpansionActive = true;
+      try {
+        if (!creativeBuild(state, data, warehouse)) return false;
+      } finally {
+        state.storageExpansionActive = false;
+      }
+    }
+    const gatheringStarted = state.time;
     if (!creativeEnsureCost(state, data, cost)) return false;
+    const gatheringSeconds = state.time - gatheringStarted;
     creativeConsumeCost(state, cost);
     const duration = Math.max(1.5, 8 / state.strategy.expansion);
     creativeAdvance(state, duration, data, `build ${name}`);
     state.constructionTime += duration;
     state.buildings[name] = (state.buildings[name] || 0) + 1;
     creativeRecalculateCaps(state, data);
-    state.buildLog.push({ name, at: state.time });
+    state.buildLog.push({
+      name,
+      at: state.time,
+      gatheringSeconds,
+      constructionSeconds: duration
+    });
     if (!state.milestones[`build:${name}`]) state.milestones[`build:${name}`] = state.time;
+  }
+  return true;
+}
+
+function creativeMaintainOperations(state, data) {
+  if (state.maintenanceActive) return true;
+  state.maintenanceActive = true;
+  try {
+    const canProduceFuel =
+      (state.buildings.Electrolyser || 0) > 0 &&
+      (state.buildings["Fuel Processor"] || 0) > 0;
+    const strategicWaterReserve = canProduceFuel ? 40 : 8;
+    if (
+      (state.buildings.Drill || 0) > 0 &&
+      (state.buildings.Smelter || 0) > 0 &&
+      (state.resources.water || 0) < strategicWaterReserve
+    ) {
+      if (!creativeEnsureResource(state, data, "water", strategicWaterReserve)) return false;
+    }
+
+    const strategicFuelReserve = 45;
+    if (canProduceFuel && (state.resources.fuel || 0) < strategicFuelReserve) {
+      if (!creativeProduceFuel(
+        state,
+        data,
+        strategicFuelReserve - (state.resources.fuel || 0)
+      )) return false;
+    }
+
+    for (const [ammunition, debt] of Object.entries(state.defenseAmmoDebt)) {
+      const ammoNeeded = Math.ceil(debt);
+      if (ammoNeeded <= 0) continue;
+      if (!creativeEnsureResource(state, data, ammunition, ammoNeeded)) return false;
+      state.resources[ammunition] -= ammoNeeded;
+      creativeRecord(state.consumed, ammunition, ammoNeeded);
+      state.defenseAmmoDebt[ammunition] = Math.max(0, debt - ammoNeeded);
+    }
+
+    const defenseEnergy = Math.ceil(state.defenseEnergyDebt);
+    if (defenseEnergy > 0) {
+      if ((state.resources.energy || 0) < defenseEnergy) {
+        const net = creativePower(state, data).net;
+        if (net <= 0) return false;
+        creativeAdvance(
+          state,
+          (defenseEnergy - (state.resources.energy || 0)) / net,
+          data,
+          "charge laser defenses"
+        );
+      }
+      state.resources.energy = Math.max(0, (state.resources.energy || 0) - defenseEnergy);
+      creativeRecord(state.consumed, "energy", defenseEnergy);
+      state.defenseEnergyDebt = Math.max(0, state.defenseEnergyDebt - defenseEnergy);
+    }
+
+    const repairChunks = Math.floor(state.repairDebt);
+    if (repairChunks > 0) {
+      const repairCost = {
+        gears: repairChunks,
+        circuits: repairChunks,
+        cables: repairChunks
+      };
+      if (!creativeEnsureCost(state, data, repairCost)) return false;
+      creativeConsumeCost(state, repairCost);
+      state.repairDebt -= repairChunks;
+      creativeAdvance(state, repairChunks * 2, data, "ship repairs");
+    }
+    return true;
+  } finally {
+    state.maintenanceActive = false;
+  }
+}
+
+function creativeBuildMiningDrone(state, data) {
+  const droneCost = {
+    ironPlate: 18,
+    copperPlate: 10,
+    gears: 4,
+    circuits: 3,
+    cables: 3
+  };
+  if (!creativeEnsureCost(state, data, droneCost)) return false;
+  creativeConsumeCost(state, droneCost);
+  creativeAdvance(state, 30, data, "build mining drone");
+  state.drones++;
+  if (!state.milestones.firstMiningDrone) {
+    state.milestones.firstMiningDrone = state.time;
   }
   return true;
 }
@@ -463,7 +715,10 @@ function creativeResearch(state, data, item, tierIndex) {
       state.research.has("Computer MK3") ? 3 :
         state.research.has("Computer MK2") ? 2 : 1;
   if (computerLevel < tierIndex + 1) return false;
+  if (!creativeMaintainOperations(state, data)) return false;
+  const gatheringStarted = state.time;
   if (!creativeEnsureCost(state, data, item.cost)) return false;
+  const gatheringSeconds = state.time - gatheringStarted;
   creativeConsumeCost(state, item.cost);
   const materialTotal = Object.values(item.cost || {}).reduce((sum, value) => sum + value, 0);
   const duration = Math.max(2, materialTotal * 0.12 / state.strategy.research);
@@ -476,7 +731,13 @@ function creativeResearch(state, data, item, tierIndex) {
   );
   state.researchTime += duration;
   state.research.add(item.name);
-  state.researchLog.push({ name: item.name, at: state.time, tier: tierIndex + 1 });
+  state.researchLog.push({
+    name: item.name,
+    at: state.time,
+    tier: tierIndex + 1,
+    gatheringSeconds,
+    researchSeconds: duration
+  });
   state.milestones[`research:${item.name}`] = state.time;
   return true;
 }
@@ -485,6 +746,7 @@ function creativeResearchScore(item, strategy) {
   const name = item.name;
   let score = 0;
   if (name === "Assembler") score += 1000;
+  if (name === "Warehouse MK2") score += 950;
   if (name === "Fuel Processor" || name === "Electrolyser") score += 450;
   if (/Computer/.test(name)) score += strategy.research * 100;
   if (/Drill|Scooper|Collector/.test(name)) score += strategy.mining * 70;
@@ -497,22 +759,14 @@ function creativeResearchScore(item, strategy) {
 }
 
 function creativeBuildUsefulUnlock(state, data, name) {
-  const essential = new Set([
-    "Assembler", "Electrolyser", "Fuel Processor"
-  ]);
   if (!data.buildings.BUILD_COSTS[name]) return true;
-  if (essential.has(name)) return creativeBuild(state, data, name);
-  if (name === "Drill" && state.strategy.mining > 1.2 && (state.buildings.Drill || 0) < 2) {
-    return creativeBuild(state, data, name);
-  }
-  if (name === "Solar Panel" && creativePower(state, data).net < 5) {
-    return creativeBuild(state, data, name);
-  }
-  return true;
+  if ((state.buildings[name] || 0) > 0) return true;
+  return creativeBuild(state, data, name);
 }
 
 function creativeRunStrategy(data, strategy, maximumSeconds) {
   const state = createCreativeState(data, strategy);
+  creativeConfigureAutoDispose(state);
   const fail = reason => {
     state.failed = true;
     state.failureReason = reason;
@@ -527,9 +781,9 @@ function creativeRunStrategy(data, strategy, maximumSeconds) {
   if (!creativeBuild(state, data, "Drill")) return fail("cannot build Drill");
   if (!creativeResearch(state, data, smelterResearch, 0)) return fail("cannot research Smelter");
   if (!creativeBuild(state, data, "Smelter")) return fail("cannot build Smelter");
-  const desiredDrills = Math.max(1, Math.min(5, Math.round(1 + strategy.mining * 2)));
+  const desiredDrills = Math.max(1, Math.min(4, Math.round(1 + strategy.mining * 1.5)));
   if (desiredDrills > 1 && !creativeBuild(state, data, "Drill", desiredDrills - 1)) {
-    return fail("cannot expand early drilling");
+    creativeRecord(state.shortages, "optional:earlyDrills", desiredDrills - 1);
   }
 
   for (let tierIndex = 0; tierIndex < data.buildings.RESEARCH_TIERS.length; tierIndex++) {
@@ -556,6 +810,14 @@ function creativeRunStrategy(data, strategy, maximumSeconds) {
       }
       if (!creativeBuildUsefulUnlock(state, data, item.name)) {
         creativeRecord(state.shortages, `build:${item.name}`, 1);
+      }
+      if (item.name === "Gun Turret" && !(state.buildings["Gun Turret"] > 0)) {
+        if (!creativeBuild(state, data, "Gun Turret")) {
+          return fail("cannot build first Gun Turret");
+        }
+      }
+      if (/^Hangar MK/.test(item.name) && !creativeBuildMiningDrone(state, data)) {
+        return fail("cannot build first mining drone");
       }
     }
   }
@@ -588,6 +850,13 @@ function creativeRunStrategy(data, strategy, maximumSeconds) {
   }
   const chargeRate = Math.max(0.1, creativePower(state, data).net);
   const chargeTime = Math.max(0, 45000 - (state.resources.energy || 0)) / chargeRate;
+  const chargeWater =
+    chargeTime *
+    (state.buildings["Life Support"] || 0) *
+    (data.buildings.BUILDING_STATS["Life Support"]?.waterUse || 0);
+  if (!creativeEnsureResource(state, data, "water", chargeWater + 20)) {
+    return fail("cannot secure life-support water for black-hole charge");
+  }
   creativeAdvance(state, chargeTime, data, "charge for black hole");
   state.resources.energy = Math.min(state.resources.energyCap, Math.max(45000, state.resources.energy));
   state.completed = true;
@@ -624,12 +893,14 @@ function creativeSummarize(state, data) {
     consumed: state.consumed,
     shortages: state.shortages,
     overflow: state.overflow,
+    disposed: state.disposed,
     surplus,
     idlePeriods: state.idlePeriods,
     noProgressSeconds: state.noProgressTime,
     miningTrips: state.miningTrips,
     researchTime: state.researchTime,
     constructionTime: state.constructionTime,
+    drones: state.drones,
     milestones: state.milestones,
     totalProduced: creativeTotal(state.produced),
     totalConsumed: creativeTotal(state.consumed),
@@ -646,12 +917,25 @@ function creativeRank(results, selector) {
     .sort((a, b) => selector(a) - selector(b));
 }
 
+function creativeGatheringTarget(name) {
+  const exceptional = new Set([
+    "Quantum Computer",
+    "Event Horizon Shield",
+    "Gravitational Pull Stabilizer"
+  ]);
+  if (exceptional.has(name)) return { seconds: 600, label: "10 min endgame" };
+  if (/Turret|Computer MK4|Fusion Reactor|Shield Generator|Hangar MK3/.test(name)) {
+    return { seconds: 300, label: "5 min special" };
+  }
+  return { seconds: 180, label: "3 min normal" };
+}
+
 function creativeRecommendations(results) {
   const completed = results.filter(result => result.completed);
   if (completed.length === 0) return ["No strategy reached the end goal. Review progression costs and raw-resource access."];
   const average = key => completed.reduce((sum, item) => sum + (item[key] || 0), 0) / completed.length;
   const recommendations = [];
-  const storageAffected = completed.filter(item => item.storagePressureSeconds > 60).length;
+  const storageAffected = completed.filter(item => item.storagePressureSeconds > 300).length;
   if (storageAffected > completed.length * 0.25) {
     recommendations.push("Storage is a frequent bottleneck. Consider earlier Warehouse unlocks or lower intermediate stock requirements.");
   }
@@ -677,6 +961,11 @@ function writeCreativeReport(results, rankings, recommendations) {
   const completed = results.filter(result => result.completed);
   const best = rankings.fastest[0] || results[0];
   const formatDuration = seconds => `${(seconds / 3600).toFixed(2)} h`;
+  const percentile = (values, ratio) => {
+    if (values.length === 0) return 0;
+    const sorted = values.slice().sort((a, b) => a - b);
+    return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * ratio))];
+  };
   const lines = [
     "# Space Industry Creative Simulation Report",
     "",
@@ -733,6 +1022,69 @@ function writeCreativeReport(results, rankings, recommendations) {
   lines.push("", "### Resource Surpluses", "", "| Resource | Final amount |", "|---|---:|");
   Object.entries(best.surplus).sort((a, b) => b[1] - a[1]).slice(0, 25)
     .forEach(([key, value]) => lines.push(`| ${key} | ${Number(value).toFixed(2)} |`));
+  lines.push(
+    "",
+    "### First Research And Building Times",
+    "",
+    "| Type | Name | Resource gathering | Action time | Total since start | Target |",
+    "|---|---|---:|---:|---:|---|"
+  );
+  const firstResearch = new Map();
+  for (const item of best.researchLog) {
+    if (!firstResearch.has(item.name)) firstResearch.set(item.name, item);
+  }
+  const firstBuildings = new Map();
+  for (const item of best.buildLog) {
+    if (!firstBuildings.has(item.name)) firstBuildings.set(item.name, item);
+  }
+  for (const item of firstResearch.values()) {
+    const gathering = item.gatheringSeconds || 0;
+    const target = creativeGatheringTarget(item.name);
+    lines.push(
+      `| Research | ${item.name} | ${(gathering / 60).toFixed(1)} min | ` +
+      `${((item.researchSeconds || 0) / 60).toFixed(1)} min | ${(item.at / 60).toFixed(1)} min | ` +
+      `${gathering <= target.seconds ? `OK (${target.label})` : `OVER ${target.label.toUpperCase()}`} |`
+    );
+  }
+  for (const item of firstBuildings.values()) {
+    const gathering = item.gatheringSeconds || 0;
+    const target = creativeGatheringTarget(item.name);
+    lines.push(
+      `| Building | ${item.name} | ${(gathering / 60).toFixed(1)} min | ` +
+      `${((item.constructionSeconds || 0) / 60).toFixed(1)} min | ${(item.at / 60).toFixed(1)} min | ` +
+      `${gathering <= target.seconds ? `OK (${target.label})` : `OVER ${target.label.toUpperCase()}`} |`
+    );
+  }
+  lines.push(
+    "",
+    "### First-Time Balance Across Successful Strategies",
+    "",
+    "| Type | Name | Average gathering | 90% gathering | Runs | Target |",
+    "|---|---|---:|---:|---:|---|"
+  );
+  const timingGroups = new Map();
+  for (const result of completed) {
+    for (const [type, log] of [["Research", result.researchLog], ["Building", result.buildLog]]) {
+      const seen = new Set();
+      for (const item of log) {
+        const id = `${type}:${item.name}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        if (!timingGroups.has(id)) timingGroups.set(id, { type, name: item.name, values: [] });
+        timingGroups.get(id).values.push(item.gatheringSeconds || 0);
+      }
+    }
+  }
+  for (const group of timingGroups.values()) {
+    const average = group.values.reduce((sum, value) => sum + value, 0) / group.values.length;
+    const p90 = percentile(group.values, 0.9);
+    const target = creativeGatheringTarget(group.name);
+    lines.push(
+      `| ${group.type} | ${group.name} | ${(average / 60).toFixed(1)} min | ` +
+      `${(p90 / 60).toFixed(1)} min | ${group.values.length} | ` +
+      `${average <= target.seconds ? `OK (${target.label})` : `OVER ${target.label.toUpperCase()}`} |`
+    );
+  }
   lines.push("", "## Optimization Suggestions", "");
   recommendations.forEach(item => lines.push(`- ${item}`));
   lines.push(
