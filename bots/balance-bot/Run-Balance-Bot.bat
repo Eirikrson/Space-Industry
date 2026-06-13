@@ -15,6 +15,10 @@ if not exist "%NODE_EXE%" (
 if errorlevel 1 (
   echo.
   echo The Balance Bot stopped with an error.
+<<<<<<< HEAD
   echo Check the newest folder in bots\balance-bot\report\creative or report\survival.
+=======
+  echo Check the newest folder in bots\balance-bot\report for details.
+>>>>>>> a373f3a3ca128732080bbf74356ca97087845da5
   exit /b 1
 )

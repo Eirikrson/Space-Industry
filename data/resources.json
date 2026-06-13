@@ -138,7 +138,7 @@
     ]
   },
   "INITIAL_RESOURCES": {
-    "energy": 50,
+    "energy": 100,
     "energyCap": 0,
     "energyNet": 0,
     "steam": 0,

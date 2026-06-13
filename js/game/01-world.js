@@ -273,7 +273,7 @@ class Ship {
       if (turnInput !== 0) {
         this.angularVelocity += turnInput * 1.2 * turnScale * dt;
         if (!orbitModeActive) {
-          res.fuel = Math.max(0, res.fuel - 0.6 * turnScale * dt);
+          res.fuel = Math.max(0, res.fuel - 0.3 * turnScale * dt);
         }
 
         for (const m of placedModules) {
@@ -759,6 +759,19 @@ class GalaxyPlanet {
     if (p.x < -r*2 || p.x > VIEW.w+r*2 || p.y < -r*2 || p.y > VIEW.h+r*2) return;
 
     const colors = this.def.colors;
+    if (r <= 1.5) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(2, r), 0, Math.PI * 2);
+      ctx.fillStyle = colors[1] || colors[0];
+      ctx.fill();
+      if (r > 5) {
+        ctx.strokeStyle = this.def.atmosphere || "rgba(130,190,255,0.45)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      return;
+    }
+
     // Main body gradient
     const grad = ctx.createRadialGradient(p.x - r*0.3, p.y - r*0.3, r*0.05, p.x, p.y, r);
     grad.addColorStop(0, colors[2]);
@@ -1033,40 +1046,44 @@ class AsteroidBelt {
     const maxR = this.outerR * camera.scale;
     if (starP.x < -maxR*2 || starP.x > VIEW.w+maxR*2 || starP.y < -maxR*2 || starP.y > VIEW.h+maxR*2) return;
 
-    if (camera.scale > 0.25) return;
+    if (camera.scale <= 0.003) return;
 
-    if (camera.scale > 0.003) {
-      ctx.save();
-      ctx.strokeStyle = "rgba(255,255,255,0.45)";
-      ctx.lineWidth = Math.max(1, camera.scale * 2);
-      ctx.setLineDash([8, 10]);
+    ctx.save();
+    ctx.strokeStyle = this.kind === "outer"
+      ? "rgba(120,200,255,0.5)"
+      : "rgba(255,255,255,0.45)";
+    ctx.lineWidth = Math.max(1, Math.min(2, camera.scale * 2));
+    ctx.setLineDash([8, 10]);
+
+    const viewRadius = Math.hypot(VIEW.w, VIEW.h);
+    for (const radius of [this.innerR, this.outerR]) {
+      const radiusPx = radius * camera.scale;
+      if (radiusPx <= viewRadius * 4) {
+        ctx.beginPath();
+        ctx.arc(starP.x, starP.y, radiusPx, 0, Math.PI * 2);
+        ctx.stroke();
+        continue;
+      }
+
+      const cameraDistance = Math.hypot(camera.x - this.star.x, camera.y - this.star.y);
+      const visibleWorldRadius = viewRadius / Math.max(0.001, camera.scale);
+      if (Math.abs(cameraDistance - radius) > visibleWorldRadius) continue;
+
+      const angle = Math.atan2(camera.y - this.star.y, camera.x - this.star.x);
+      const boundary = worldToScreen(
+        this.star.x + Math.cos(angle) * radius,
+        this.star.y + Math.sin(angle) * radius
+      );
+      const tangentX = -Math.sin(angle);
+      const tangentY = Math.cos(angle);
       ctx.beginPath();
-      ctx.arc(starP.x, starP.y, this.innerR * camera.scale, 0, Math.PI * 2);
+      ctx.moveTo(boundary.x - tangentX * viewRadius, boundary.y - tangentY * viewRadius);
+      ctx.lineTo(boundary.x + tangentX * viewRadius, boundary.y + tangentY * viewRadius);
       ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(starP.x, starP.y, this.outerR * camera.scale, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.restore();
     }
 
-    const drawStep = camera.scale < 0.02 ? 5 : camera.scale < 0.05 ? 3 : camera.scale < 0.12 ? 2 : 1;
-    for (let i = 0; i < this.rocks.length; i += drawStep) {
-      const rock = this.rocks[i];
-      const wx = this.star.x + Math.cos(rock.angle) * rock.dist;
-      const wy = this.star.y + Math.sin(rock.angle) * rock.dist;
-      const p = worldToScreen(wx, wy);
-
-      if (p.x < -20 || p.x > VIEW.w+20 || p.y < -20 || p.y > VIEW.h+20) continue;
-
-      const r = rock.size * camera.scale;
-      if (r < 0.3) continue;
-
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, Math.max(0.5, r), 0, Math.PI*2);
-      ctx.fillStyle = rock.isIce ? "#9ee8ff" : "#888888";
-      ctx.fill();
-    }
+    ctx.setLineDash([]);
+    ctx.restore();
   }
 }
 
@@ -1113,6 +1130,18 @@ class GalaxyStar {
     if (p.x < -r*3 || p.x > VIEW.w+r*3 || p.y < -r*3 || p.y > VIEW.h+r*3) return;
 
     const st = this.starType;
+    if (r <= 1.5) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(3, r), 0, Math.PI * 2);
+      ctx.fillStyle = st.color1;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(1.5, r * 0.45), 0, Math.PI * 2);
+      ctx.fillStyle = st.color0;
+      ctx.fill();
+      return;
+    }
+
     // Corona
     const coronaR = r * 2.2;
     const coronaGrad = ctx.createRadialGradient(p.x, p.y, r*0.5, p.x, p.y, coronaR);
@@ -1240,12 +1269,6 @@ function generateGalaxy() {
     solarSystems.push({ star, planets: systemPlanets, belts, innerBelt, outerBelt });
   }
 
-  for (const system of solarSystems) {
-    const beltCount = getSystemBelts(system).reduce((sum, belt) => sum + (belt.rocks.length || 0), 0);
-    spawnAmbientSystemAsteroids(system, Math.max(8, Math.floor(beltCount / 10)));
-  }
-  spawnAmbientGalaxyAsteroids(Math.max(20, NORMAL_SYSTEM_COUNT * 8));
-
   // Player spawn is seed-driven, so two seeds can begin in different systems.
   const startSystemIndex = Math.min(solarSystems.length - 1, Math.floor(rng() * solarSystems.length));
   const startStar = solarSystems[startSystemIndex].star;
@@ -1254,20 +1277,6 @@ function generateGalaxy() {
   ship.y = startStar.y;
   camera.x = ship.x; camera.y = ship.y;
   buildCamera.x = ship.x; buildCamera.y = ship.y;
-
-  // Free-roaming asteroids near player start
-  for (let i = 0; i < WORLD_OBJECTS.ASTEROID_COUNT; i++) {
-    for (let tries = 0; tries < 40; tries++) {
-      const a = rng() * Math.PI * 2;
-      const d = startStar.radius * 4 + rng() * startStar.radius * 14;
-      const ax = startStar.x + Math.cos(a) * d;
-      const ay = startStar.y + Math.sin(a) * d;
-      const ast = new Asteroid(ax, ay);
-      if (isInsideCelestialBody(ast.x, ast.y, ast.size + CONFIG.GRID_SIZE * 2)) continue;
-      asteroids.push(ast);
-      break;
-    }
-  }
 
   // Nebula/dust particles for atmosphere
   generateNebula(rng);
@@ -1356,11 +1365,6 @@ function generateEndGalaxy(rng) {
     solarSystems.push({ star, planets: systemPlanets, belts: [innerBelt, outerBelt], innerBelt, outerBelt });
   }
 
-  for (const system of solarSystems) {
-    const beltCount = getSystemBelts(system).reduce((sum, belt) => sum + (belt.rocks.length || 0), 0);
-    spawnAmbientSystemAsteroids(system, Math.max(12, Math.floor(beltCount / 10)));
-  }
-
   dysonSpheres = {};
   for (const systemIndex of [1, 2]) {
     if (!solarSystems[systemIndex]) continue;
@@ -1371,25 +1375,12 @@ function generateEndGalaxy(rng) {
     };
   }
 
-  spawnAmbientGalaxyAsteroids(36);
-
   const startStar = solarSystems[0].star;
   STAR = startStar;
   ship.x = startStar.x + startStar.radius * 4;
   ship.y = startStar.y;
   camera.x = ship.x; camera.y = ship.y;
   buildCamera.x = ship.x; buildCamera.y = ship.y;
-
-  for (let i = 0; i < WORLD_OBJECTS.ASTEROID_COUNT * 1.4; i++) {
-    for (let tries = 0; tries < 40; tries++) {
-      const a = rng() * Math.PI * 2;
-      const d = startStar.radius * 4 + rng() * startStar.radius * 16;
-      const ast = new Asteroid(startStar.x + Math.cos(a) * d, startStar.y + Math.sin(a) * d);
-      if (isInsideCelestialBody(ast.x, ast.y, ast.size + CONFIG.GRID_SIZE * 2)) continue;
-      asteroids.push(ast);
-      break;
-    }
-  }
 
   generateNebula(rng);
 }
@@ -1500,7 +1491,8 @@ function drawGalaxyBackground() {
   // Galaxy dust toward center
   const cp = worldToScreen(CONFIG.GALAXY_CENTER_X, CONFIG.GALAXY_CENTER_Y);
   const gr = CONFIG.GALAXY_RADIUS * camera.scale;
-  if (gr > 5 && camera.scale <= 0.25) {
+  const maxUsefulGradientRadius = Math.hypot(VIEW.w, VIEW.h) * 1.5;
+  if (gr > 5 && gr <= maxUsefulGradientRadius && camera.scale <= 0.25) {
     const dustGrad = ctx.createRadialGradient(cp.x, cp.y, 0, cp.x, cp.y, gr);
     dustGrad.addColorStop(0, "rgba(180,100,255,0.12)");
     dustGrad.addColorStop(0.3, "rgba(80,40,160,0.06)");

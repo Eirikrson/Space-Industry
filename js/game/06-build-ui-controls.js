@@ -661,9 +661,14 @@ function handlePlayingEscapeKey() {
     return true;
   }
 
-  if (researchWindowOpen || assemblerWindowModule) {
+  if (researchWindowOpen || assemblerWindowModule || smelterWindowModule ||
+      electrolyserWindowModule || fuelProcessorWindowModule || farmWindowModule) {
     researchWindowOpen = false;
     assemblerWindowModule = null;
+    smelterWindowModule = null;
+    electrolyserWindowModule = null;
+    fuelProcessorWindowModule = null;
+    farmWindowModule = null;
     hoveredResearchItem = null;
     playSound("toggle", 120);
     return true;
@@ -800,6 +805,16 @@ window.addEventListener("keydown", e => {
   unlockAudio();
 
   const key = e.key.toLowerCase();
+  const botFlightKeys = new Set(["w", "a", "s", "d", "q", "e", " "]);
+  const botPermission = window.__balanceBotKeyPermission;
+  const botKeyAllowed = botPermission?.type === "keydown" && botPermission.key === key;
+  if (window.__balanceBotInputLock && botFlightKeys.has(key) && !botKeyAllowed) {
+    keys[key] = false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    return;
+  }
+  if (botKeyAllowed) window.__balanceBotKeyPermission = null;
   keys[key] = true;
 
   if (uiDialog) {
@@ -1098,6 +1113,34 @@ window.addEventListener("mousedown", e => {
     }
     if (assemblerWindowModule) return;
 
+    const smelterTarget = getSmelterTargetButtonAt(mouse.x, mouse.y);
+    if (smelterTarget) {
+      setSmelterTarget(smelterTarget);
+      return;
+    }
+    if (smelterWindowModule) return;
+
+    const electrolyserTarget = getElectrolyserTargetButtonAt(mouse.x, mouse.y);
+    if (electrolyserTarget) {
+      setElectrolyserTarget(electrolyserTarget);
+      return;
+    }
+    if (electrolyserWindowModule) return;
+
+    const fuelProcessorTarget = getFuelProcessorTargetButtonAt(mouse.x, mouse.y);
+    if (fuelProcessorTarget) {
+      setFuelProcessorTarget();
+      return;
+    }
+    if (fuelProcessorWindowModule) return;
+
+    const farmTarget = getFarmTargetButtonAt(mouse.x, mouse.y);
+    if (farmTarget) {
+      setFarmTarget();
+      return;
+    }
+    if (farmWindowModule) return;
+
     if (researchWindowOpen) {
       const researchItem = getResearchItemAt(mouse.x, mouse.y);
       if (researchItem) {
@@ -1142,6 +1185,10 @@ window.addEventListener("mousedown", e => {
       if (!buildMode && result && result.module.type === "Laboratory") {
         researchWindowOpen = !researchWindowOpen;
         assemblerWindowModule = null;
+        smelterWindowModule = null;
+        electrolyserWindowModule = null;
+        fuelProcessorWindowModule = null;
+        farmWindowModule = null;
         playSound("toggle", 120);
         flash(researchWindowOpen ? "Research open" : "Research closed");
         return;
@@ -1149,6 +1196,30 @@ window.addEventListener("mousedown", e => {
 
       if (!buildMode && result && result.module.type === "Assembler") {
         openAssemblerSettings(result.module);
+        playSound("toggle", 120);
+        return;
+      }
+
+      if (!buildMode && result && result.module.type === "Smelter") {
+        openSmelterSettings(result.module);
+        playSound("toggle", 120);
+        return;
+      }
+
+      if (!buildMode && result && result.module.type === "Electrolyser") {
+        openElectrolyserSettings(result.module);
+        playSound("toggle", 120);
+        return;
+      }
+
+      if (!buildMode && result && result.module.type === "Fuel Processor") {
+        openFuelProcessorSettings(result.module);
+        playSound("toggle", 120);
+        return;
+      }
+
+      if (!buildMode && result && result.module.type === "Farm Module") {
+        openFarmSettings(result.module);
         playSound("toggle", 120);
         return;
       }

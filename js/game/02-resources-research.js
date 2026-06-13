@@ -46,6 +46,16 @@ function storeResource(key, amount = 1) {
   return 0;
 }
 
+function getResourceStorageFree(key) {
+  if (isLiquidResource(key)) {
+    return Math.max(0, (res[key + "Cap"] || 0) - (res[key] || 0));
+  }
+  if (SOLID_RESOURCES.has(key)) {
+    return Math.max(0, (res.itemCap || 0) - getSolidStorageUsed());
+  }
+  return 0;
+}
+
 function isBuildingUnlocked(type) {
   return adminInstantBuild || type === "Computer" || unlockedResearch.has(type);
 }
@@ -187,6 +197,21 @@ function getAssemblerRecipeKeys() {
   return Object.keys(BUILDING_STATS.Assembler?.recipes || {});
 }
 
+function getSmelterRecipes() {
+  const stats = BUILDING_STATS.Smelter || {};
+  const inputAmount = stats.oreUse || 1;
+  const outputAmount = stats.materialProd || 1;
+  return {
+    ironPlate: { inputs: { ironOre: inputAmount }, outputs: { ironPlate: outputAmount } },
+    copperPlate: { inputs: { copperOre: inputAmount }, outputs: { copperPlate: outputAmount } },
+    silicon: { inputs: { siliconOre: inputAmount }, outputs: { silicon: outputAmount } }
+  };
+}
+
+function getSmelterRecipeKeys() {
+  return Object.keys(getSmelterRecipes());
+}
+
 function getDefaultAssemblerTargets() {
   return Object.fromEntries(getAssemblerRecipeKeys().map(key => [key, 0]));
 }
@@ -195,6 +220,35 @@ function ensureAssemblerTargets(module) {
   const defaults = getDefaultAssemblerTargets();
   module.assemblerTargets = { ...defaults, ...(module.assemblerTargets || {}) };
   return module.assemblerTargets;
+}
+
+function getDefaultSmelterTargets() {
+  return Object.fromEntries(getSmelterRecipeKeys().map(key => [key, 0]));
+}
+
+function ensureSmelterTargets(module) {
+  const defaults = getDefaultSmelterTargets();
+  module.smelterTargets = { ...defaults, ...(module.smelterTargets || {}) };
+  return module.smelterTargets;
+}
+
+function ensureElectrolyserTargets(module) {
+  module.electrolyserTargets = {
+    hydrogen: 0,
+    oxygen: 0,
+    ...(module.electrolyserTargets || {})
+  };
+  return module.electrolyserTargets;
+}
+
+function ensureFuelProcessorTarget(module) {
+  module.fuelProcessorTarget = Math.max(0, Number(module.fuelProcessorTarget) || 0);
+  return module.fuelProcessorTarget;
+}
+
+function ensureFarmTarget(module) {
+  module.farmTarget = Math.max(0, Number(module.farmTarget) || 0);
+  return module.farmTarget;
 }
 
 function formatRecipeResources(resources) {
@@ -377,6 +431,10 @@ function openAssemblerSettings(module) {
   ensureAssemblerTargets(module);
 
   assemblerWindowModule = module;
+  smelterWindowModule = null;
+  electrolyserWindowModule = null;
+  fuelProcessorWindowModule = null;
+  farmWindowModule = null;
   researchWindowOpen = false;
   flash("Assembler settings open");
 }
@@ -425,12 +483,224 @@ function setAssemblerTarget(key) {
   });
 }
 
+function openSmelterSettings(module) {
+  ensureSmelterTargets(module);
+
+  smelterWindowModule = module;
+  assemblerWindowModule = null;
+  electrolyserWindowModule = null;
+  fuelProcessorWindowModule = null;
+  farmWindowModule = null;
+  researchWindowOpen = false;
+  flash("Smelter settings open");
+}
+
+function getSmelterWindowLayout() {
+  const width = 360;
+  const height = 64 + getSmelterRecipeKeys().length * 42;
+  return {
+    x: VIEW.w / 2 - width / 2,
+    y: VIEW.h / 2 - height / 2,
+    width,
+    height,
+    rowH: 34
+  };
+}
+
+function getSmelterTargetButtonAt(mx, my) {
+  if (!smelterWindowModule) return null;
+
+  const layout = getSmelterWindowLayout();
+  const keys = getSmelterRecipeKeys();
+
+  for (let i = 0; i < keys.length; i++) {
+    const y = layout.y + 56 + i * 42;
+    if (
+      mx >= layout.x + 14 &&
+      mx <= layout.x + layout.width - 14 &&
+      my >= y &&
+      my <= y + layout.rowH
+    ) {
+      return keys[i];
+    }
+  }
+
+  return null;
+}
+
+function setSmelterTarget(key) {
+  if (!smelterWindowModule) return;
+
+  const targets = ensureSmelterTargets(smelterWindowModule);
+  openInputDialog(`Target ${formatResourceName(key)}`, "Amount", targets[key] || 0, "number", value => {
+    targets[key] = Math.max(0, Math.floor(Number(value) || 0));
+    smelterWindowModule.smelterTargets = targets;
+    flash("Smelter target updated");
+  });
+}
+
+function getSmelterProduct(module) {
+  const targets = ensureSmelterTargets(module);
+  const recipes = getSmelterRecipes();
+  let best = null;
+  let bestDeficit = 0;
+
+  for (const key of getSmelterRecipeKeys()) {
+    const recipe = recipes[key];
+    const canProduce = Object.entries(recipe?.inputs || {})
+      .every(([inputKey, amount]) => (res[inputKey] || 0) >= Math.min(amount, 0.001));
+    if (!canProduce) continue;
+    const deficit = (targets[key] || 0) - (res[key] || 0);
+    if (deficit > bestDeficit) {
+      best = key;
+      bestDeficit = deficit;
+    }
+  }
+
+  return best;
+}
+
+function openElectrolyserSettings(module) {
+  ensureElectrolyserTargets(module);
+  electrolyserWindowModule = module;
+  fuelProcessorWindowModule = null;
+  farmWindowModule = null;
+  assemblerWindowModule = null;
+  smelterWindowModule = null;
+  researchWindowOpen = false;
+  flash("Electrolyser settings open");
+}
+
+function getElectrolyserWindowLayout() {
+  const width = 380;
+  const height = 64 + 2 * 42;
+  return {
+    x: VIEW.w / 2 - width / 2,
+    y: VIEW.h / 2 - height / 2,
+    width,
+    height,
+    rowH: 34
+  };
+}
+
+function getElectrolyserTargetButtonAt(mx, my) {
+  if (!electrolyserWindowModule) return null;
+  const layout = getElectrolyserWindowLayout();
+  const keys = ["hydrogen", "oxygen"];
+  for (let i = 0; i < keys.length; i++) {
+    const y = layout.y + 56 + i * 42;
+    if (mx >= layout.x + 14 && mx <= layout.x + layout.width - 14 &&
+        my >= y && my <= y + layout.rowH) {
+      return keys[i];
+    }
+  }
+  return null;
+}
+
+function setElectrolyserTarget(key) {
+  if (!electrolyserWindowModule) return;
+  const targets = ensureElectrolyserTargets(electrolyserWindowModule);
+  openInputDialog(`Minimum ${formatResourceName(key)}`, "Amount", targets[key] || 0, "number", value => {
+    targets[key] = Math.max(0, Math.floor(Number(value) || 0));
+    electrolyserWindowModule.electrolyserTargets = targets;
+    flash("Electrolyser minimum updated");
+  });
+}
+
+function openFuelProcessorSettings(module) {
+  ensureFuelProcessorTarget(module);
+  fuelProcessorWindowModule = module;
+  electrolyserWindowModule = null;
+  farmWindowModule = null;
+  assemblerWindowModule = null;
+  smelterWindowModule = null;
+  researchWindowOpen = false;
+  flash("Fuel Processor settings open");
+}
+
+function getFuelProcessorWindowLayout() {
+  const width = 380;
+  const height = 64 + 42;
+  return {
+    x: VIEW.w / 2 - width / 2,
+    y: VIEW.h / 2 - height / 2,
+    width,
+    height,
+    rowH: 34
+  };
+}
+
+function getFuelProcessorTargetButtonAt(mx, my) {
+  if (!fuelProcessorWindowModule) return null;
+  const layout = getFuelProcessorWindowLayout();
+  const y = layout.y + 56;
+  return mx >= layout.x + 14 && mx <= layout.x + layout.width - 14 &&
+    my >= y && my <= y + layout.rowH
+    ? "fuel"
+    : null;
+}
+
+function setFuelProcessorTarget() {
+  if (!fuelProcessorWindowModule) return;
+  const target = ensureFuelProcessorTarget(fuelProcessorWindowModule);
+  openInputDialog("Minimum Fuel", "Amount", target, "number", value => {
+    fuelProcessorWindowModule.fuelProcessorTarget = Math.max(0, Math.floor(Number(value) || 0));
+    flash("Fuel Processor minimum updated");
+  });
+}
+
+function openFarmSettings(module) {
+  ensureFarmTarget(module);
+  farmWindowModule = module;
+  fuelProcessorWindowModule = null;
+  electrolyserWindowModule = null;
+  assemblerWindowModule = null;
+  smelterWindowModule = null;
+  researchWindowOpen = false;
+  flash("Farm settings open");
+}
+
+function getFarmWindowLayout() {
+  const width = 380;
+  const height = 64 + 42;
+  return {
+    x: VIEW.w / 2 - width / 2,
+    y: VIEW.h / 2 - height / 2,
+    width,
+    height,
+    rowH: 34
+  };
+}
+
+function getFarmTargetButtonAt(mx, my) {
+  if (!farmWindowModule) return null;
+  const layout = getFarmWindowLayout();
+  const y = layout.y + 56;
+  return mx >= layout.x + 14 && mx <= layout.x + layout.width - 14 &&
+    my >= y && my <= y + layout.rowH
+    ? "food"
+    : null;
+}
+
+function setFarmTarget() {
+  if (!farmWindowModule) return;
+  const target = ensureFarmTarget(farmWindowModule);
+  openInputDialog("Minimum Food", "Amount", target, "number", value => {
+    farmWindowModule.farmTarget = Math.max(0, Math.floor(Number(value) || 0));
+    flash("Farm minimum updated");
+  });
+}
+
 function getAssemblerProduct(module) {
   const targets = ensureAssemblerTargets(module);
   let best = null;
   let bestDeficit = 0;
 
   for (const key of getAssemblerRecipeKeys()) {
+    const recipe = BUILDING_STATS.Assembler?.recipes?.[key];
+    const canCraft = Object.entries(recipe?.inputs || {})
+      .every(([inputKey, amount]) => (res[inputKey] || 0) >= amount);
+    if (!canCraft) continue;
     const deficit = (targets[key] || 0) - (res[key] || 0);
     if (deficit > bestDeficit) {
       best = key;
@@ -511,7 +781,9 @@ function harvestAsteroid(asteroid) {
     const amount = asteroid.contents[key];
     if (amount > 0) {
       const stored = storeResource(key, amount);
-      asteroid.contents[key] = Math.max(0, amount - stored);
+      asteroid.contents[key] = isLiquidResource(key)
+        ? 0
+        : Math.max(0, amount - stored);
       collected += stored;
     }
   }
@@ -520,6 +792,15 @@ function harvestAsteroid(asteroid) {
   asteroid.totalItems = getAsteroidTotal(asteroid.contents);
   if (asteroid.totalItems <= 0) {
     asteroid.contents = {};
+    if (asteroid._localDynamic && !asteroid._beltDynamic) {
+      nextOpenSpaceAsteroidSpawnAt = Math.max(
+        nextOpenSpaceAsteroidSpawnAt,
+        worldPlayTime + 60
+      );
+    }
     notifyTutorialAsteroidMined();
+    const index = asteroids.indexOf(asteroid);
+    if (index >= 0) asteroids.splice(index, 1);
   }
+  return collected;
 }
