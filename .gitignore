@@ -1,5 +1,17 @@
 Start-Game.bat
+
+# Legacy performance bot output location
 bot/performance-report-latest.md
 bot/performance-data-latest.json
 bot/performance-bot-error-latest.log
 bot/performance-test-save.json
+
+# Performance bot outputs. Source and start files remain versioned.
+/bots/performance-bot/performance-report-latest.md
+/bots/performance-bot/performance-data-latest.json
+/bots/performance-bot/performance-bot-error-latest.log
+/bots/performance-bot/performance-test-save.json
+
+# Balance bot run data. Keep world/NNN.json as the versioned template.
+/bots/balance-bot/report/
+/bots/balance-bot/world/[0-9][0-9][0-9].json

@@ -674,16 +674,16 @@
       "silicon": 2
     },
     "Laboratory": {
-      "ironPlate": 15,
-      "copperPlate": 10
+      "ironOre": 15,
+      "copperOre": 10
     },
     "Smelter": {
-      "ironPlate": 20,
-      "copperPlate": 10
+      "ironOre": 20,
+      "copperOre": 10
     },
     "Drill": {
-      "ironPlate": 25,
-      "copperPlate": 10
+      "ironOre": 25,
+      "copperOre": 10
     },
     "Tank MK1": {
       "ironPlate": 12,
@@ -724,8 +724,7 @@
     },
     "Assembler": {
       "ironPlate": 40,
-      "copperPlate": 20,
-      "gears": 5
+      "copperPlate": 20
     },
     "Hangar MK1": {
       "ironPlate": 30,
@@ -881,14 +880,15 @@
         {
           "name": "Smelter",
           "cost": {
-            "ironPlate": 10,
-            "copperPlate": 5
+            "ironOre": 10,
+            "copperOre": 5
           }
         },
         {
           "name": "Drill",
           "cost": {
-            "ironPlate": 10
+            "ironOre": 10,
+            "copperOre": 5
           }
         },
         {
@@ -906,11 +906,17 @@
           }
         },
         {
+          "name": "Fuel Processor",
+          "cost": {
+            "ironPlate": 30,
+            "copperPlate": 20
+          }
+        },
+        {
           "name": "Computer MK2",
           "cost": {
             "ironPlate": 30,
-            "copperPlate": 20,
-            "circuits": 5
+            "copperPlate": 20
           }
         }
       ]
@@ -922,13 +928,6 @@
           "name": "Assembler",
           "cost": {
             "ironPlate": 40,
-            "copperPlate": 20
-          }
-        },
-        {
-          "name": "Fuel Processor",
-          "cost": {
-            "ironPlate": 30,
             "copperPlate": 20
           }
         },

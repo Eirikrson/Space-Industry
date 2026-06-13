@@ -1,0 +1,12 @@
+{
+  "skill": 100,
+  "visibleWindow": true,
+  "decisionIntervalMs": 2500,
+  "softlockMinutes": 10,
+  "creativeStrategies": 120,
+  "creativeMaxHours": 72,
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  }
+}
