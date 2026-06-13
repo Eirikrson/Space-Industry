@@ -906,6 +906,13 @@
           }
         },
         {
+          "name": "Fuel Processor",
+          "cost": {
+            "ironPlate": 30,
+            "copperPlate": 20
+          }
+        },
+        {
           "name": "Computer MK2",
           "cost": {
             "ironPlate": 30,
@@ -922,13 +929,6 @@
           "name": "Assembler",
           "cost": {
             "ironPlate": 40,
-            "copperPlate": 20
-          }
-        },
-        {
-          "name": "Fuel Processor",
-          "cost": {
-            "ironPlate": 30,
             "copperPlate": 20
           }
         },
@@ -1232,14 +1232,19 @@
       "INPUT Energy        -5/sec",
       "",
       "OUTPUT Hydrogen     +20/sec",
-      "OUTPUT Oxygen       +10/sec"
+      "OUTPUT Oxygen       +10/sec",
+      "",
+      "Click to set minimum amounts.",
+      "Produces both gases until both minimums are reached."
     ],
     "Fuel Processor": [
       "INPUT Hydrogen      -10/sec",
       "INPUT Oxygen        -5/sec",
       "INPUT Energy        -5/sec",
       "",
-      "OUTPUT Fuel         +5/sec"
+      "OUTPUT Fuel         +5/sec",
+      "",
+      "Click to set the minimum Fuel amount."
     ],
     "Asteroid Collector": [
       "INPUT Energy        -1.5/sec",
@@ -1358,7 +1363,9 @@
       "INPUT Energy        -2/sec",
       "INPUT Water         -1/sec",
       "",
-      "OUTPUT Food         +1/sec"
+      "OUTPUT Food         +1/sec",
+      "",
+      "Click to set the minimum Food amount."
     ],
     "Quarters": [
       "Living space for 2 crew.",

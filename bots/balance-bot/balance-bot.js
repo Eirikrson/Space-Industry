@@ -507,6 +507,9 @@ async function prepareBotInterface() {
       research: !!researchWindowOpen,
       assembler: !!assemblerWindowModule,
       smelter: !!smelterWindowModule,
+      electrolyser: !!electrolyserWindowModule,
+      fuelProcessor: !!fuelProcessorWindowModule,
+      farm: !!farmWindowModule,
       turret: !!turretControlWindowOpen,
       map: !!mapVisible,
       build: !!buildMode,
@@ -519,7 +522,8 @@ async function prepareBotInterface() {
     }
     const playerInterfaceOpen = state.build || state.smallShipEditor || state.uiDialog ||
       state.appState === "paused" || state.seedDialog || state.research ||
-      state.assembler || state.smelter || state.turret || state.map;
+      state.assembler || state.smelter || state.electrolyser ||
+      state.fuelProcessor || state.farm || state.turret || state.map;
     if (playerInterfaceOpen) {
       waitingForPlayerInterface = true;
       lastDecision = "Paused while the player uses an open window";
@@ -538,6 +542,9 @@ async function isPlayerInterfaceOpen() {
     !!researchWindowOpen ||
     !!assemblerWindowModule ||
     !!smelterWindowModule ||
+    !!electrolyserWindowModule ||
+    !!fuelProcessorWindowModule ||
+    !!farmWindowModule ||
     !!turretControlWindowOpen ||
     !!mapVisible ||
     !!buildMode ||
@@ -557,12 +564,9 @@ async function readState() {
       if (typeof value === "number") rateCopy[key] = value;
     }
     let lockedAsteroid = window.__balanceBotAsteroidTarget;
-    const fuelInfrastructureComplete =
-      placedModules.some(module => module.type === "Electrolyser" && getModuleHealth(module) > 0) &&
-      placedModules.some(module => module.type === "Fuel Processor" && getModuleHealth(module) > 0);
     const fuelRecoveryActive =
       (res.fuel || 0) < Math.max(45, (res.fuelCap || 100) * 0.75) ||
-      ((res.water || 0) < 20 && !fuelInfrastructureComplete);
+      (res.water || 0) < 20;
     const asteroidRecoveryValue = asteroid => {
       if (!fuelRecoveryActive) return 0;
       const contents = asteroid.contents || {};
@@ -572,27 +576,29 @@ async function readState() {
         (contents.siliconOre || 0) * 2;
     };
     const asteroidDistance = asteroid => Math.hypot(asteroid.x - ship.x, asteroid.y - ship.y);
+    const estimatedAsteroidFuel = asteroid =>
+      Math.max(6, asteroidDistance(asteroid) / 65 + 6);
     const asteroidReachable = asteroid => !!asteroid &&
-      (res.fuel || 0) >= Math.max(3, asteroidDistance(asteroid) / 180 + 3);
+      (res.fuel || 0) >= estimatedAsteroidFuel(asteroid);
     const bestAsteroid = asteroids
       .filter(asteroid => asteroid.totalItems > 0)
       .sort((a, b) =>
         Number(asteroidReachable(b)) - Number(asteroidReachable(a)) ||
-        asteroidRecoveryValue(b) - asteroidRecoveryValue(a) ||
-        asteroidDistance(a) - asteroidDistance(b)
+        (fuelRecoveryActive
+          ? Number(asteroidRecoveryValue(b) > 0) - Number(asteroidRecoveryValue(a) > 0)
+          : 0) ||
+        asteroidDistance(a) - asteroidDistance(b) ||
+        asteroidRecoveryValue(b) - asteroidRecoveryValue(a)
       )[0] || null;
-    const lockedRecoveryValue = lockedAsteroid ? asteroidRecoveryValue(lockedAsteroid) : 0;
-    const betterRecoveryTarget = fuelRecoveryActive &&
+    const betterReachableTarget =
       bestAsteroid &&
       bestAsteroid !== lockedAsteroid &&
       asteroidReachable(bestAsteroid) &&
-      (!asteroidReachable(lockedAsteroid) ||
-        asteroidRecoveryValue(bestAsteroid) > lockedRecoveryValue);
+      !asteroidReachable(lockedAsteroid);
     if (!lockedAsteroid ||
         !asteroids.includes(lockedAsteroid) ||
         lockedAsteroid.totalItems <= 0 ||
-        (fuelRecoveryActive && lockedRecoveryValue <= 0) ||
-        betterRecoveryTarget) {
+        betterReachableTarget) {
       lockedAsteroid = bestAsteroid;
       if (lockedAsteroid && !lockedAsteroid._balanceBotTargetId) {
         window.__balanceBotNextTargetId = (window.__balanceBotNextTargetId || 0) + 1;
@@ -616,7 +622,9 @@ async function readState() {
         ),
         contents: { ...lockedAsteroid.contents },
         totalItems: lockedAsteroid.totalItems,
-        fuelRecoveryValue: asteroidRecoveryValue(lockedAsteroid)
+        fuelRecoveryValue: asteroidRecoveryValue(lockedAsteroid),
+        estimatedFuel: estimatedAsteroidFuel(lockedAsteroid),
+        reachable: asteroidReachable(lockedAsteroid)
       }
       : null;
     const asteroidMining = placedModules.some(module =>
@@ -650,7 +658,10 @@ async function readState() {
       rot: module.rot || 0,
       hp: getModuleHealth(module),
       assemblerTargets: module.assemblerTargets ? { ...module.assemblerTargets } : null,
-      smelterTargets: module.smelterTargets ? { ...module.smelterTargets } : null
+      smelterTargets: module.smelterTargets ? { ...module.smelterTargets } : null,
+      electrolyserTargets: module.electrolyserTargets ? { ...module.electrolyserTargets } : null,
+      fuelProcessorTarget: Number(module.fuelProcessorTarget) || 0,
+      farmTarget: Number(module.farmTarget) || 0
     }));
     const availableResearch = RESEARCH_TIERS.flatMap((tier, tierIndex) =>
       tier.items.map(item => ({
@@ -758,20 +769,131 @@ function getFuelThreshold(state) {
   return Math.max(45, (state.res.fuelCap || 100) * 0.75);
 }
 
+function estimateAsteroidFlightFuel(distance) {
+  return Math.max(6, distance / 65 + 6);
+}
+
+function hasCoreMiningInfrastructure(state) {
+  return moduleCount(state, "Laboratory") > 0 &&
+    state.research.includes("Drill") &&
+    moduleCount(state, "Drill") > 0 &&
+    state.research.includes("Smelter") &&
+    moduleCount(state, "Smelter") > 0;
+}
+
+function getStrategicProductionObjectives(state) {
+  const objectives = [];
+  const addResearch = name => {
+    const item = state.availableResearch.find(candidate => candidate.name === name);
+    if (!item?.visible || item.unlocked) return false;
+    objectives.push({ kind: "research", name, cost: item.cost || {} });
+    return true;
+  };
+  const addBuilding = name => {
+    if (!state.research.includes(name) ||
+        moduleCount(state, name) > 0 ||
+        !state.unlockedBuildings.includes(name)) {
+      return false;
+    }
+    objectives.push({ kind: "building", name, cost: state.buildCosts[name] || {} });
+    return true;
+  };
+
+  if (moduleCount(state, "Laboratory") === 0) {
+    return [{ kind: "building", name: "Laboratory", cost: state.buildCosts.Laboratory || {} }];
+  }
+  if (addResearch("Drill")) {
+    objectives.push({ kind: "building", name: "Drill", cost: state.buildCosts.Drill || {} });
+    return objectives;
+  }
+  if (addBuilding("Drill")) return objectives;
+  if (addResearch("Smelter")) {
+    objectives.push({ kind: "building", name: "Smelter", cost: state.buildCosts.Smelter || {} });
+    return objectives;
+  }
+  if (addBuilding("Smelter")) return objectives;
+
+  const recovery = getFuelRecoveryTarget(state);
+  if (recovery?.kind === "research" || recovery?.kind === "building") {
+    objectives.push(recovery);
+    if (recovery.kind === "research" && state.buildCosts[recovery.name]) {
+      objectives.push({
+        kind: "building",
+        name: recovery.name,
+        cost: state.buildCosts[recovery.name]
+      });
+    }
+    return objectives;
+  }
+
+  const researchName = chooseResearch(state);
+  const research = state.availableResearch.find(candidate => candidate.name === researchName);
+  if (research) {
+    objectives.push({ kind: "research", name: researchName, cost: research.cost || {} });
+    if (state.buildCosts[researchName]) {
+      objectives.push({
+        kind: "building",
+        name: researchName,
+        cost: state.buildCosts[researchName]
+      });
+    }
+  }
+  return objectives;
+}
+
+function getPlannedProductionTargets(state) {
+  const objectives = getStrategicProductionObjectives(state);
+  const requirements = {};
+  for (const objective of objectives) {
+    for (const [key, amount] of Object.entries(objective.cost || {})) {
+      requirements[key] = (requirements[key] || 0) + amount;
+    }
+  }
+
+  const recipes = state.assemblerRecipes || {};
+  const plannedBatches = {};
+  const maximumRecipeDepth = Object.keys(recipes).length + 1;
+  for (let pass = 0; pass < maximumRecipeDepth; pass++) {
+    let changed = false;
+    for (const [key, recipe] of Object.entries(recipes)) {
+      const required = requirements[key] || 0;
+      const missing = Math.max(0, required - (state.res[key] || 0));
+      const outputAmount = Math.max(1, recipe?.outputs?.[key] || 1);
+      const batches = Math.ceil(missing / outputAmount);
+      const additionalBatches = batches - (plannedBatches[key] || 0);
+      if (additionalBatches <= 0) continue;
+      plannedBatches[key] = batches;
+      for (const [input, amount] of Object.entries(recipe?.inputs || {})) {
+        requirements[input] = (requirements[input] || 0) + amount * additionalBatches;
+      }
+      changed = true;
+    }
+    if (!changed) break;
+  }
+
+  return {
+    objectives,
+    assembler: Object.fromEntries(
+      Object.keys(recipes).map(key => [key, Math.ceil(requirements[key] || 0)])
+    ),
+    smelter: {
+      ironPlate: Math.ceil(requirements.ironPlate || 0),
+      copperPlate: Math.ceil(requirements.copperPlate || 0),
+      silicon: Math.ceil(requirements.silicon || 0)
+    }
+  };
+}
+
 function getFuelRecoveryTarget(state) {
-  const fuelInfrastructureComplete =
-    moduleCount(state, "Electrolyser") > 0 &&
-    moduleCount(state, "Fuel Processor") > 0;
+  if (!hasCoreMiningInfrastructure(state)) return null;
   const waterReserveLow = (state.res.water || 0) < 20;
-  if ((state.res.fuel || 0) >= getFuelThreshold(state) &&
-      (!waterReserveLow || fuelInfrastructureComplete)) {
+  if ((state.res.fuel || 0) >= getFuelThreshold(state) && !waterReserveLow) {
     return null;
   }
   const priorities = [
     ...((state.res.fuelCap || 0) > 0 ? [] : ["Tank MK1"]),
     "Smelter",
     "Electrolyser",
-    "Computer MK2",
     "Fuel Processor"
   ];
   for (const name of priorities) {
@@ -900,8 +1022,13 @@ function createGoalQueue(state) {
       needsMaterials &&
       !goals.some(goal => goal.action === "Approach resource asteroid") &&
       !(state.commitPending || state.blueprints > 0)) {
-    if (state.nearestAsteroid && state.nearestAsteroid.distance > 5 * 40) {
+    if (state.nearestAsteroid?.reachable && state.nearestAsteroid.distance > 5 * 40) {
       goals.unshift({ action: "Approach resource asteroid", reason: "Reach the required materials" });
+    } else if (state.nearestAsteroid && !state.nearestAsteroid.reachable) {
+      goals.unshift({
+        action: "Preserve fuel",
+        reason: `Nearest asteroid needs about ${Math.ceil(state.nearestAsteroid.estimatedFuel)} Fuel`
+      });
     } else if (!state.nearestAsteroid && !state.position.inBelt && state.nearestBelt) {
       goals.unshift({ action: "Fly to asteroid belt", reason: "Find the required materials" });
     } else if (!state.nearestAsteroid && state.position.inBelt) {
@@ -1044,6 +1171,15 @@ async function clickPoint(point) {
   await page.mouse.move(point.x, point.y, { steps: config.skill >= 80 ? 2 : 5 });
   await delay(Math.max(35, 240 - config.skill * 2));
   await page.mouse.click(point.x, point.y);
+}
+
+async function replaceDialogValue(value) {
+  await page.keyboard.press("Home");
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("End");
+  await page.keyboard.up("Shift");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.type(String(value));
 }
 
 async function allowBotFlightKey(key) {
@@ -1625,7 +1761,7 @@ async function steerTowardTarget(targetKind, maximumMs) {
 
 async function approachAsteroid(state) {
   if (!state.nearestAsteroid || state.res.fuel <= 2) return false;
-  const estimatedFuel = Math.max(3, state.nearestAsteroid.distance / 180 + 3);
+  const estimatedFuel = estimateAsteroidFlightFuel(state.nearestAsteroid.distance);
   const fuelRecoveryActive = !!getFuelRecoveryTarget(state);
   if (state.res.fuel < estimatedFuel) {
     lastDecision = `Waiting for a reachable fuel recovery target`;
@@ -1695,17 +1831,16 @@ async function approachBlackHole() {
 async function setAssemblerTargets(state) {
   const assembler = state.modules.find(module => module.type === "Assembler");
   if (!assembler) return false;
-  const desired = {
-    gears: 30,
-    cables: 40,
-    circuits: 40,
-    ammo: moduleCount(state, "Gun Turret") > 0 ? 100 : 20,
-    cannonBalls: moduleCount(state, "Cannon Turret") > 0 ? 80 : 0,
-    railgunRods: moduleCount(state, "Railgun Turret") > 0 ? 30 : 0,
-    rocketAmmunition: moduleCount(state, "Missile Turret") > 0 ? 30 : 0
-  };
+  const plan = getPlannedProductionTargets(state);
+  const desired = { ...plan.assembler };
+  if (moduleCount(state, "Gun Turret") > 0) desired.ammo = Math.max(desired.ammo || 0, 100);
+  if (moduleCount(state, "Cannon Turret") > 0) desired.cannonBalls = Math.max(desired.cannonBalls || 0, 80);
+  if (moduleCount(state, "Railgun Turret") > 0) desired.railgunRods = Math.max(desired.railgunRods || 0, 30);
+  if (moduleCount(state, "Missile Turret") > 0) {
+    desired.rocketAmmunition = Math.max(desired.rocketAmmunition || 0, 30);
+  }
   const target = Object.entries(desired).find(([key, value]) =>
-    value > 0 && (assembler.assemblerTargets?.[key] || 0) !== value
+    (assembler.assemblerTargets?.[key] || 0) !== value
   );
   if (!target) return false;
 
@@ -1731,12 +1866,16 @@ async function setAssemblerTargets(state) {
     return false;
   }
   await clickPoint(rowPoint);
-  await page.keyboard.press("Control+A");
-  await page.keyboard.type(String(value));
+  await replaceDialogValue(value);
   await page.keyboard.press("Enter");
   await page.keyboard.press("Escape");
   lastDecision = `Setting ${key} production target to ${value}`;
-  logEvent("decision", { decision: "assembler-target", resource: key, target: value });
+  logEvent("decision", {
+    decision: "assembler-target",
+    resource: key,
+    target: value,
+    plannedFor: plan.objectives.map(objective => `${objective.kind}:${objective.name}`)
+  });
   countAction("assembler-target");
   return true;
 }
@@ -1744,11 +1883,8 @@ async function setAssemblerTargets(state) {
 async function setSmelterTargets(state) {
   const smelter = state.modules.find(module => module.type === "Smelter");
   if (!smelter) return false;
-  const desired = {
-    ironPlate: 60,
-    copperPlate: 60,
-    silicon: 40
-  };
+  const plan = getPlannedProductionTargets(state);
+  const desired = plan.smelter;
   const target = Object.entries(desired).find(([key, value]) =>
     (smelter.smelterTargets?.[key] || 0) !== value
   );
@@ -1776,13 +1912,119 @@ async function setSmelterTargets(state) {
     return false;
   }
   await clickPoint(rowPoint);
-  await page.keyboard.press("Control+A");
-  await page.keyboard.type(String(value));
+  await replaceDialogValue(value);
   await page.keyboard.press("Enter");
   await page.keyboard.press("Escape");
   lastDecision = `Setting ${key} smelting target to ${value}`;
-  logEvent("decision", { decision: "smelter-target", resource: key, target: value });
+  logEvent("decision", {
+    decision: "smelter-target",
+    resource: key,
+    target: value,
+    plannedFor: plan.objectives.map(objective => `${objective.kind}:${objective.name}`)
+  });
   countAction("smelter-target");
+  return true;
+}
+
+async function setElectrolyserTargets(state) {
+  const electrolyser = state.modules.find(module => module.type === "Electrolyser");
+  if (!electrolyser) return false;
+  const desired = { hydrogen: 100, oxygen: 50 };
+  const target = Object.entries(desired).find(([key, value]) =>
+    (electrolyser.electrolyserTargets?.[key] || 0) !== value
+  );
+  if (!target) return false;
+
+  const [key, value] = target;
+  const modulePoint = await page.evaluate(id => {
+    const module = placedModules.find(candidate => candidate.id === id);
+    if (!module) return null;
+    const world = moduleWorldCenter(module);
+    return worldToScreen(world.x, world.y);
+  }, electrolyser.id);
+  if (!modulePoint) return false;
+  await clickPoint(modulePoint);
+  const rowPoint = await page.evaluate(targetKey => {
+    const layout = getElectrolyserWindowLayout();
+    const index = ["hydrogen", "oxygen"].indexOf(targetKey);
+    return index < 0 ? null : {
+      x: layout.x + layout.width / 2,
+      y: layout.y + 56 + index * 42 + layout.rowH / 2
+    };
+  }, key);
+  if (!rowPoint) {
+    await page.keyboard.press("Escape");
+    return false;
+  }
+  await clickPoint(rowPoint);
+  await replaceDialogValue(value);
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Escape");
+  lastDecision = `Setting ${key} minimum to ${value}`;
+  logEvent("decision", { decision: "electrolyser-target", resource: key, target: value });
+  countAction("electrolyser-target");
+  return true;
+}
+
+async function setFuelProcessorTarget(state) {
+  const processor = state.modules.find(module => module.type === "Fuel Processor");
+  if (!processor) return false;
+  const desired = Math.max(75, Math.floor((state.res.fuelCap || 100) * 0.9));
+  if ((processor.fuelProcessorTarget || 0) === desired) return false;
+
+  const modulePoint = await page.evaluate(id => {
+    const module = placedModules.find(candidate => candidate.id === id);
+    if (!module) return null;
+    const world = moduleWorldCenter(module);
+    return worldToScreen(world.x, world.y);
+  }, processor.id);
+  if (!modulePoint) return false;
+  await clickPoint(modulePoint);
+  const rowPoint = await page.evaluate(() => {
+    const layout = getFuelProcessorWindowLayout();
+    return {
+      x: layout.x + layout.width / 2,
+      y: layout.y + 56 + layout.rowH / 2
+    };
+  });
+  await clickPoint(rowPoint);
+  await replaceDialogValue(desired);
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Escape");
+  lastDecision = `Setting fuel minimum to ${desired}`;
+  logEvent("decision", { decision: "fuel-processor-target", resource: "fuel", target: desired });
+  countAction("fuel-processor-target");
+  return true;
+}
+
+async function setFarmTarget(state) {
+  const farm = state.modules.find(module => module.type === "Farm Module");
+  if (!farm) return false;
+  const desired = Math.max(40, Math.min(state.res.foodCap || 200, (state.res.crew || 1) * 30));
+  if ((farm.farmTarget || 0) === desired) return false;
+
+  const modulePoint = await page.evaluate(id => {
+    const module = placedModules.find(candidate => candidate.id === id);
+    if (!module) return null;
+    const world = moduleWorldCenter(module);
+    return worldToScreen(world.x, world.y);
+  }, farm.id);
+  if (!modulePoint) return false;
+  await clickPoint(modulePoint);
+  const rowPoint = await page.evaluate(() => {
+    const layout = getFarmWindowLayout();
+    return {
+      x: layout.x + layout.width / 2,
+      y: layout.y + 56 + layout.rowH / 2
+    };
+  });
+  await clickPoint(rowPoint);
+  await replaceDialogValue(desired);
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Escape");
+  lastDecision = `Setting food minimum to ${desired}`;
+  logEvent("decision", { decision: "farm-target", resource: "food", target: desired });
+  countAction("farm-target");
   return true;
 }
 
@@ -1818,7 +2060,7 @@ async function handleFuelRecovery(state) {
 
 function chooseResearch(state) {
   const priorities = [
-    "Drill", "Smelter", "Electrolyser", "Computer MK2", "Fuel Processor",
+    "Drill", "Smelter", "Electrolyser", "Fuel Processor", "Computer MK2",
     "Tank MK1", "Assembler", "Main Thruster", "Battery MK1", "Reactor", "Turbine",
     "Hangar MK1", "Computer MK3", "Warehouse MK2", "Tank MK2", "Gun Turret",
     "Shield Generator", "Condenser Turbine", "Scooper", "Solar Wind Collector",
@@ -1908,11 +2150,9 @@ async function decide(state) {
   }
 
   if (await setSmelterTargets(state)) return true;
-
-  const fuelRecovery = await handleFuelRecovery(state);
-  if (fuelRecovery.acted || fuelRecovery.wait) return fuelRecovery.acted;
-
-  if (!fuelRecovery.active && await setAssemblerTargets(state)) return true;
+  if (await setElectrolyserTargets(state)) return true;
+  if (await setFuelProcessorTarget(state)) return true;
+  if (await setFarmTarget(state)) return true;
 
   if (state.readiness.energy &&
       state.readiness.stabilizer &&
@@ -1945,7 +2185,33 @@ async function decide(state) {
     return false;
   }
 
-  const research = fuelRecovery.active ? null : chooseResearch(state);
+  let blockedProgressionGoal = null;
+  if (!state.research.includes("Smelter")) {
+    const item = state.availableResearch.find(candidate => candidate.name === "Smelter");
+    markIntent("research", "Smelter", state, !!item?.affordable);
+    if (item?.affordable && await researchTechnology(state, "Smelter")) return true;
+    lastDecision = "Collecting ore to research the Smelter";
+    blockedProgressionGoal = { kind: "research", name: "Smelter" };
+  } else if (moduleCount(state, "Smelter") === 0) {
+    const affordable = hasResources(state, state.buildCosts.Smelter);
+    markIntent("buildings", "Smelter", state, affordable);
+    if (affordable && await buildBuilding(state, "Smelter")) return true;
+    lastDecision = "Collecting ore to build the Smelter";
+    blockedProgressionGoal = { kind: "building", name: "Smelter" };
+  }
+
+  const fuelRecovery = blockedProgressionGoal
+    ? { active: false, acted: false, wait: false }
+    : await handleFuelRecovery(state);
+  if (fuelRecovery.acted || fuelRecovery.wait) return fuelRecovery.acted;
+
+  if (!blockedProgressionGoal &&
+      !fuelRecovery.active &&
+      await setAssemblerTargets(state)) {
+    return true;
+  }
+
+  const research = blockedProgressionGoal || fuelRecovery.active ? null : chooseResearch(state);
   if (research) {
     const item = state.availableResearch.find(candidate => candidate.name === research);
     const canUseLaboratory = moduleCount(state, "Laboratory") > 0;
@@ -1954,7 +2220,7 @@ async function decide(state) {
     lastDecision = `Collecting materials for research: ${research}`;
   }
 
-  const building = fuelRecovery.active ? null : chooseBuildingGoal(state);
+  const building = blockedProgressionGoal || fuelRecovery.active ? null : chooseBuildingGoal(state);
   if (building) {
     const affordable = hasResources(state, state.buildCosts[building]);
     markIntent("buildings", building, state, affordable);
@@ -1963,7 +2229,9 @@ async function decide(state) {
   }
 
   const hasOperationalDrill = moduleCount(state, "Drill") > 0;
-  const minimumFlightFuel = fuelRecovery.active ? 2 : getFuelThreshold(state);
+  const minimumFlightFuel = blockedProgressionGoal || fuelRecovery.active
+    ? 2
+    : getFuelThreshold(state);
   if (hasOperationalDrill &&
       state.nearestAsteroid &&
       !state.asteroidMining &&

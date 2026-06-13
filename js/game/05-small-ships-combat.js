@@ -103,6 +103,9 @@ function openTurretControlWindow() {
   mouseDown = false;
   assemblerWindowModule = null;
   smelterWindowModule = null;
+  electrolyserWindowModule = null;
+  fuelProcessorWindowModule = null;
+  farmWindowModule = null;
   researchWindowOpen = false;
   playSound("toggle", 120);
 }

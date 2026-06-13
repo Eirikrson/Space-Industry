@@ -46,6 +46,16 @@ function storeResource(key, amount = 1) {
   return 0;
 }
 
+function getResourceStorageFree(key) {
+  if (isLiquidResource(key)) {
+    return Math.max(0, (res[key + "Cap"] || 0) - (res[key] || 0));
+  }
+  if (SOLID_RESOURCES.has(key)) {
+    return Math.max(0, (res.itemCap || 0) - getSolidStorageUsed());
+  }
+  return 0;
+}
+
 function isBuildingUnlocked(type) {
   return adminInstantBuild || type === "Computer" || unlockedResearch.has(type);
 }
@@ -220,6 +230,25 @@ function ensureSmelterTargets(module) {
   const defaults = getDefaultSmelterTargets();
   module.smelterTargets = { ...defaults, ...(module.smelterTargets || {}) };
   return module.smelterTargets;
+}
+
+function ensureElectrolyserTargets(module) {
+  module.electrolyserTargets = {
+    hydrogen: 0,
+    oxygen: 0,
+    ...(module.electrolyserTargets || {})
+  };
+  return module.electrolyserTargets;
+}
+
+function ensureFuelProcessorTarget(module) {
+  module.fuelProcessorTarget = Math.max(0, Number(module.fuelProcessorTarget) || 0);
+  return module.fuelProcessorTarget;
+}
+
+function ensureFarmTarget(module) {
+  module.farmTarget = Math.max(0, Number(module.farmTarget) || 0);
+  return module.farmTarget;
 }
 
 function formatRecipeResources(resources) {
@@ -403,6 +432,9 @@ function openAssemblerSettings(module) {
 
   assemblerWindowModule = module;
   smelterWindowModule = null;
+  electrolyserWindowModule = null;
+  fuelProcessorWindowModule = null;
+  farmWindowModule = null;
   researchWindowOpen = false;
   flash("Assembler settings open");
 }
@@ -456,6 +488,9 @@ function openSmelterSettings(module) {
 
   smelterWindowModule = module;
   assemblerWindowModule = null;
+  electrolyserWindowModule = null;
+  fuelProcessorWindowModule = null;
+  farmWindowModule = null;
   researchWindowOpen = false;
   flash("Smelter settings open");
 }
@@ -523,6 +558,137 @@ function getSmelterProduct(module) {
   }
 
   return best;
+}
+
+function openElectrolyserSettings(module) {
+  ensureElectrolyserTargets(module);
+  electrolyserWindowModule = module;
+  fuelProcessorWindowModule = null;
+  farmWindowModule = null;
+  assemblerWindowModule = null;
+  smelterWindowModule = null;
+  researchWindowOpen = false;
+  flash("Electrolyser settings open");
+}
+
+function getElectrolyserWindowLayout() {
+  const width = 380;
+  const height = 64 + 2 * 42;
+  return {
+    x: VIEW.w / 2 - width / 2,
+    y: VIEW.h / 2 - height / 2,
+    width,
+    height,
+    rowH: 34
+  };
+}
+
+function getElectrolyserTargetButtonAt(mx, my) {
+  if (!electrolyserWindowModule) return null;
+  const layout = getElectrolyserWindowLayout();
+  const keys = ["hydrogen", "oxygen"];
+  for (let i = 0; i < keys.length; i++) {
+    const y = layout.y + 56 + i * 42;
+    if (mx >= layout.x + 14 && mx <= layout.x + layout.width - 14 &&
+        my >= y && my <= y + layout.rowH) {
+      return keys[i];
+    }
+  }
+  return null;
+}
+
+function setElectrolyserTarget(key) {
+  if (!electrolyserWindowModule) return;
+  const targets = ensureElectrolyserTargets(electrolyserWindowModule);
+  openInputDialog(`Minimum ${formatResourceName(key)}`, "Amount", targets[key] || 0, "number", value => {
+    targets[key] = Math.max(0, Math.floor(Number(value) || 0));
+    electrolyserWindowModule.electrolyserTargets = targets;
+    flash("Electrolyser minimum updated");
+  });
+}
+
+function openFuelProcessorSettings(module) {
+  ensureFuelProcessorTarget(module);
+  fuelProcessorWindowModule = module;
+  electrolyserWindowModule = null;
+  farmWindowModule = null;
+  assemblerWindowModule = null;
+  smelterWindowModule = null;
+  researchWindowOpen = false;
+  flash("Fuel Processor settings open");
+}
+
+function getFuelProcessorWindowLayout() {
+  const width = 380;
+  const height = 64 + 42;
+  return {
+    x: VIEW.w / 2 - width / 2,
+    y: VIEW.h / 2 - height / 2,
+    width,
+    height,
+    rowH: 34
+  };
+}
+
+function getFuelProcessorTargetButtonAt(mx, my) {
+  if (!fuelProcessorWindowModule) return null;
+  const layout = getFuelProcessorWindowLayout();
+  const y = layout.y + 56;
+  return mx >= layout.x + 14 && mx <= layout.x + layout.width - 14 &&
+    my >= y && my <= y + layout.rowH
+    ? "fuel"
+    : null;
+}
+
+function setFuelProcessorTarget() {
+  if (!fuelProcessorWindowModule) return;
+  const target = ensureFuelProcessorTarget(fuelProcessorWindowModule);
+  openInputDialog("Minimum Fuel", "Amount", target, "number", value => {
+    fuelProcessorWindowModule.fuelProcessorTarget = Math.max(0, Math.floor(Number(value) || 0));
+    flash("Fuel Processor minimum updated");
+  });
+}
+
+function openFarmSettings(module) {
+  ensureFarmTarget(module);
+  farmWindowModule = module;
+  fuelProcessorWindowModule = null;
+  electrolyserWindowModule = null;
+  assemblerWindowModule = null;
+  smelterWindowModule = null;
+  researchWindowOpen = false;
+  flash("Farm settings open");
+}
+
+function getFarmWindowLayout() {
+  const width = 380;
+  const height = 64 + 42;
+  return {
+    x: VIEW.w / 2 - width / 2,
+    y: VIEW.h / 2 - height / 2,
+    width,
+    height,
+    rowH: 34
+  };
+}
+
+function getFarmTargetButtonAt(mx, my) {
+  if (!farmWindowModule) return null;
+  const layout = getFarmWindowLayout();
+  const y = layout.y + 56;
+  return mx >= layout.x + 14 && mx <= layout.x + layout.width - 14 &&
+    my >= y && my <= y + layout.rowH
+    ? "food"
+    : null;
+}
+
+function setFarmTarget() {
+  if (!farmWindowModule) return;
+  const target = ensureFarmTarget(farmWindowModule);
+  openInputDialog("Minimum Food", "Amount", target, "number", value => {
+    farmWindowModule.farmTarget = Math.max(0, Math.floor(Number(value) || 0));
+    flash("Farm minimum updated");
+  });
 }
 
 function getAssemblerProduct(module) {
@@ -626,6 +792,12 @@ function harvestAsteroid(asteroid) {
   asteroid.totalItems = getAsteroidTotal(asteroid.contents);
   if (asteroid.totalItems <= 0) {
     asteroid.contents = {};
+    if (asteroid._localDynamic && !asteroid._beltDynamic) {
+      nextOpenSpaceAsteroidSpawnAt = Math.max(
+        nextOpenSpaceAsteroidSpawnAt,
+        worldPlayTime + 60
+      );
+    }
     notifyTutorialAsteroidMined();
     const index = asteroids.indexOf(asteroid);
     if (index >= 0) asteroids.splice(index, 1);

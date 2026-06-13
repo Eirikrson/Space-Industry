@@ -145,6 +145,9 @@ function isTutorialFlightUiClear(options = {}) {
     !researchWindowOpen &&
     !assemblerWindowModule &&
     !smelterWindowModule &&
+    !electrolyserWindowModule &&
+    !fuelProcessorWindowModule &&
+    !farmWindowModule &&
     !turretControlWindowOpen &&
     !activeSmallShipEdit &&
     !dysonPanelOpen &&

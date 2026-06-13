@@ -1302,6 +1302,9 @@ function drawUI() {
   drawResearchWindow();
   drawAssemblerWindow();
   drawSmelterWindow();
+  drawElectrolyserWindow();
+  drawFuelProcessorWindow();
+  drawFarmWindow();
   drawTurretControlWindow();
 
   if (flashMessages.length > 0) {
@@ -1758,6 +1761,103 @@ function drawSmelterWindow() {
       getSmelterRecipes()[hoveredKey]
     );
   }
+}
+
+function drawElectrolyserWindow() {
+  if (!electrolyserWindowModule) return;
+  const targets = ensureElectrolyserTargets(electrolyserWindowModule);
+  const layout = getElectrolyserWindowLayout();
+  const rows = ["hydrogen", "oxygen"];
+
+  drawProductionTargetWindowFrame(
+    layout,
+    "ELECTROLYSER MINIMUMS",
+    "Produces both until both minimums are reached"
+  );
+  for (let i = 0; i < rows.length; i++) {
+    drawProductionTargetRow(layout, i, rows[i], targets[rows[i]] || 0);
+  }
+
+  const hoveredKey = getElectrolyserTargetButtonAt(mouse.x, mouse.y);
+  if (hoveredKey) {
+    drawMachineRecipeTooltip("Electrolysis", {
+      inputs: { water: BUILDING_STATS.Electrolyser.waterUse },
+      outputs: {
+        hydrogen: BUILDING_STATS.Electrolyser.hydrogenProd,
+        oxygen: BUILDING_STATS.Electrolyser.oxygenProd
+      }
+    });
+  }
+}
+
+function drawFuelProcessorWindow() {
+  if (!fuelProcessorWindowModule) return;
+  const layout = getFuelProcessorWindowLayout();
+  const target = ensureFuelProcessorTarget(fuelProcessorWindowModule);
+
+  drawProductionTargetWindowFrame(layout, "FUEL PROCESSOR MINIMUM", "Stops when the Fuel minimum is reached");
+  drawProductionTargetRow(layout, 0, "fuel", target);
+
+  if (getFuelProcessorTargetButtonAt(mouse.x, mouse.y)) {
+    drawMachineRecipeTooltip("Fuel", {
+      inputs: {
+        hydrogen: BUILDING_STATS["Fuel Processor"].hydrogenUse,
+        oxygen: BUILDING_STATS["Fuel Processor"].oxygenUse
+      },
+      outputs: { fuel: BUILDING_STATS["Fuel Processor"].fuelProd }
+    });
+  }
+}
+
+function drawFarmWindow() {
+  if (!farmWindowModule) return;
+  const layout = getFarmWindowLayout();
+  const target = ensureFarmTarget(farmWindowModule);
+
+  drawProductionTargetWindowFrame(layout, "FARM MINIMUM", "Stops when the Food minimum is reached");
+  drawProductionTargetRow(layout, 0, "food", target);
+
+  if (getFarmTargetButtonAt(mouse.x, mouse.y)) {
+    drawMachineRecipeTooltip("Food", {
+      inputs: { water: BUILDING_STATS["Farm Module"].waterUse },
+      outputs: { food: BUILDING_STATS["Farm Module"].foodProd }
+    });
+  }
+}
+
+function drawProductionTargetWindowFrame(layout, title, subtitle) {
+  ctx.fillStyle = "rgba(4, 10, 30, 0.94)";
+  ctx.fillRect(layout.x, layout.y, layout.width, layout.height);
+  ctx.strokeStyle = "rgba(100,150,255,0.7)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(layout.x, layout.y, layout.width, layout.height);
+
+  ctx.fillStyle = "#88aaff";
+  ctx.font = "bold 12px Consolas, monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(title, layout.x + 14, layout.y + 16);
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.font = "10px Consolas, monospace";
+  ctx.fillText(subtitle, layout.x + 14, layout.y + 34);
+  ctx.textAlign = "right";
+  ctx.fillText("[ESC] close", layout.x + layout.width - 14, layout.y + 16);
+}
+
+function drawProductionTargetRow(layout, index, key, value) {
+  const y = layout.y + 56 + index * 42;
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.fillRect(layout.x + 14, y, layout.width - 28, layout.rowH);
+  ctx.strokeStyle = "rgba(100,150,255,0.65)";
+  ctx.strokeRect(layout.x + 14, y, layout.width - 28, layout.rowH);
+
+  drawResourceIcon(key, layout.x + 24, y + layout.rowH / 2, 14);
+  ctx.fillStyle = "white";
+  ctx.font = "13px Consolas, monospace";
+  ctx.textAlign = "left";
+  ctx.fillText(formatResourceName(key), layout.x + 48, y + layout.rowH / 2);
+  ctx.textAlign = "right";
+  ctx.fillText(String(value), layout.x + layout.width - 28, y + layout.rowH / 2);
 }
 
 function drawMachineRecipeTooltip(title, recipe) {

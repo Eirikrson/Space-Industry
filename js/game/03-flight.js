@@ -555,7 +555,6 @@ function updateDynamicBeltAsteroids() {
     const asteroid = createDynamicLocalAsteroid(activeBelt, 65);
     if (asteroid) {
       asteroids.push(asteroid);
-      if (!activeBelt) nextOpenSpaceAsteroidSpawnAt = worldPlayTime + 60;
     }
   }
 }

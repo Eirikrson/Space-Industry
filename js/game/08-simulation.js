@@ -379,6 +379,7 @@ function updateResources(dt) {
     if (stats.energyCap) res.energyCap += stats.energyCap;
     if (stats.crewCap) res.crewCap += stats.crewCap;
     if (stats.itemCap) res.itemCap += stats.itemCap;
+    if (stats.steamCap) res.steamCap += stats.steamCap;
     if (stats.energyProdBase) solarEnergyProdBase += stats.energyProdBase;
     if (m.type === "Asteroid Collector") asteroidCollectorCount++;
   }
@@ -421,9 +422,13 @@ function updateResources(dt) {
     }
 
     if (m.type === "Reactor" && res.uranium >= stats.uraniumUse * dt && res.water >= stats.waterUse * dt) {
-      res.uranium -= stats.uraniumUse * dt;
-      res.water -= stats.waterUse * dt;
-      res.steam = Math.min(res.steamCap || 1000, res.steam + stats.steamProd * dt);
+      const steamAmount = Math.min(stats.steamProd * dt, getResourceStorageFree("steam"));
+      if (steamAmount > 0) {
+        const productionScale = steamAmount / Math.max(0.001, stats.steamProd * dt);
+        res.uranium -= stats.uraniumUse * dt * productionScale;
+        res.water -= stats.waterUse * dt * productionScale;
+        storeResource("steam", steamAmount);
+      }
     }
 
     if (m.type === "Fusion Reactor") {
@@ -431,33 +436,64 @@ function updateResources(dt) {
       const fusionFuelUse = fusionFuel === "helium3" ? stats.helium3Use : stats.tritiumUse;
 
       if (res.deuterium >= stats.deuteriumUse * dt && res[fusionFuel] >= fusionFuelUse * dt && res.water >= stats.waterUse * dt) {
-      res.deuterium -= stats.deuteriumUse * dt;
-      res[fusionFuel] -= fusionFuelUse * dt;
-      res.water -= stats.waterUse * dt;
-      res.steam = Math.min(res.steamCap || 4000, res.steam + stats.steamProd * dt);
+        const steamAmount = Math.min(stats.steamProd * dt, getResourceStorageFree("steam"));
+        if (steamAmount > 0) {
+          const productionScale = steamAmount / Math.max(0.001, stats.steamProd * dt);
+          res.deuterium -= stats.deuteriumUse * dt * productionScale;
+          res[fusionFuel] -= fusionFuelUse * dt * productionScale;
+          res.water -= stats.waterUse * dt * productionScale;
+          storeResource("steam", steamAmount);
+        }
       }
     }
 
     if (m.type === "Condenser Turbine" && res.steam >= stats.steamUse * dt) {
-      const steam = Math.min(stats.steamUse * dt, res.steam);
-      res.steam -= steam;
-      eProd += stats.energyProd * (steam / (stats.steamUse * dt));
-      storeResource("water", stats.waterProd * dt);
-      m._machineActive = "turbine";
+      const waterAmount = Math.min(stats.waterProd * dt, getResourceStorageFree("water"));
+      if (waterAmount > 0) {
+        const productionScale = waterAmount / Math.max(0.001, stats.waterProd * dt);
+        const steam = Math.min(stats.steamUse * dt * productionScale, res.steam);
+        res.steam -= steam;
+        eProd += stats.energyProd * (steam / (stats.steamUse * dt));
+        storeResource("water", waterAmount);
+        m._machineActive = "turbine";
+      }
     }
 
     if (m.type === "Electrolyser" && canUsePower(m) && res.water >= stats.waterUse * dt) {
-      res.water -= stats.waterUse * dt;
-      res.hydrogen = Math.min(res.hydrogenCap || 999, res.hydrogen + stats.hydrogenProd * dt);
-      res.oxygen = Math.min(res.oxygenCap || 999, res.oxygen + stats.oxygenProd * dt);
-      eUse += stats.energyUse;
+      const targets = ensureElectrolyserTargets(m);
+      const needsHydrogen = (res.hydrogen || 0) < (targets.hydrogen || 0);
+      const needsOxygen = (res.oxygen || 0) < (targets.oxygen || 0);
+      if (needsHydrogen || needsOxygen) {
+        const productionScale = Math.min(
+          1,
+          getResourceStorageFree("hydrogen") / Math.max(0.001, stats.hydrogenProd * dt),
+          getResourceStorageFree("oxygen") / Math.max(0.001, stats.oxygenProd * dt)
+        );
+        if (productionScale > 0) {
+          res.water -= stats.waterUse * dt * productionScale;
+          storeResource("hydrogen", stats.hydrogenProd * dt * productionScale);
+          storeResource("oxygen", stats.oxygenProd * dt * productionScale);
+          eUse += stats.energyUse;
+          m._machineActive = "electrolyser";
+        }
+      }
     }
 
     if (m.type === "Fuel Processor" && canUsePower(m) && res.hydrogen >= stats.hydrogenUse * dt && res.oxygen >= stats.oxygenUse * dt) {
-      res.hydrogen -= stats.hydrogenUse * dt;
-      res.oxygen -= stats.oxygenUse * dt;
-      res.fuel = Math.min(res.fuelCap || 999, res.fuel + stats.fuelProd * dt);
-      eUse += stats.energyUse;
+      const target = ensureFuelProcessorTarget(m);
+      const fuelAmount = Math.min(
+        stats.fuelProd * dt,
+        Math.max(0, target - (res.fuel || 0)),
+        getResourceStorageFree("fuel")
+      );
+      if (fuelAmount > 0) {
+        const productionScale = fuelAmount / Math.max(0.001, stats.fuelProd * dt);
+        res.hydrogen -= stats.hydrogenUse * dt * productionScale;
+        res.oxygen -= stats.oxygenUse * dt * productionScale;
+        storeResource("fuel", fuelAmount);
+        eUse += stats.energyUse;
+        m._machineActive = "fuelProcessor";
+      }
     }
 
     if (m.type === "Smelter" && canUsePower(m)) {
@@ -471,10 +507,13 @@ function updateResources(dt) {
         const inputAmount = outputAmount * inputPerSecond / Math.max(0.001, outputPerSecond);
 
         if (outputAmount > 0 && (res[inputKey] || 0) >= inputAmount) {
-          res[inputKey] -= inputAmount;
-          storeResource(outputKey, outputAmount);
-          eUse += stats.energyUse;
-          m._machineActive = "smelter";
+          const accepted = Math.min(outputAmount, getResourceStorageFree(outputKey));
+          if (accepted > 0) {
+            res[inputKey] -= accepted * inputPerSecond / Math.max(0.001, outputPerSecond);
+            storeResource(outputKey, accepted);
+            eUse += stats.energyUse;
+            m._machineActive = "smelter";
+          }
         }
       }
     }
@@ -490,7 +529,9 @@ function updateResources(dt) {
         if (m._assemblerTimer >= 1) {
           m._assemblerTimer = 0;
 
-          const canCraft = Object.entries(recipe.inputs || {})
+          const outputFits = Object.entries(recipe.outputs || {})
+            .every(([key, amount]) => getResourceStorageFree(key) >= amount);
+          const canCraft = outputFits && Object.entries(recipe.inputs || {})
             .every(([key, amount]) => (res[key] || 0) >= amount);
 
           if (canCraft) {
@@ -507,9 +548,19 @@ function updateResources(dt) {
     }
 
     if (m.type === "Farm Module" && canUsePower(m) && res.water >= stats.waterUse * dt) {
-      res.water -= stats.waterUse * dt;
-      storeResource("food", stats.foodProd * dt);
-      eUse += stats.energyUse;
+      const target = ensureFarmTarget(m);
+      const foodAmount = Math.min(
+        stats.foodProd * dt,
+        Math.max(0, target - (res.food || 0)),
+        getResourceStorageFree("food")
+      );
+      if (foodAmount > 0) {
+        const productionScale = foodAmount / Math.max(0.001, stats.foodProd * dt);
+        res.water -= stats.waterUse * dt * productionScale;
+        storeResource("food", foodAmount);
+        eUse += stats.energyUse;
+        m._machineActive = "farm";
+      }
     }
 
     if (m.type === "Life Support" && canUsePower(m) && res.water >= stats.waterUse * dt) {
@@ -1092,6 +1143,9 @@ function updateGameSounds() {
     || researchWindowOpen
     || !!assemblerWindowModule
     || !!smelterWindowModule
+    || !!electrolyserWindowModule
+    || !!fuelProcessorWindowModule
+    || !!farmWindowModule
     || turretControlWindowOpen
     || !!activeSmallShipEdit
     || dysonPanelOpen

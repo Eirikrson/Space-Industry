@@ -661,10 +661,14 @@ function handlePlayingEscapeKey() {
     return true;
   }
 
-  if (researchWindowOpen || assemblerWindowModule || smelterWindowModule) {
+  if (researchWindowOpen || assemblerWindowModule || smelterWindowModule ||
+      electrolyserWindowModule || fuelProcessorWindowModule || farmWindowModule) {
     researchWindowOpen = false;
     assemblerWindowModule = null;
     smelterWindowModule = null;
+    electrolyserWindowModule = null;
+    fuelProcessorWindowModule = null;
+    farmWindowModule = null;
     hoveredResearchItem = null;
     playSound("toggle", 120);
     return true;
@@ -1116,6 +1120,27 @@ window.addEventListener("mousedown", e => {
     }
     if (smelterWindowModule) return;
 
+    const electrolyserTarget = getElectrolyserTargetButtonAt(mouse.x, mouse.y);
+    if (electrolyserTarget) {
+      setElectrolyserTarget(electrolyserTarget);
+      return;
+    }
+    if (electrolyserWindowModule) return;
+
+    const fuelProcessorTarget = getFuelProcessorTargetButtonAt(mouse.x, mouse.y);
+    if (fuelProcessorTarget) {
+      setFuelProcessorTarget();
+      return;
+    }
+    if (fuelProcessorWindowModule) return;
+
+    const farmTarget = getFarmTargetButtonAt(mouse.x, mouse.y);
+    if (farmTarget) {
+      setFarmTarget();
+      return;
+    }
+    if (farmWindowModule) return;
+
     if (researchWindowOpen) {
       const researchItem = getResearchItemAt(mouse.x, mouse.y);
       if (researchItem) {
@@ -1161,6 +1186,9 @@ window.addEventListener("mousedown", e => {
         researchWindowOpen = !researchWindowOpen;
         assemblerWindowModule = null;
         smelterWindowModule = null;
+        electrolyserWindowModule = null;
+        fuelProcessorWindowModule = null;
+        farmWindowModule = null;
         playSound("toggle", 120);
         flash(researchWindowOpen ? "Research open" : "Research closed");
         return;
@@ -1174,6 +1202,24 @@ window.addEventListener("mousedown", e => {
 
       if (!buildMode && result && result.module.type === "Smelter") {
         openSmelterSettings(result.module);
+        playSound("toggle", 120);
+        return;
+      }
+
+      if (!buildMode && result && result.module.type === "Electrolyser") {
+        openElectrolyserSettings(result.module);
+        playSound("toggle", 120);
+        return;
+      }
+
+      if (!buildMode && result && result.module.type === "Fuel Processor") {
+        openFuelProcessorSettings(result.module);
+        playSound("toggle", 120);
+        return;
+      }
+
+      if (!buildMode && result && result.module.type === "Farm Module") {
+        openFarmSettings(result.module);
         playSound("toggle", 120);
         return;
       }
