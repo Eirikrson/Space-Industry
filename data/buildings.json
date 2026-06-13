@@ -916,12 +916,7 @@
           "name": "Computer MK2",
           "cost": {
             "ironPlate": 30,
-<<<<<<< HEAD
             "copperPlate": 20
-=======
-            "copperPlate": 20,
-            "siliconOre": 5
->>>>>>> a373f3a3ca128732080bbf74356ca97087845da5
           }
         }
       ]

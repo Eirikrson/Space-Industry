@@ -12,6 +12,9 @@ if not exist "%NODE_EXE%" (
   exit /b 1
 )
 
+echo The complete performance test can take several minutes.
+echo Please leave this window open until the report paths are shown.
+echo.
 "%NODE_EXE%" "%~dp0performance-bot.js"
 if errorlevel 1 (
   echo.

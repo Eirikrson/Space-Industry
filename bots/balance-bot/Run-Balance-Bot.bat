@@ -8,6 +8,7 @@ set "NODE_PATH=%NODE_ROOT%\node_modules;%NODE_ROOT%\node_modules\.pnpm\node_modu
 
 if not exist "%NODE_EXE%" (
   echo The bundled Node runtime was not found.
+  pause
   exit /b 1
 )
 
@@ -15,10 +16,7 @@ if not exist "%NODE_EXE%" (
 if errorlevel 1 (
   echo.
   echo The Balance Bot stopped with an error.
-<<<<<<< HEAD
   echo Check the newest folder in bots\balance-bot\report\creative or report\survival.
-=======
-  echo Check the newest folder in bots\balance-bot\report for details.
->>>>>>> a373f3a3ca128732080bbf74356ca97087845da5
+  pause
   exit /b 1
 )

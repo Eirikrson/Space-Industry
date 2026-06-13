@@ -1,18 +1,10 @@
 {
-<<<<<<< HEAD
   "skill": 100,
   "visibleWindow": true,
   "decisionIntervalMs": 2500,
   "softlockMinutes": 10,
   "creativeStrategies": 120,
   "creativeMaxHours": 72,
-=======
-  "mode": "survival",
-  "skill": 1000,
-  "visibleWindow": true,
-  "decisionIntervalMs": 2500,
-  "softlockMinutes": 10,
->>>>>>> a373f3a3ca128732080bbf74356ca97087845da5
   "viewport": {
     "width": 1280,
     "height": 720
