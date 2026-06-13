@@ -1,5 +1,7 @@
 Start-Game.bat
-bot/performance-report-latest.md
-bot/performance-data-latest.json
-bot/performance-bot-error-latest.log
-bot/performance-test-save.json
+bots/performance-bot/performance-report-latest.md
+bots/performance-bot/performance-data-latest.json
+bots/performance-bot/performance-bot-error-latest.log
+bots/performance-bot/performance-test-save.json
+bots/balance-bot/report/
+bots/balance-bot/world/[0-9][0-9][0-9].json

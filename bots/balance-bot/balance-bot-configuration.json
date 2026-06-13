@@ -1,0 +1,11 @@
+{
+  "mode": "survival",
+  "skill": 1000,
+  "visibleWindow": true,
+  "decisionIntervalMs": 2500,
+  "softlockMinutes": 10,
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  }
+}

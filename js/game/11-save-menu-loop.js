@@ -380,8 +380,13 @@ function resetGameRuntime() {
   performanceHudFrames = 0;
   performanceHudTicks = 0;
   performanceHudWindowStart = performance.now();
+  nextOpenSpaceAsteroidSpawnAt = 0;
   researchWindowOpen = false;
   assemblerWindowModule = null;
+  smelterWindowModule = null;
+  electrolyserWindowModule = null;
+  fuelProcessorWindowModule = null;
+  farmWindowModule = null;
   turretControlWindowOpen = false;
   hoveredResearchItem = null;
   activeSmallShipEdit = null;

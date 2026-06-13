@@ -1121,7 +1121,6 @@ function toggleStatusBadgeAction(action) {
     if (mapVisible) notifyTutorialActionDone("mapOpened");
     flash(mapVisible ? "Map open" : "Map closed");
   } else if (action === "orbit") {
-    notifyTutorialActionDone("orbit");
     if (getComputerLevel() < 3) {
       flash("Computer MK3 required for orbit mode");
       return true;
@@ -1132,6 +1131,8 @@ function toggleStatusBadgeAction(action) {
     }
     orbitModeActive = !orbitModeActive;
     if (orbitModeActive) {
+      notifyTutorialActionDone("orbit");
+      tutorialEvent("landing");
       orbitTarget  = getBestOrbitTarget();
       orbitPhase   = "approach";
       orbitApproachPoint = null;
@@ -1241,6 +1242,48 @@ function drawUI() {
     ctx.fillText(text, x + 8, y);
   }
 
+  function drawBalanceBotGoals() {
+    const goals = Array.isArray(window.__balanceBotGoals) ? window.__balanceBotGoals.slice(0, 8) : [];
+    if (goals.length === 0) return;
+    const shorten = (value, maxLength) => {
+      const text = String(value || "");
+      return text.length <= maxLength ? text : `${text.slice(0, maxLength - 3)}...`;
+    };
+
+    const width = 235;
+    const x = VIEW.w - width - 15;
+    const y = 245;
+    const headerH = 28;
+    const rowH = 44;
+    const height = headerH + goals.length * rowH + 8;
+
+    ctx.fillStyle = "rgba(4, 10, 30, 0.9)";
+    ctx.fillRect(x, y, width, height);
+    ctx.strokeStyle = "rgba(100,150,255,0.6)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, width, height);
+
+    ctx.fillStyle = "#88aaff";
+    ctx.font = "bold 12px Consolas, monospace";
+    ctx.textAlign = "left";
+    ctx.fillText("BALANCE BOT PLAN", x + 9, y + 15);
+
+    for (let i = 0; i < goals.length; i++) {
+      const goal = goals[i] || {};
+      const rowY = y + headerH + i * rowH;
+      ctx.fillStyle = i === 0 ? "rgba(80,190,255,0.16)" : "rgba(255,255,255,0.035)";
+      ctx.fillRect(x + 6, rowY, width - 12, rowH - 4);
+
+      ctx.fillStyle = i === 0 ? "#ccf6ff" : "rgba(255,255,255,0.86)";
+      ctx.font = `${i === 0 ? "bold " : ""}12px Consolas, monospace`;
+      ctx.fillText(`${i + 1}. ${shorten(goal.action || "Planning", 27)}`, x + 12, rowY + 14);
+
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
+      ctx.font = "10px Consolas, monospace";
+      ctx.fillText(shorten(goal.reason || "", 31), x + 27, rowY + 31);
+    }
+  }
+
   drawInfoBadge(`Time ${formatWorldPlayTime(worldPlayTime)}`, 15, VIEW.h - 18, 132);
   drawInfoBadge(`FPS ${performanceHudFps}  TPS ${performanceHudTps}`, 15, VIEW.h - 49, 132);
 
@@ -1253,10 +1296,15 @@ function drawUI() {
     drawStatusBadge("[O] Orbit", 165, orbitModeActive, "orbit");
     drawStatusBadge("[L] Landing", 193, landingModeActive, "landing");
     drawStatusBadge("[N] Automatic blueprint", 221, autoBlueprintRepair, "autoBlueprint");
+    drawBalanceBotGoals();
   }
   drawSmallShipConfigUI();
   drawResearchWindow();
   drawAssemblerWindow();
+  drawSmelterWindow();
+  drawElectrolyserWindow();
+  drawFuelProcessorWindow();
+  drawFarmWindow();
   drawTurretControlWindow();
 
   if (flashMessages.length > 0) {
@@ -1652,6 +1700,231 @@ function drawAssemblerWindow() {
     ctx.textAlign = "right";
     ctx.fillText(String(assemblerWindowModule.assemblerTargets[row.key] || 0), layout.x + layout.width - 28, y + layout.rowH / 2);
   }
+
+  const hoveredKey = getAssemblerTargetButtonAt(mouse.x, mouse.y);
+  if (hoveredKey) {
+    drawMachineRecipeTooltip(
+      formatResourceName(hoveredKey),
+      BUILDING_STATS.Assembler?.recipes?.[hoveredKey]
+    );
+  }
+}
+
+function drawSmelterWindow() {
+  if (!smelterWindowModule) return;
+
+  ensureSmelterTargets(smelterWindowModule);
+
+  const layout = getSmelterWindowLayout();
+  const rows = getSmelterRecipeKeys().map(key => ({ key, label: formatResourceName(key) }));
+
+  ctx.fillStyle = "rgba(4, 10, 30, 0.94)";
+  ctx.fillRect(layout.x, layout.y, layout.width, layout.height);
+  ctx.strokeStyle = "rgba(100,150,255,0.7)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(layout.x, layout.y, layout.width, layout.height);
+
+  ctx.fillStyle = "#88aaff";
+  ctx.font = "bold 12px Consolas, monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText("SMELTER TARGETS", layout.x + 14, layout.y + 18);
+
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.font = "11px Consolas, monospace";
+  ctx.textAlign = "right";
+  ctx.fillText("[ESC] close", layout.x + layout.width - 14, layout.y + 18);
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const y = layout.y + 56 + i * 42;
+
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.fillRect(layout.x + 14, y, layout.width - 28, layout.rowH);
+    ctx.strokeStyle = "rgba(100,150,255,0.65)";
+    ctx.strokeRect(layout.x + 14, y, layout.width - 28, layout.rowH);
+
+    drawResourceIcon(row.key, layout.x + 24, y + layout.rowH / 2, 14);
+    ctx.fillStyle = "white";
+    ctx.font = "13px Consolas, monospace";
+    ctx.textAlign = "left";
+    ctx.fillText(row.label, layout.x + 48, y + layout.rowH / 2);
+
+    ctx.textAlign = "right";
+    ctx.fillText(String(smelterWindowModule.smelterTargets[row.key] || 0), layout.x + layout.width - 28, y + layout.rowH / 2);
+  }
+
+  const hoveredKey = getSmelterTargetButtonAt(mouse.x, mouse.y);
+  if (hoveredKey) {
+    drawMachineRecipeTooltip(
+      formatResourceName(hoveredKey),
+      getSmelterRecipes()[hoveredKey]
+    );
+  }
+}
+
+function drawElectrolyserWindow() {
+  if (!electrolyserWindowModule) return;
+  const targets = ensureElectrolyserTargets(electrolyserWindowModule);
+  const layout = getElectrolyserWindowLayout();
+  const rows = ["hydrogen", "oxygen"];
+
+  drawProductionTargetWindowFrame(
+    layout,
+    "ELECTROLYSER MINIMUMS",
+    "Produces both until both minimums are reached"
+  );
+  for (let i = 0; i < rows.length; i++) {
+    drawProductionTargetRow(layout, i, rows[i], targets[rows[i]] || 0);
+  }
+
+  const hoveredKey = getElectrolyserTargetButtonAt(mouse.x, mouse.y);
+  if (hoveredKey) {
+    drawMachineRecipeTooltip("Electrolysis", {
+      inputs: { water: BUILDING_STATS.Electrolyser.waterUse },
+      outputs: {
+        hydrogen: BUILDING_STATS.Electrolyser.hydrogenProd,
+        oxygen: BUILDING_STATS.Electrolyser.oxygenProd
+      }
+    });
+  }
+}
+
+function drawFuelProcessorWindow() {
+  if (!fuelProcessorWindowModule) return;
+  const layout = getFuelProcessorWindowLayout();
+  const target = ensureFuelProcessorTarget(fuelProcessorWindowModule);
+
+  drawProductionTargetWindowFrame(layout, "FUEL PROCESSOR MINIMUM", "Stops when the Fuel minimum is reached");
+  drawProductionTargetRow(layout, 0, "fuel", target);
+
+  if (getFuelProcessorTargetButtonAt(mouse.x, mouse.y)) {
+    drawMachineRecipeTooltip("Fuel", {
+      inputs: {
+        hydrogen: BUILDING_STATS["Fuel Processor"].hydrogenUse,
+        oxygen: BUILDING_STATS["Fuel Processor"].oxygenUse
+      },
+      outputs: { fuel: BUILDING_STATS["Fuel Processor"].fuelProd }
+    });
+  }
+}
+
+function drawFarmWindow() {
+  if (!farmWindowModule) return;
+  const layout = getFarmWindowLayout();
+  const target = ensureFarmTarget(farmWindowModule);
+
+  drawProductionTargetWindowFrame(layout, "FARM MINIMUM", "Stops when the Food minimum is reached");
+  drawProductionTargetRow(layout, 0, "food", target);
+
+  if (getFarmTargetButtonAt(mouse.x, mouse.y)) {
+    drawMachineRecipeTooltip("Food", {
+      inputs: { water: BUILDING_STATS["Farm Module"].waterUse },
+      outputs: { food: BUILDING_STATS["Farm Module"].foodProd }
+    });
+  }
+}
+
+function drawProductionTargetWindowFrame(layout, title, subtitle) {
+  ctx.fillStyle = "rgba(4, 10, 30, 0.94)";
+  ctx.fillRect(layout.x, layout.y, layout.width, layout.height);
+  ctx.strokeStyle = "rgba(100,150,255,0.7)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(layout.x, layout.y, layout.width, layout.height);
+
+  ctx.fillStyle = "#88aaff";
+  ctx.font = "bold 12px Consolas, monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(title, layout.x + 14, layout.y + 16);
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.font = "10px Consolas, monospace";
+  ctx.fillText(subtitle, layout.x + 14, layout.y + 34);
+  ctx.textAlign = "right";
+  ctx.fillText("[ESC] close", layout.x + layout.width - 14, layout.y + 16);
+}
+
+function drawProductionTargetRow(layout, index, key, value) {
+  const y = layout.y + 56 + index * 42;
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.fillRect(layout.x + 14, y, layout.width - 28, layout.rowH);
+  ctx.strokeStyle = "rgba(100,150,255,0.65)";
+  ctx.strokeRect(layout.x + 14, y, layout.width - 28, layout.rowH);
+
+  drawResourceIcon(key, layout.x + 24, y + layout.rowH / 2, 14);
+  ctx.fillStyle = "white";
+  ctx.font = "13px Consolas, monospace";
+  ctx.textAlign = "left";
+  ctx.fillText(formatResourceName(key), layout.x + 48, y + layout.rowH / 2);
+  ctx.textAlign = "right";
+  ctx.fillText(String(value), layout.x + layout.width - 28, y + layout.rowH / 2);
+}
+
+function drawMachineRecipeTooltip(title, recipe) {
+  if (!recipe) return;
+  const inputs = Object.entries(recipe.inputs || {});
+  const outputs = Object.entries(recipe.outputs || {});
+  ctx.font = "11px Consolas, monospace";
+  const iconSize = 14;
+  const amountIconGap = 6;
+  const iconLabelGap = 6;
+  const tokenWidth = ([key, amount]) =>
+    ctx.measureText(String(amount)).width +
+    amountIconGap +
+    iconSize +
+    iconLabelGap +
+    ctx.measureText(formatResourceName(key)).width;
+  const recipeWidth = inputs.reduce((sum, entry) => sum + tokenWidth(entry) + 8, 0) +
+    outputs.reduce((sum, entry) => sum + tokenWidth(entry) + 8, 0) +
+    28;
+  const width = Math.max(250, Math.min(440, recipeWidth + 24));
+  const height = 64;
+  let x = mouse.x + 18;
+  let y = mouse.y + 18;
+  if (x + width > VIEW.w - 8) x = mouse.x - width - 14;
+  if (y + height > VIEW.h - 8) y = mouse.y - height - 14;
+
+  ctx.fillStyle = "rgba(4, 10, 30, 0.97)";
+  roundRect(x, y, width, height, 7);
+  ctx.fill();
+  ctx.strokeStyle = "#2255aa";
+  ctx.lineWidth = 2;
+  roundRect(x, y, width, height, 7);
+  ctx.stroke();
+
+  ctx.fillStyle = "#88aaff";
+  ctx.font = "bold 12px Consolas, monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(title, x + 12, y + 17);
+
+  let cursorX = x + 12;
+  const recipeY = y + 43;
+  const drawRecipeEntries = entries => {
+    for (let i = 0; i < entries.length; i++) {
+      const [key, amount] = entries[i];
+      if (i > 0) {
+        ctx.fillStyle = "rgba(255,255,255,0.7)";
+        ctx.fillText("+", cursorX, recipeY);
+        cursorX += 14;
+      }
+      ctx.fillStyle = "white";
+      ctx.fillText(String(amount), cursorX, recipeY);
+      cursorX += ctx.measureText(String(amount)).width + amountIconGap;
+      drawResourceIcon(key, cursorX, recipeY, iconSize);
+      cursorX += iconSize + iconLabelGap;
+      ctx.fillText(formatResourceName(key), cursorX, recipeY);
+      cursorX += ctx.measureText(formatResourceName(key)).width + 10;
+    }
+  };
+
+  drawRecipeEntries(inputs);
+  ctx.fillStyle = "#88aaff";
+  ctx.font = "bold 12px Consolas, monospace";
+  ctx.fillText("=", cursorX, recipeY);
+  cursorX += 18;
+  ctx.font = "11px Consolas, monospace";
+  drawRecipeEntries(outputs);
 }
 function drawBtn(text, x, y, w, h, active) {
   ctx.font = "11px Consolas, monospace";
@@ -2087,11 +2360,32 @@ function drawMotherShipResourceUI(panelX, panelY) {
 
 function drawTooltip() {
   const researchHover = researchWindowOpen && hoveredResearchItem;
-  if ((!buildMode || !hoveredInventoryItem) && !researchHover) return;
+  let placedModuleHover = null;
+  if (buildMode &&
+      !hoveredInventoryItem &&
+      heldItem === AIR &&
+      !importedShipGhost &&
+      !isMouseOverInventory() &&
+      hoveredGrid) {
+    const blueprint = blueprints.find(bp =>
+      hoveredGrid.x >= bp.x &&
+      hoveredGrid.x < bp.x + bp.w &&
+      hoveredGrid.y >= bp.y &&
+      hoveredGrid.y < bp.y + bp.h
+    );
+    const module = blueprint || getModuleAtCell(hoveredGrid.x, hoveredGrid.y)?.module;
+    if (module) {
+      placedModuleHover = getInventoryItemByName(module.type) || {
+        name: module.type,
+        size: [module.w || 1, module.h || 1]
+      };
+    }
+  }
+  if ((!buildMode || (!hoveredInventoryItem && !placedModuleHover)) && !researchHover) return;
 
   const item = researchHover
     ? (getInventoryItemByName(hoveredResearchItem.name) || { name: hoveredResearchItem.name, size: [1, 1] })
-    : hoveredInventoryItem;
+    : hoveredInventoryItem || placedModuleHover;
   if (!item) return;
   const lines = getBuildingDescription(item.name);
   const cost = researchHover ? hoveredResearchItem.cost : BUILD_COSTS[item.name];

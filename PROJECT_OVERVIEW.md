@@ -115,15 +115,33 @@
 - Migrates old save data and restores canonical module names.
 - Creates and displays savegame previews.
 
-## Bot
+## Bots
 
-### `bot/performance-bot.js`
+Each bot has its own directory below `bots/`. Bot-specific scripts, inputs, reports, and logs stay inside that directory so additional bots can be added without sharing implementation details or generated files.
+
+### `bots/performance-bot/performance-bot.js`
 - Runs automated gameplay and interface scenarios.
 - Measures frame timing and selected update and drawing functions.
-- Writes only the latest report files in the `bot` directory.
+- Writes only the latest report files in the `bots/performance-bot` directory.
 
-### `bot/Run-Performance-Bot.bat`
+### `bots/performance-bot/Run-Performance-Bot.bat`
 - Starts the performance bot on Windows.
+
+### `bots/balance-bot/balance-bot.js`
+- Plays the game through mouse and keyboard input while reading game state for decisions.
+- Creates one timestamped archive directory per run with its save, report, metrics, and status.
+- Uses only temporary browser storage and disables the game's browser autosave for bot runs.
+- Currently implements the configurable `survival` mode and reserves `creative` for a later strategy.
+
+### `bots/balance-bot/balance-bot-configuration.json`
+- Selects the bot mode, skill level, browser visibility, save interval, decision interval, and softlock timeout.
+
+### `bots/balance-bot/Run-Balance-Bot.bat`
+- Starts the Balance Bot on Windows.
+
+### `bots/README.md`
+- Defines the directory convention for existing and future bots.
+- Lists the currently available bots and their entry points.
 
 ## Assets
 

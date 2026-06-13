@@ -429,7 +429,7 @@
       "energyProd": 10
     },
     "Solar Panel": {
-      "energyProdBase": 1
+      "energyProdBase": 3
     },
     "Battery MK1": {
       "energyCap": 200
@@ -576,12 +576,12 @@
       "crewCap": 2
     },
     "Main Thruster": {
-      "fuelUse": 3,
+      "fuelUse": 1.5,
       "thrust": 36,
       "thrustDir": -1.5707963267949
     },
     "RCS Thruster": {
-      "fuelUse": 1,
+      "fuelUse": 0.5,
       "thrust": 12,
       "thrustDir": -1.5707963267949
     },
@@ -669,21 +669,21 @@
       "copperPlate": 5
     },
     "Solar Panel": {
-      "ironPlate": 8,
-      "copperPlate": 8,
-      "silicon": 2
+      "ironOre": 8,
+      "copperOre": 8,
+      "siliconOre": 2
     },
     "Laboratory": {
-      "ironPlate": 15,
-      "copperPlate": 10
+      "ironOre": 15,
+      "copperOre": 10
     },
     "Smelter": {
-      "ironPlate": 20,
-      "copperPlate": 10
+      "ironOre": 20,
+      "copperOre": 10
     },
     "Drill": {
-      "ironPlate": 25,
-      "copperPlate": 10
+      "ironOre": 25,
+      "copperOre": 10
     },
     "Tank MK1": {
       "ironPlate": 12,
@@ -724,8 +724,7 @@
     },
     "Assembler": {
       "ironPlate": 40,
-      "copperPlate": 20,
-      "gears": 5
+      "copperPlate": 20
     },
     "Hangar MK1": {
       "ironPlate": 30,
@@ -881,14 +880,15 @@
         {
           "name": "Smelter",
           "cost": {
-            "ironPlate": 10,
-            "copperPlate": 5
+            "ironOre": 10,
+            "copperOre": 5
           }
         },
         {
           "name": "Drill",
           "cost": {
-            "ironPlate": 10
+            "ironOre": 10,
+            "copperOre": 5
           }
         },
         {
@@ -906,11 +906,18 @@
           }
         },
         {
+          "name": "Fuel Processor",
+          "cost": {
+            "ironPlate": 30,
+            "copperPlate": 20
+          }
+        },
+        {
           "name": "Computer MK2",
           "cost": {
             "ironPlate": 30,
             "copperPlate": 20,
-            "circuits": 5
+            "siliconOre": 5
           }
         }
       ]
@@ -922,13 +929,6 @@
           "name": "Assembler",
           "cost": {
             "ironPlate": 40,
-            "copperPlate": 20
-          }
-        },
-        {
-          "name": "Fuel Processor",
-          "cost": {
-            "ironPlate": 30,
             "copperPlate": 20
           }
         },
@@ -1232,14 +1232,19 @@
       "INPUT Energy        -5/sec",
       "",
       "OUTPUT Hydrogen     +20/sec",
-      "OUTPUT Oxygen       +10/sec"
+      "OUTPUT Oxygen       +10/sec",
+      "",
+      "Click to set minimum amounts.",
+      "Produces both gases until both minimums are reached."
     ],
     "Fuel Processor": [
       "INPUT Hydrogen      -10/sec",
       "INPUT Oxygen        -5/sec",
       "INPUT Energy        -5/sec",
       "",
-      "OUTPUT Fuel         +5/sec"
+      "OUTPUT Fuel         +5/sec",
+      "",
+      "Click to set the minimum Fuel amount."
     ],
     "Asteroid Collector": [
       "INPUT Energy        -1.5/sec",
@@ -1319,11 +1324,11 @@
       "Destroys incoming asteroid"
     ],
     "Main Thruster": [
-      "INPUT Fuel          -3/sec while active",
+      "INPUT Fuel          -1.5/sec while active",
       "INPUT Energy        control power"
     ],
     "RCS Thruster": [
-      "INPUT Fuel          -1/sec while active",
+      "INPUT Fuel          -0.5/sec while active",
       "INPUT Energy        control power"
     ],
     "Hangar MK1": [
@@ -1358,7 +1363,9 @@
       "INPUT Energy        -2/sec",
       "INPUT Water         -1/sec",
       "",
-      "OUTPUT Food         +1/sec"
+      "OUTPUT Food         +1/sec",
+      "",
+      "Click to set the minimum Food amount."
     ],
     "Quarters": [
       "Living space for 2 crew.",

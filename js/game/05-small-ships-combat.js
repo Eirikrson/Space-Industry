@@ -102,6 +102,10 @@ function openTurretControlWindow() {
   turretControlWindowOpen = true;
   mouseDown = false;
   assemblerWindowModule = null;
+  smelterWindowModule = null;
+  electrolyserWindowModule = null;
+  fuelProcessorWindowModule = null;
+  farmWindowModule = null;
   researchWindowOpen = false;
   playSound("toggle", 120);
 }
@@ -568,7 +572,7 @@ function moveSmallShipToward(smallShip, targetX, targetY, dt, stopDistance = CON
   const step = Math.min(dv, accel * dt);
 
   if ((smallShip.fuel || 0) > 0 && dv > 0.001) {
-    const fuelUse = step * 0.012;
+    const fuelUse = step * 0.006;
     const fuelScale = Math.min(1, smallShip.fuel / Math.max(0.0001, fuelUse));
     const ax = (dvx / dv) * step * fuelScale;
     const ay = (dvy / dv) * step * fuelScale;
@@ -1403,6 +1407,12 @@ function returnHeldSalvageModule() {
 }
 
 function updateEnemySpawning() {
+  const firstTurretResearched = TURRET_CONTROL_TYPES.some(type => unlockedResearch.has(type));
+  if (!firstTurretResearched) {
+    nextEnemySpawnAt = performance.now() + 90000;
+    return;
+  }
+
   const enemyLimit = currentWorldIsEnd
     ? Math.max(4, Math.floor(getPlayerStrengthScore() / 45))
     : Math.max(1, Math.floor(getPlayerStrengthScore() / 90));
@@ -1610,7 +1620,7 @@ function moveEnemyToward(enemy, targetX, targetY, dt, stopDistance = CONFIG.GRID
   const step = Math.min(dv, 220 * enemy._massAccelerationFactor * dt);
 
   if ((enemy.resources.fuel || 0) > 0 && dv > 0.001) {
-    const fuelUse = step * 0.01;
+    const fuelUse = step * 0.005;
     const scale = Math.min(1, enemy.resources.fuel / Math.max(0.0001, fuelUse));
     const ax = (dvx / dv) * step * scale;
     const ay = (dvy / dv) * step * scale;
