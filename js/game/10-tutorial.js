@@ -290,7 +290,7 @@ function notifyTutorialQuantumComputerBuilt() {
   tutorialOverlay = {
     ...TUTORIAL_EVENT_STEPS.quantumComputer,
     source: "event",
-    body: `Quantum navigation is installed. For black-hole travel you need ${need} Gravitational Pull Stabilizer. Current stabilizers: ${have}/${need}. Event Horizon Shields depend on ship size: ${ready.eventShields}/${ready.requiredShields}. You also need 45000 stored energy.`,
+    body: `Quantum navigation is installed. For black-hole travel you need ${need} Gravitational Pull Stabilizer. Current stabilizers: ${have}/${need}. You need one Event Horizon Shield per 20 intact ship modules: ${ready.eventShields}/${ready.requiredShields}. You also need 45000 stored energy.`,
     waitFor: "ok"
   };
   resetTutorialTypewriter();

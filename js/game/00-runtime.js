@@ -191,7 +191,6 @@ function unlockAudio() {
 }
 
 function playSound(name, minInterval = 80) {
-  if (buildMode && name !== "mouse") return;
   const now = performance.now();
   if ((lastSoundAt[name] || 0) + minInterval > now) return;
   lastSoundAt[name] = now;
@@ -263,6 +262,11 @@ function updateLayeredSound(name, active, restartMs, maxLayers = 2) {
 function updateBackgroundSound(active) {
   if (!active || !audioUnlocked || typeof Audio === "undefined" || !MUSIC_FILES?.length) return;
   if (backgroundMusic && !backgroundMusic.paused && !backgroundMusic.ended) return;
+  if (backgroundMusic && backgroundMusic.paused && !backgroundMusic.ended) {
+    backgroundMusic.volume = getMusicVolume();
+    backgroundMusic.play().catch(() => {});
+    return;
+  }
 
   const blocked = new Set(backgroundMusicHistory.slice(-2));
   let candidates = MUSIC_FILES
@@ -282,11 +286,15 @@ function updateBackgroundSound(active) {
   backgroundMusic.preload = "auto";
   backgroundMusic.addEventListener("ended", () => {
     backgroundMusic = null;
-    updateBackgroundSound(true);
+    if (appWindowActive) updateBackgroundSound(true);
   }, { once: true });
   backgroundMusic.play().catch(() => {
     backgroundMusic = null;
   });
+}
+
+function pauseBackgroundSound() {
+  if (backgroundMusic && !backgroundMusic.paused) backgroundMusic.pause();
 }
 
 function stopAllLoopSounds() {
@@ -394,6 +402,7 @@ let lastBlueprintKey = "";
 let appState = "start";
 let appWindowFocused = typeof document.hasFocus === "function" ? document.hasFocus() : true;
 let appWindowActive = !document.hidden && appWindowFocused;
+let gameLoopSuspended = false;
 let currentSaveName = "";
 let currentSaveSlot = null;
 let currentWorldSeed = 0;
@@ -410,11 +419,31 @@ let blackHoleEndingReason = "";
 let blackHoleResultPlayerName = "";
 let enemyShipsDestroyed = 0;
 let endRobotDiscoveryShown = false;
+let testerTelemetry = {
+  version: 1,
+  startedAt: new Date().toISOString(),
+  events: [],
+  totalDistance: 0,
+  producedResources: {},
+  consumedResources: {},
+  minedResources: {},
+  moduleBuilds: {},
+  moduleLosses: {},
+  researchCompleted: [],
+  cheats: {
+    adminActivations: 0,
+    resourcesGiven: {},
+    buildingsAdded: {},
+    enemiesSpawned: 0,
+    enemiesDeleted: 0,
+    adminJumps: 0,
+    commands: []
+  }
+};
 let seedDialogOpen = false;
 let pendingNewGameSlot = null;
 let pendingNewGameName = "";
 let pendingSeedInput = "";
-let adminSecretInput = "";
 let uiDialog = null;
 let activeDialogField = 0;
 const TUTORIAL_SKIP_KEY = "spaceIndustryTutorialSkipped";

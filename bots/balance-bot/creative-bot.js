@@ -747,12 +747,12 @@ function creativeBuildMiningDrone(state, data) {
 function creativeBuildDysonSphere(state, data) {
   if (state.dysonSphere) return true;
   const cost = {
-    ironPlate: 1800,
-    copperPlate: 1400,
-    circuits: 700,
-    cables: 900,
-    silicon: 500,
-    nickel: 350
+    ironPlate: 320,
+    copperPlate: 240,
+    circuits: 120,
+    cables: 160,
+    silicon: 95,
+    nickel: 65
   };
   for (const [key, amount] of Object.entries(cost)) {
     let remaining = amount;
@@ -901,8 +901,7 @@ function creativeRunStrategy(data, strategy, maximumSeconds) {
     ["Fuel Processor", 1],
     ["Fusion Reactor", 1],
     ["Quantum Computer", 1],
-    ["Gravitational Pull Stabilizer", 1],
-    ["Event Horizon Shield", 4]
+    ["Gravitational Pull Stabilizer", 1]
   ];
   if (!creativeBuildDysonSphere(state, data)) {
     return fail("cannot complete Dyson sphere for endgame charging");
@@ -912,6 +911,22 @@ function creativeRunStrategy(data, strategy, maximumSeconds) {
     if (missing > 0 && !creativeBuild(state, data, name, missing)) {
       return fail(`cannot build endgame requirement ${name}`);
     }
+  }
+  const protectedModuleCount = Object.entries(state.buildings).reduce(
+    (sum, [name, amount]) =>
+      sum + (name === "Event Horizon Shield" ? 0 : Number(amount) || 0),
+    0
+  );
+  const requiredEventHorizonShields = Math.max(1, Math.ceil(protectedModuleCount / 20));
+  const missingEventHorizonShields = Math.max(
+    0,
+    requiredEventHorizonShields - (state.buildings["Event Horizon Shield"] || 0)
+  );
+  if (
+    missingEventHorizonShields > 0 &&
+    !creativeBuild(state, data, "Event Horizon Shield", missingEventHorizonShields)
+  ) {
+    return fail("cannot build required Event Horizon Shields");
   }
   while ((state.resources.energyCap || 0) < 45000) {
     if (!creativeBuild(state, data, "Battery MK2")) {

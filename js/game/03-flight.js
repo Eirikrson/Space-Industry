@@ -560,7 +560,6 @@ function updateDynamicBeltAsteroids() {
 }
 
 function clearAsteroidsNearShip() {
-  const clearRadius = CONFIG.GRID_SIZE * 5;
   const com = getCenterOfMass();
 
   for (let i = asteroids.length - 1; i >= 0; i--) {
@@ -579,6 +578,11 @@ function clearAsteroidsNearShip() {
       const wy = ship.y + com.y * CONFIG.GRID_SIZE + rel.y;
       const dx = asteroid.x - wx;
       const dy = asteroid.y - wy;
+      const moduleRadius = Math.hypot(
+        (module.w || 1) * CONFIG.GRID_SIZE / 2,
+        (module.h || 1) * CONFIG.GRID_SIZE / 2
+      );
+      const clearRadius = moduleRadius + CONFIG.GRID_SIZE * 0.35;
 
       if (Math.sqrt(dx * dx + dy * dy) <= clearRadius + asteroid.size) {
         remove = true;

@@ -1171,6 +1171,11 @@
     }
   ],
   "BUILDING_DESCRIPTIONS": {
+    "Computer": [
+      "Main flight computer.",
+      "",
+      "If it is destroyed, the ship can no longer be controlled."
+    ],
     "Solar Panel": [
       "",
       "OUTPUT Energy        +3/sec"
@@ -1384,7 +1389,8 @@
     "Event Horizon Shield": [
       "INPUT Energy        -50/sec while active",
       "",
-      "Protects a small arc of the ship during black-hole entry."
+      "Protects part of the ship during black-hole entry.",
+      "One shield is required per 20 intact ship modules."
     ],
     "Gravitational Pull Stabilizer": [
       "INPUT Energy        -20/sec while active",

@@ -79,7 +79,7 @@ const BUILD_LIMITS = {
   "Laboratory": 1,
   "Electrolyser": 2,
   "Fuel Processor": 2,
-  "Event Horizon Shield": 4
+  "Event Horizon Shield": 40
 };
 
 function buildLimit(name) {
@@ -89,9 +89,14 @@ function buildLimit(name) {
 }
 
 function endGoalReady(state, data) {
+  const moduleCount = Object.entries(state.buildings)
+    .reduce((sum, [name, amount]) =>
+      sum + (name === "Event Horizon Shield" ? 0 : Number(amount) || 0), 0
+    );
+  const requiredShields = Math.max(1, Math.ceil(moduleCount / 20));
   return count(state, "Quantum Computer") >= 1 &&
     count(state, "Gravitational Pull Stabilizer") >= 1 &&
-    count(state, "Event Horizon Shield") >= 4 &&
+    count(state, "Event Horizon Shield") >= requiredShields &&
     (state.resources.energyCap || 0) >= 45000 &&
     creativePower(state, data).net > 0;
 }
@@ -272,7 +277,7 @@ function stateScore(state, data, genome) {
   const endgame =
     count(state, "Quantum Computer") * 100000 +
     count(state, "Gravitational Pull Stabilizer") * 100000 +
-    Math.min(4, count(state, "Event Horizon Shield")) * 50000 +
+    Math.min(6, count(state, "Event Horizon Shield")) * 50000 +
     Math.min(1, (state.resources.energyCap || 0) / 45000) * 30000 +
     (state.dysonSphere ? 120000 : 0);
   const inventory = Object.entries(state.resources)
@@ -522,7 +527,7 @@ function resultFitness(result) {
   const endgameBuildings =
     (result.buildings["Quantum Computer"] || 0) * 20000 +
     (result.buildings["Gravitational Pull Stabilizer"] || 0) * 20000 +
-    Math.min(4, result.buildings["Event Horizon Shield"] || 0) * 10000;
+    Math.min(6, result.buildings["Event Horizon Shield"] || 0) * 10000;
   return criticalResearch +
     endgameBuildings +
     (result.dysonSphere ? 100000 : 0) +

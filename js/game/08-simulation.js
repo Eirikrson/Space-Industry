@@ -1160,7 +1160,6 @@ function updateTurretGuns(dt) {
 
 function updateGameSounds() {
   const audioPaused = appState !== "playing"
-    || buildMode
     || mapVisible
     || researchWindowOpen
     || !!assemblerWindowModule
@@ -1207,6 +1206,6 @@ function updateGameSounds() {
   updateLoopSound("turbine", placedModules.some(module => module._machineActive === "turbine"));
   updateLayeredSound("smelter", placedModules.some(module => module._machineActive === "smelter"), 1000, Infinity);
   const drillActive = shipLanded || placedModules.some(module => module._machineActive === "drill");
-  updateLayeredSound("drill", drillActive, 1000);
+  updateLayeredSound("drill", drillActive, 1000, 1);
   updateLoopSound("turretTurn", placedModules.some(module => isTurretType(module.type) && module._turning));
 }

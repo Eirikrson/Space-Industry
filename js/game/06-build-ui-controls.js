@@ -682,6 +682,39 @@ function openBuildMode() {
   playSound("toggle", 120);
 }
 
+function closeBuildMode() {
+  if (!buildMode) return false;
+  if (activeSmallShipEdit) {
+    commitSmallShipEditor();
+    playSound("toggle", 120);
+    return true;
+  }
+
+  pruneUnreachableBlueprints();
+  buildMode = false;
+  heldItem = AIR;
+  dragging = false;
+  lastBlueprintKey = "";
+  ship.angle = savedAngle;
+
+  if (blueprints.length === 0 && demolishSet.size === 0) {
+    flash("Build mode closed");
+    playSound("toggle", 120);
+    return true;
+  }
+
+  commitPending = true;
+  commitStartTime = performance.now();
+  commitSnapshot = {
+    blueprints: JSON.parse(JSON.stringify(blueprints)),
+    demolish: new Set(demolishSet)
+  };
+  clearAsteroidsNearShip();
+  flash("Committing build changes");
+  playSound("toggle", 120);
+  return true;
+}
+
 function handlePlayingEscapeKey() {
   if (getComputedStyle(ddOverlay).display !== "none") {
     ddOverlay.style.display = "none";
@@ -689,21 +722,69 @@ function handlePlayingEscapeKey() {
     return true;
   }
 
-  if (researchWindowOpen || assemblerWindowModule || smelterWindowModule ||
-      electrolyserWindowModule || fuelProcessorWindowModule || farmWindowModule) {
-    researchWindowOpen = false;
-    assemblerWindowModule = null;
-    smelterWindowModule = null;
-    electrolyserWindowModule = null;
-    fuelProcessorWindowModule = null;
-    farmWindowModule = null;
-    hoveredResearchItem = null;
+  if (disposalWindowResource) {
+    closeResourceDisposalWindow();
+    playSound("toggle", 120);
+    return true;
+  }
+
+  if (tutorialOverlay) {
+    advanceTutorial();
+    playSound("toggle", 120);
+    return true;
+  }
+
+  if (dysonPanelOpen) {
+    dysonPanelOpen = false;
     playSound("toggle", 120);
     return true;
   }
 
   if (turretControlWindowOpen) {
     turretControlWindowOpen = false;
+    playSound("toggle", 120);
+    return true;
+  }
+
+  if (farmWindowModule) {
+    farmWindowModule = null;
+    playSound("toggle", 120);
+    return true;
+  }
+
+  if (fuelProcessorWindowModule) {
+    fuelProcessorWindowModule = null;
+    playSound("toggle", 120);
+    return true;
+  }
+
+  if (electrolyserWindowModule) {
+    electrolyserWindowModule = null;
+    playSound("toggle", 120);
+    return true;
+  }
+
+  if (smelterWindowModule) {
+    smelterWindowModule = null;
+    playSound("toggle", 120);
+    return true;
+  }
+
+  if (assemblerWindowModule) {
+    assemblerWindowModule = null;
+    playSound("toggle", 120);
+    return true;
+  }
+
+  if (researchWindowOpen) {
+    researchWindowOpen = false;
+    hoveredResearchItem = null;
+    playSound("toggle", 120);
+    return true;
+  }
+
+  if (activeSmallShipEdit) {
+    commitSmallShipEditor();
     playSound("toggle", 120);
     return true;
   }
@@ -744,8 +825,7 @@ function handlePlayingEscapeKey() {
   }
 
   if (buildMode) {
-    flash("Press B to leave build mode");
-    return true;
+    return closeBuildMode();
   }
 
   if (velocityMatchTarget || selectedFlightTarget || lockedApproachTarget) {
@@ -760,6 +840,37 @@ function handlePlayingEscapeKey() {
   return false;
 }
 
+function isWindowHeaderCloseAt(mx, my, layout) {
+  const width = layout.width ?? layout.w;
+  return mx >= layout.x + width - 118 &&
+    mx <= layout.x + width &&
+    my >= layout.y &&
+    my <= layout.y + 38;
+}
+
+function handleWindowHeaderCloseClick(mx, my) {
+  const windows = [
+    [turretControlWindowOpen, getTurretControlLayout, () => { turretControlWindowOpen = false; }],
+    [farmWindowModule, getFarmWindowLayout, () => { farmWindowModule = null; }],
+    [fuelProcessorWindowModule, getFuelProcessorWindowLayout, () => { fuelProcessorWindowModule = null; }],
+    [electrolyserWindowModule, getElectrolyserWindowLayout, () => { electrolyserWindowModule = null; }],
+    [smelterWindowModule, getSmelterWindowLayout, () => { smelterWindowModule = null; }],
+    [assemblerWindowModule, getAssemblerWindowLayout, () => { assemblerWindowModule = null; }],
+    [researchWindowOpen, getResearchWindowLayout, () => {
+      researchWindowOpen = false;
+      hoveredResearchItem = null;
+    }]
+  ];
+
+  for (const [open, getLayout, close] of windows) {
+    if (!open || !isWindowHeaderCloseAt(mx, my, getLayout())) continue;
+    close();
+    playSound("toggle", 120);
+    return true;
+  }
+  return false;
+}
+
 function adminJumpForward() {
   const noseAngle = ship.angle - Math.PI / 2 - SHIP_NOSE_OFFSET;
   ship.x = Math.max(0, Math.min(CONFIG.WORLD_WIDTH, ship.x + Math.cos(noseAngle) * CONFIG.GRID_SIZE * 100));
@@ -768,6 +879,13 @@ function adminJumpForward() {
   camera.y = ship.y;
   buildCamera.x = ship.x;
   buildCamera.y = ship.y;
+  testerTelemetry.cheats.adminJumps++;
+  testerTelemetry.cheats.commands.push({
+    time: Number((worldPlayTime || 0).toFixed(1)),
+    command: "Shift+W",
+    result: "admin jump"
+  });
+  recordTesterEvent("admin-jump", { tiles: 100 });
   clearAsteroidsNearShip();
   flash("Admin jump");
 }
@@ -778,55 +896,6 @@ function getDigitFromKeyEvent(e, key) {
     return e.code.slice(-1);
   }
   return "";
-}
-
-function handleAdminSecretKey(e, key) {
-  const code = (e.code || "").toLowerCase();
-  const startsSecret = key === "/"
-    || code === "slash"
-    || code === "numpaddivide"
-    || ((e.shiftKey || keys.shift) && code === "digit7");
-
-  if (startsSecret) {
-    adminSecretInput = "/";
-    e.preventDefault();
-    return true;
-  }
-
-  if (!adminSecretInput) return false;
-
-  if (key === "shift" || key === "control" || key === "alt" || key === "meta") {
-    e.preventDefault();
-    return true;
-  }
-
-  const digit = getDigitFromKeyEvent(e, key);
-  if (digit) {
-    adminSecretInput += digit;
-    if (adminSecretInput.length > 7) adminSecretInput = "";
-    e.preventDefault();
-    return true;
-  }
-
-  if (key === "enter") {
-    if (adminSecretInput === "/528491") {
-      adminInstantBuild = !adminInstantBuild;
-      flash(adminInstantBuild ? "Admin mode on" : "Admin mode off");
-      playSound("toggle", 120);
-    }
-    adminSecretInput = "";
-    e.preventDefault();
-    return true;
-  }
-
-  if (key === "escape" || key === "backspace") {
-    adminSecretInput = "";
-    e.preventDefault();
-    return true;
-  }
-
-  adminSecretInput = "";
-  return false;
 }
 
 window.addEventListener("keydown", e => {
@@ -901,11 +970,6 @@ window.addEventListener("keydown", e => {
     return;
   }
 
-  if (handleAdminSecretKey(e, key)) {
-    keys[key] = false;
-    return;
-  }
-
   if (appState !== "playing") {
     if (key === "escape" && appState === "menu") {
       appState = "start";
@@ -952,7 +1016,7 @@ window.addEventListener("keydown", e => {
     return;
   }
 
-  if (adminInstantBuild && key === "t") {
+  if (key === "t") {
     openAdminCommandDialog();
     keys[key] = false;
     e.preventDefault();
@@ -960,42 +1024,13 @@ window.addEventListener("keydown", e => {
   }
 
   if (key === "b") {
-    if (activeSmallShipEdit && buildMode) {
-      commitSmallShipEditor();
-      playSound("toggle", 120);
-      e.preventDefault();
-      return;
-    }
-
     if (buildMode) {
-      pruneUnreachableBlueprints();
-      buildMode = false;
-      heldItem = AIR;
-      dragging = false;
-      lastBlueprintKey = "";
-
-      if (blueprints.length === 0 && demolishSet.size === 0) {
-        flash("Build mode closed");
-        playSound("toggle", 120);
-        ship.angle = savedAngle;
-        e.preventDefault();
-        return;
-      }
-
-      commitPending = true;
-      commitStartTime = performance.now();
-      commitSnapshot = {
-        blueprints: JSON.parse(JSON.stringify(blueprints)),
-        demolish: new Set(demolishSet)
-      };
-      clearAsteroidsNearShip();
-      flash("Committing build changes");
-      playSound("toggle", 120);
-
-      ship.angle = savedAngle;
+      closeBuildMode();
     } else {
       openBuildMode();
     }
+    e.preventDefault();
+    return;
   }
 
   if (key === "x" && !buildMode) {
@@ -1097,6 +1132,7 @@ window.addEventListener("mousedown", e => {
 
   if (handleTutorialClick(mouse.x, mouse.y)) return;
   if (handleUiDialogClick(mouse.x, mouse.y)) return;
+  if (handleWindowHeaderCloseClick(mouse.x, mouse.y)) return;
   if (handleTurretControlClick(mouse.x, mouse.y)) return;
 
   if (appState !== "playing") {
@@ -1396,9 +1432,21 @@ window.addEventListener("mousemove", updateMouseFromEvent);
 window.addEventListener("pointermove", updateMouseFromEvent);
 
 function updateAppWindowActive() {
-  appWindowActive = !document.hidden && appWindowFocused;
+  const wasActive = appWindowActive;
+  const balanceBotBackground = window.__balanceBotKeepRunningInBackground === true;
+  appWindowActive = balanceBotBackground || (!document.hidden && appWindowFocused);
   lastTime = performance.now();
-  if (!appWindowActive) stopAllLoopSounds();
+  if (!appWindowActive) {
+    if (appState === "playing") {
+      updateSavePreviewFrame();
+      persistCurrentSavePreview();
+    }
+    stopAllLoopSounds();
+    pauseBackgroundSound();
+  } else if (!wasActive && gameLoopSuspended) {
+    gameLoopSuspended = false;
+    requestAnimationFrame(loop);
+  }
 }
 
 document.addEventListener("visibilitychange", () => {
@@ -1432,6 +1480,7 @@ window.addEventListener("wheel", e => {
 
 window.addEventListener("click", e => {
   if (!buildMode) return;
+  if (disposalWindowResource) return;
 
   const rect = canvas.getBoundingClientRect();
   const mx = e.clientX - rect.left;

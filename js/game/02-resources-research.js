@@ -336,12 +336,12 @@ function getBuildingDescription(name) {
     const lines = (BUILDING_DESCRIPTIONS[name] || ["No description available."]).slice();
     const needed = typeof getRequiredStabilizerCount === "function" ? getRequiredStabilizerCount() : 1;
     const have = typeof getPlacedStabilizerCount === "function" ? getPlacedStabilizerCount() : 0;
-    const shieldNeed = typeof getRequiredEventHorizonShieldCount === "function" ? getRequiredEventHorizonShieldCount() : 4;
+    const shieldNeed = typeof getRequiredEventHorizonShieldCount === "function" ? getRequiredEventHorizonShieldCount() : 1;
     const shieldHave = placedModules.filter(module => module.type === "Event Horizon Shield" && getModuleHealth(module) > 0).length;
     lines.push("");
     lines.push(`Black-hole stabilizers ${have}/${needed}`);
     lines.push(`Event Horizon Shields ${shieldHave}/${shieldNeed}`);
-    lines.push("Shield need scales with ship size.");
+    lines.push("One shield is needed per 20 intact ship modules.");
     return lines;
   }
 
@@ -850,6 +850,7 @@ function findWaterPlanetForDrill(module) {
 
 function harvestAsteroid(asteroid) {
   let collected = 0;
+  const collectedResources = {};
 
   for (const key in asteroid.contents) {
     const amount = asteroid.contents[key];
@@ -859,10 +860,14 @@ function harvestAsteroid(asteroid) {
         ? 0
         : Math.max(0, amount - stored);
       collected += stored;
+      if (stored > 0) collectedResources[key] = (collectedResources[key] || 0) + stored;
     }
   }
 
-  if (collected > 0) playSound("items", 250);
+  if (collected > 0) {
+    playSound("items", 250);
+    recordTesterMinedResources(collectedResources);
+  }
   asteroid.totalItems = getAsteroidTotal(asteroid.contents);
   if (asteroid.totalItems <= 0) {
     asteroid.contents = {};

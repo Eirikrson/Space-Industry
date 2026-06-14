@@ -1238,8 +1238,8 @@ function drawUI() {
     ctx.strokeRect(x, y - height / 2, width, height);
     ctx.fillStyle = "white";
     ctx.font = "13px Consolas, monospace";
-    ctx.textAlign = "left";
-    ctx.fillText(text, x + 8, y);
+    ctx.textAlign = "center";
+    ctx.fillText(text, x + width / 2, y);
   }
 
   function drawBalanceBotGoals() {
@@ -1284,8 +1284,8 @@ function drawUI() {
     }
   }
 
-  drawInfoBadge(`Time ${formatWorldPlayTime(worldPlayTime)}`, 15, VIEW.h - 18, 132);
-  drawInfoBadge(`FPS ${performanceHudFps}  TPS ${performanceHudTps}`, 15, VIEW.h - 49, 132);
+  drawInfoBadge(`Time ${formatWorldPlayTime(worldPlayTime)}`, 15, VIEW.h - 18, 164);
+  drawInfoBadge(`FPS ${performanceHudFps}  TPS ${performanceHudTps}`, 15, VIEW.h - 49, 164);
 
   if (!buildMode) {
     drawStatusBadge("[G] Precision thrust", 25, precisionThrust, "precision");
@@ -2080,7 +2080,7 @@ function getMotherShipCargoLayout(panelX = 10, panelY = 10) {
 }
 
 function getMotherShipCargoResourceAt(mx, my) {
-  if (buildMode || disposalWindowResource) return null;
+  if (disposalWindowResource) return null;
   const layout = getMotherShipCargoLayout();
   for (let index = 0; index < layout.keys.length; index++) {
     const key = layout.keys[index];
@@ -2470,8 +2470,7 @@ function drawMotherShipResourceUI(panelX, panelY) {
 
   rowY = y + 34;
   for (const key of cargoKeys) {
-    const hovered = !buildMode &&
-      !disposalWindowResource &&
+    const hovered = !disposalWindowResource &&
       getMotherShipCargoResourceAt(mouse.x, mouse.y) === key;
     if (hovered) {
       ctx.fillStyle = "rgba(55, 155, 255, 0.24)";

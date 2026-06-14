@@ -2,6 +2,35 @@ function getSaveSlotKey(slot) {
   return slot === "auto" ? AUTOSAVE_KEY : SAVE_KEY_PREFIX + slot;
 }
 
+function getTesterSidecarKey(slot) {
+  return `${getSaveSlotKey(slot)}.tester`;
+}
+
+function readTesterSidecar(slot) {
+  try {
+    const raw = localStorage.getItem(getTesterSidecarKey(slot));
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeTesterSidecar(slot, name) {
+  const report = createTesterReport();
+  report.world.name = name || report.world.name;
+  const sidecar = {
+    telemetry: stripRuntimeState(testerTelemetry),
+    report
+  };
+  try {
+    localStorage.setItem(getTesterSidecarKey(slot), JSON.stringify(sidecar));
+    return true;
+  } catch (error) {
+    console.warn("Could not write tester report", error);
+    return false;
+  }
+}
+
 function getAutosaveSlotKey(index = 0) {
   return index <= 0 ? AUTOSAVE_KEY : `${AUTOSAVE_KEY}.${index}`;
 }
@@ -125,6 +154,7 @@ function deleteSaveSlot(slot) {
   } else {
     localStorage.removeItem(getSaveSlotKey(slot));
   }
+  localStorage.removeItem(getTesterSidecarKey(slot));
   invalidateSaveMenuReadCache();
 }
 
@@ -186,6 +216,218 @@ function captureSavePreview() {
   }
 }
 
+function createInitialTesterTelemetry() {
+  return {
+    version: 1,
+    startedAt: new Date().toISOString(),
+    events: [],
+    totalDistance: 0,
+    producedResources: {},
+    consumedResources: {},
+    minedResources: {},
+    moduleBuilds: {},
+    moduleLosses: {},
+    researchCompleted: [],
+    cheats: {
+      adminActivations: 0,
+      resourcesGiven: {},
+      buildingsAdded: {},
+      enemiesSpawned: 0,
+      enemiesDeleted: 0,
+      adminJumps: 0,
+      commands: []
+    },
+    lastSampleWorldTime: -1,
+    lastShip: null,
+    lastResources: null,
+    lastModuleCounts: null,
+    lastResearch: null
+  };
+}
+
+function normalizeTesterTelemetry(value) {
+  const telemetry = createInitialTesterTelemetry();
+  if (!value || typeof value !== "object") return telemetry;
+  Object.assign(telemetry, stripRuntimeState(value));
+  telemetry.events = Array.isArray(value.events) ? value.events.slice(-300) : [];
+  telemetry.researchCompleted = Array.isArray(value.researchCompleted)
+    ? value.researchCompleted.slice()
+    : [];
+  telemetry.cheats = {
+    ...telemetry.cheats,
+    ...(value.cheats || {}),
+    resourcesGiven: { ...(value.cheats?.resourcesGiven || {}) },
+    buildingsAdded: { ...(value.cheats?.buildingsAdded || {}) },
+    commands: Array.isArray(value.cheats?.commands)
+      ? value.cheats.commands.slice(-100)
+      : []
+  };
+  for (const key of [
+    "producedResources",
+    "consumedResources",
+    "minedResources",
+    "moduleBuilds",
+    "moduleLosses"
+  ]) {
+    telemetry[key] = value[key] && typeof value[key] === "object"
+      ? { ...value[key] }
+      : {};
+  }
+  return telemetry;
+}
+
+function recordTesterEvent(type, details = {}) {
+  if (!testerTelemetry || typeof testerTelemetry !== "object") {
+    testerTelemetry = createInitialTesterTelemetry();
+  }
+  testerTelemetry.events.push({
+    time: Number((worldPlayTime || 0).toFixed(1)),
+    type,
+    ...stripRuntimeState(details)
+  });
+  if (testerTelemetry.events.length > 300) testerTelemetry.events.shift();
+}
+
+function recordTesterMinedResources(resources) {
+  if (!resources || typeof resources !== "object") return;
+  for (const [key, amount] of Object.entries(resources)) {
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    testerTelemetry.minedResources[key] =
+      (testerTelemetry.minedResources[key] || 0) + amount;
+  }
+}
+
+function getTesterModuleCounts() {
+  const counts = {};
+  for (const module of placedModules) {
+    counts[module.type] = (counts[module.type] || 0) + 1;
+  }
+  return counts;
+}
+
+function updateTesterTelemetry(force = false) {
+  if (!testerTelemetry || typeof testerTelemetry !== "object") {
+    testerTelemetry = createInitialTesterTelemetry();
+  }
+  if (!force && worldPlayTime - (testerTelemetry.lastSampleWorldTime || 0) < 1) return;
+
+  const currentShip = { x: ship.x, y: ship.y };
+  if (testerTelemetry.lastShip) {
+    const distance = Math.hypot(
+      currentShip.x - testerTelemetry.lastShip.x,
+      currentShip.y - testerTelemetry.lastShip.y
+    );
+    if (Number.isFinite(distance)) testerTelemetry.totalDistance += distance;
+  }
+  testerTelemetry.lastShip = currentShip;
+
+  const currentResources = {};
+  for (const [key, value] of Object.entries(res)) {
+    if (!Number.isFinite(value) || key.endsWith("Cap") || key === "itemUsed") continue;
+    currentResources[key] = value;
+  }
+  if (testerTelemetry.lastResources) {
+    for (const key of new Set([
+      ...Object.keys(testerTelemetry.lastResources),
+      ...Object.keys(currentResources)
+    ])) {
+      const delta = (currentResources[key] || 0) - (testerTelemetry.lastResources[key] || 0);
+      if (delta > 0.001) {
+        testerTelemetry.producedResources[key] =
+          (testerTelemetry.producedResources[key] || 0) + delta;
+      } else if (delta < -0.001) {
+        testerTelemetry.consumedResources[key] =
+          (testerTelemetry.consumedResources[key] || 0) - delta;
+      }
+    }
+  }
+  testerTelemetry.lastResources = currentResources;
+
+  const moduleCounts = getTesterModuleCounts();
+  if (testerTelemetry.lastModuleCounts) {
+    for (const type of new Set([
+      ...Object.keys(testerTelemetry.lastModuleCounts),
+      ...Object.keys(moduleCounts)
+    ])) {
+      const delta = (moduleCounts[type] || 0) - (testerTelemetry.lastModuleCounts[type] || 0);
+      if (delta > 0) {
+        testerTelemetry.moduleBuilds[type] = (testerTelemetry.moduleBuilds[type] || 0) + delta;
+        if (adminInstantBuild) {
+          testerTelemetry.cheats.buildingsAdded[type] =
+            (testerTelemetry.cheats.buildingsAdded[type] || 0) + delta;
+        }
+        recordTesterEvent("modules-added", { module: type, count: delta });
+      } else if (delta < 0) {
+        testerTelemetry.moduleLosses[type] = (testerTelemetry.moduleLosses[type] || 0) - delta;
+        recordTesterEvent("modules-removed-or-destroyed", { module: type, count: -delta });
+      }
+    }
+  }
+  testerTelemetry.lastModuleCounts = moduleCounts;
+
+  const research = Array.from(unlockedResearch);
+  const previousResearch = new Set(testerTelemetry.lastResearch || research);
+  for (const name of research) {
+    if (previousResearch.has(name)) continue;
+    if (!testerTelemetry.researchCompleted.includes(name)) {
+      testerTelemetry.researchCompleted.push(name);
+    }
+    recordTesterEvent("research-completed", { research: name });
+  }
+  testerTelemetry.lastResearch = research;
+  testerTelemetry.lastSampleWorldTime = worldPlayTime;
+}
+
+function createTesterReport() {
+  updateTesterTelemetry(true);
+  const moduleCounts = getTesterModuleCounts();
+  const itemCap = Math.max(0, Number(res.itemCap) || 0);
+  const warnings = [];
+  if ((res.energyNet || 0) < 0) warnings.push("Negative energy balance");
+  if (itemCap > 0 && (res.itemUsed || 0) / itemCap >= 0.9) warnings.push("Solid storage at least 90% full");
+  if ((res.waterCap || 0) > 0 && (res.water || 0) / res.waterCap <= 0.1) warnings.push("Water reserve at or below 10%");
+  if ((res.fuelCap || 0) > 0 && (res.fuel || 0) / res.fuelCap <= 0.1) warnings.push("Fuel reserve at or below 10%");
+
+  return {
+    format: "space-industry-tester-report-v1",
+    generatedAt: new Date().toISOString(),
+    world: {
+      name: currentSaveName || text("menu.unnamedSave"),
+      seed: currentWorldSeedLabel,
+      mode: currentWorldIsEnd ? "End" : "normal",
+      playedSeconds: Number((worldPlayTime || 0).toFixed(1)),
+      blackHoleCompleted: !!blackHoleCompleted
+    },
+    progress: {
+      research: Array.from(unlockedResearch),
+      currentBuildings: moduleCounts,
+      buildingsAdded: { ...testerTelemetry.moduleBuilds },
+      buildingsRemovedOrDestroyed: { ...testerTelemetry.moduleLosses },
+      dysonSpheres: Object.keys(dysonSpheres).filter(index =>
+        isDysonSphereComplete(Number(index))
+      ).length,
+      enemyShipsDestroyed
+    },
+    activity: {
+      travelledDistance: Number((testerTelemetry.totalDistance || 0).toFixed(1)),
+      minedResources: { ...testerTelemetry.minedResources },
+      producedResources: { ...testerTelemetry.producedResources },
+      consumedResources: { ...testerTelemetry.consumedResources }
+    },
+    cheats: stripRuntimeState(testerTelemetry.cheats),
+    currentState: {
+      resources: stripRuntimeState(res),
+      energyNet: Number((res.energyNet || 0).toFixed(3)),
+      itemStoragePercent: itemCap > 0
+        ? Number((((res.itemUsed || 0) / itemCap) * 100).toFixed(1))
+        : 0,
+      shipPosition: { x: ship.x, y: ship.y }
+    },
+    warnings,
+    recentEvents: testerTelemetry.events.slice(-100)
+  };
+}
+
 function persistCurrentSavePreview() {
   if (currentSaveSlot === null || currentSaveSlot === undefined || currentSaveSlot === "auto") return false;
   const payload = readSaveSlot(currentSaveSlot);
@@ -218,7 +460,7 @@ function resolveCelestialSaveReference(reference) {
 
 function createSavePayload(name) {
   return {
-    version: 4,
+    version: 5,
     name: name || currentSaveName || text("menu.unnamedSave"),
     savedAt: new Date().toISOString(),
     preview: captureSavePreview(),
@@ -298,6 +540,7 @@ function saveInitialWorldToSlot(slot) {
     return false;
   }
   currentSaveSlot = slot;
+  writeTesterSidecar(slot, payload.name);
   lastAutosaveAt = performance.now();
   return true;
 }
@@ -416,6 +659,7 @@ function resetGameRuntime() {
   blackHoleResultPlayerName = "";
   enemyShipsDestroyed = 0;
   endRobotDiscoveryShown = false;
+  testerTelemetry = createInitialTesterTelemetry();
   blueprints.length = 0;
   salvageModules.length = 0;
   demolishSet.clear();
@@ -599,14 +843,62 @@ function getAdminGiveResourceKey(name) {
 
 function runAdminCommand(command) {
   const textValue = String(command || "").trim();
+  if (/^\/admin$/i.test(textValue)) {
+    adminInstantBuild = !adminInstantBuild;
+    if (adminInstantBuild) testerTelemetry.cheats.adminActivations++;
+    testerTelemetry.cheats.commands.push({
+      time: Number((worldPlayTime || 0).toFixed(1)),
+      command: textValue,
+      result: adminInstantBuild ? "enabled" : "disabled"
+    });
+    recordTesterEvent("admin-mode", { enabled: adminInstantBuild });
+    flash(adminInstantBuild ? "Admin mode on" : "Admin mode off");
+    playSound("toggle", 120);
+    return;
+  }
+
+  const giveMatch = textValue.match(/^\/?give\s+(.+?)\s+(-?\d+(?:\.\d+)?)$/i);
+  if (giveMatch) {
+    const key = getAdminGiveResourceKey(giveMatch[1]);
+    const amount = Math.floor(Number(giveMatch[2]));
+
+    if (!key || !Number.isFinite(amount) || amount <= 0) {
+      flash("Usage: give item amount");
+      return;
+    }
+
+    if (res[key] === undefined) res[key] = 0;
+    res[key] += amount;
+    testerTelemetry.cheats.resourcesGiven[key] =
+      (testerTelemetry.cheats.resourcesGiven[key] || 0) + amount;
+    testerTelemetry.cheats.commands.push({
+      time: Number((worldPlayTime || 0).toFixed(1)),
+      command: textValue,
+      result: `gave ${amount} ${key}`
+    });
+    recordTesterEvent("admin-resource-given", { resource: key, amount });
+    flash(`Gave ${amount} ${formatResourceName(key)}`);
+    return;
+  }
+
+  if (!adminInstantBuild) {
+    flash("Enter /admin first");
+    return;
+  }
+
   const killAllMatch = textValue.match(/^\/kill\s+enemy$/i);
   const killNearestMatch = textValue.match(/^\/kill\s+enemy\s+nearest$/i);
   const summonEnemyMatch = textValue.match(/^\/summon\s+enemy(?:\s+(\d+))?(?:\s+(\d+))?$/i);
-  const giveMatch = textValue.match(/^\/give\s+(.+?)\s+(-?\d+(?:\.\d+)?)$/i);
 
   if (killAllMatch) {
     const count = enemyShips.length;
     enemyShips.length = 0;
+    testerTelemetry.cheats.enemiesDeleted += count;
+    testerTelemetry.cheats.commands.push({
+      time: Number((worldPlayTime || 0).toFixed(1)),
+      command: textValue,
+      result: `deleted ${count}`
+    });
     flash(count > 0 ? `Deleted ${count} enemy ship(s)` : "No enemy found");
     return;
   }
@@ -627,6 +919,12 @@ function runAdminCommand(command) {
     }
     const index = enemyShips.indexOf(nearest);
     if (index >= 0) enemyShips.splice(index, 1);
+    testerTelemetry.cheats.enemiesDeleted++;
+    testerTelemetry.cheats.commands.push({
+      time: Number((worldPlayTime || 0).toFixed(1)),
+      command: textValue,
+      result: "deleted 1"
+    });
     flash("Nearest enemy deleted");
     return;
   }
@@ -639,34 +937,25 @@ function runAdminCommand(command) {
       flash(`Enemy type must be 1-${ENEMY_SHIP_DESIGNS.length}`);
       return;
     }
+    testerTelemetry.cheats.enemiesSpawned += spawned;
+    testerTelemetry.cheats.commands.push({
+      time: Number((worldPlayTime || 0).toFixed(1)),
+      command: textValue,
+      result: `spawned ${spawned}`
+    });
     flash(`Spawned ${spawned} enemy ship(s), type ${type}`);
     return;
   }
 
-  if (!giveMatch) {
-    flash("Unknown admin command");
-    return;
-  }
-
-  const key = getAdminGiveResourceKey(giveMatch[1]);
-  const amount = Math.floor(Number(giveMatch[2]));
-
-  if (!key || !Number.isFinite(amount) || amount <= 0) {
-    flash("Usage: /give item amount");
-    return;
-  }
-
-  if (res[key] === undefined) res[key] = 0;
-  res[key] += amount;
-  flash(`Gave ${amount} ${formatResourceName(key)}`);
+  flash("Unknown admin command");
 }
 
 function openAdminCommandDialog() {
-  if (!adminInstantBuild) return;
-
   uiDialog = {
     title: "Admin command",
-    fields: [{ id: "command", label: "Command", value: "/", placeholder: "/summon enemy 1 3", type: "text" }],
+    width: Math.min(560, VIEW.w - 48),
+    height: 220,
+    fields: [{ id: "command", label: "", value: "", placeholder: "", type: "text" }],
     buttons: [
       { id: "cancel", text: "Cancel" },
       { id: "ok", text: "Enter", primary: true }
@@ -715,12 +1004,12 @@ function getDysonSphere(systemIndex) {
 
 function getDysonSphereCost() {
   return {
-    ironPlate: 1800,
-    copperPlate: 1400,
-    circuits: 700,
-    cables: 900,
-    silicon: 500,
-    nickel: 350
+    ironPlate: 320,
+    copperPlate: 240,
+    circuits: 120,
+    cables: 160,
+    silicon: 95,
+    nickel: 65
   };
 }
 
@@ -790,7 +1079,10 @@ function getDysonChargeRate() {
 }
 
 function getRequiredEventHorizonShieldCount() {
-  return Math.max(4, Math.ceil(getShipCollisionRadius() / (CONFIG.GRID_SIZE * 1.35)));
+  const intactModules = placedModules.filter(module =>
+    module.type !== "Event Horizon Shield" && getModuleHealth(module) > 0
+  ).length;
+  return Math.max(1, Math.ceil(intactModules / 20));
 }
 
 function getBlackHoleReadiness() {
@@ -821,7 +1113,7 @@ function getBlackHoleRequirementStatusText() {
     `Quantum Computer: ${ready.quantum ? "1/1" : "0/1"}`,
     `Event Horizon Shields: ${ready.eventShields}/${ready.requiredShields}`,
     "",
-    "The required shield count depends on the ship size. A larger ship needs more Event Horizon Shields so the whole hull is covered before entering the black hole."
+    "One Event Horizon Shield is required per 20 intact ship modules."
   ].join("\n");
 }
 
@@ -1201,7 +1493,7 @@ function downloadBlackHoleResultImage(playerName) {
   link.click();
 }
 
-function loadSavePayload(payload) {
+function loadSavePayload(payload, testerSidecar = null) {
   if (!payload) return false;
 
   resetGameRuntime();
@@ -1333,6 +1625,10 @@ function loadSavePayload(payload) {
   nextEnemyFleetId = ids.enemyFleet || 1;
   nextEnemySpawnAt = payload.nextEnemySpawnAt || performance.now() + 90000;
   worldPlayTime = payload.worldPlayTime || 0;
+  testerTelemetry = normalizeTesterTelemetry(
+    testerSidecar?.telemetry || payload.testerTelemetry
+  );
+  updateTesterTelemetry(true);
 
   if (payload.toggles) {
     turretsActive = !!payload.toggles.turretsActive;
@@ -1358,6 +1654,8 @@ function saveGameToSlot(slot, name) {
   const payload = pendingSavePayload || createSavePayload(name || currentSaveName);
   payload.name = name || payload.name || currentSaveName || text("menu.unnamedSave");
   payload.savedAt = new Date().toISOString();
+  delete payload.testerReport;
+  delete payload.testerTelemetry;
   if (!writeSaveSlot(slot, payload)) {
     flash("Savegame could not be saved");
     return false;
@@ -1373,11 +1671,12 @@ function saveGameToSlot(slot, name) {
     selectedMenuSaveSlot = null;
     if (shouldQuitAfterSave) {
       finishBlackHoleQuit();
-    } else if (appState !== "paused") {
-      appState = "menu";
+    } else {
+      appState = "start";
       stopAllLoopSounds();
     }
   }
+  writeTesterSidecar(slot, payload.name);
   flash(slot === "auto" ? text("save.autosavedFlash") : text("save.savedFlash", { name: payload.name }));
 }
 
@@ -1399,7 +1698,7 @@ function requestSaveToSlot(slot) {
 function loadSaveSlot(slot) {
   const payload = readSaveSlot(slot);
   if (!payload) return false;
-  const loaded = loadSavePayload(payload);
+  const loaded = loadSavePayload(payload, readTesterSidecar(slot));
   if (loaded) currentSaveSlot = slot === "auto" ? null : slot;
   return loaded;
 }
@@ -1418,7 +1717,8 @@ function autosaveIfNeeded() {
   const now = performance.now();
   if (now - lastAutosaveAt < 60000) return;
   lastAutosaveAt = now;
-  writeSaveSlot("auto", createSavePayload(currentSaveName || "Autosave"));
+  const payload = createSavePayload(currentSaveName || "Autosave");
+  if (writeSaveSlot("auto", payload)) writeTesterSidecar("auto", payload.name);
 }
 
 function textToBase64(text) {
@@ -1485,18 +1785,37 @@ function exportSaveSlot(slot) {
     return true;
   }
 
-  const encryptedSave = encryptSavePayload(save);
-  const blob = new Blob([JSON.stringify(encryptedSave, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
+  const baseName = makeSaveFileName(save, slot);
+  const downloadJson = (value, fileName) => {
+    const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
 
-  link.href = url;
-  link.download = makeSaveFileName(save, slot) + ".json";
-  link.style.display = "none";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  const cleanSave = { ...save };
+  delete cleanSave.testerTelemetry;
+  delete cleanSave.testerReport;
+  downloadJson(encryptSavePayload(cleanSave), `${baseName}.json`);
+
+  const sidecar = readTesterSidecar(slot);
+  const report = sidecar?.report || {
+    format: "space-industry-tester-report-v1",
+    generatedAt: new Date().toISOString(),
+    world: {
+      name: save.name || text("menu.unnamedSave"),
+      seed: save.seedLabel || save.seed,
+      playedSeconds: save.worldPlayTime || 0
+    },
+    warning: "No tester history was available for this older savegame."
+  };
+  downloadJson(report, `${baseName}-tester-report.json`);
   return true;
 }
 
@@ -1520,9 +1839,12 @@ function importSaveIntoSlot(slot) {
 
         payload.name = payload.name || file.name.replace(/\.json$/i, "") || `Imported save ${slot}`;
         payload.savedAt = new Date().toISOString();
+        delete payload.testerTelemetry;
+        delete payload.testerReport;
         writeSaveSlot(slot, payload);
         selectedMenuSaveSlot = null;
         loadSavePayload(payload);
+        writeTesterSidecar(slot, payload.name);
       } catch (error) {
         openInfoDialog("Invalid savegame", text("save.invalidImportAlert"));
       }
@@ -1931,6 +2253,16 @@ function getSeedDialogButtonAt(mx, my) {
 
 function getUiDialogLayout() {
   const w = Math.min(uiDialog?.width || 420, VIEW.w - 48);
+  if (uiDialog?.inputOnly) {
+    const h = Math.min(uiDialog.height || 64, VIEW.h - 32);
+    const x = VIEW.w / 2 - w / 2;
+    const y = VIEW.h / 2 - h / 2;
+    return {
+      x, y, w, h,
+      fields: [{ x: x + 10, y: y + 10, w: w - 20, h: h - 20 }],
+      buttons: []
+    };
+  }
   const fieldCount = uiDialog?.fields?.length || 0;
   const bodyLines = uiDialog?.body
     ? String(uiDialog.body).split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 48)), 0)
@@ -2085,35 +2417,44 @@ function drawUiDialog() {
   if (!uiDialog) return;
   const layout = getUiDialogLayout();
 
-  ctx.fillStyle = "rgba(0,0,0,0.48)";
-  ctx.fillRect(0, 0, VIEW.w, VIEW.h);
-  ctx.fillStyle = "rgba(4, 10, 30, 0.97)";
+  if (!uiDialog.inputOnly) {
+    ctx.fillStyle = "rgba(0,0,0,0.48)";
+    ctx.fillRect(0, 0, VIEW.w, VIEW.h);
+  }
+  ctx.fillStyle = uiDialog.inputOnly ? "rgba(0,0,0,0.98)" : "rgba(4, 10, 30, 0.97)";
   ctx.fillRect(layout.x, layout.y, layout.w, layout.h);
-  ctx.strokeStyle = "rgba(100,150,255,0.82)";
+  ctx.strokeStyle = uiDialog.inputOnly ? "rgba(255,255,255,0.72)" : "rgba(100,150,255,0.82)";
   ctx.lineWidth = 1;
   ctx.strokeRect(layout.x, layout.y, layout.w, layout.h);
 
-  ctx.fillStyle = "white";
-  ctx.font = "bold 15px Consolas, monospace";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(uiDialog.title || "", VIEW.w / 2, layout.y + 28);
+  if (!uiDialog.inputOnly) {
+    ctx.fillStyle = "white";
+    ctx.font = "bold 15px Consolas, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(uiDialog.title || "", VIEW.w / 2, layout.y + 28);
+  }
 
   let bodyY = layout.y + 58;
-  if (uiDialog.body) bodyY = drawWrappedDialogText(uiDialog.body, layout.x + 35, bodyY, layout.w - 70);
+  if (!uiDialog.inputOnly && uiDialog.body) {
+    bodyY = drawWrappedDialogText(uiDialog.body, layout.x + 35, bodyY, layout.w - 70);
+  }
 
   for (let i = 0; i < (uiDialog.fields || []).length; i++) {
     const field = ensureDialogFieldState(uiDialog.fields[i]);
     const rect = layout.fields[i];
-    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.fillStyle = uiDialog.inputOnly ? "#000000" : "rgba(0,0,0,0.45)";
     ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-    ctx.strokeStyle = i === activeDialogField ? "#ccf6ff" : "#66aaff";
-    ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-    ctx.font = "10px Consolas, monospace";
-    ctx.textAlign = "left";
-    ctx.fillStyle = "rgba(255,255,255,0.62)";
-    ctx.fillText(field.label, rect.x, rect.y - 8);
+    if (!uiDialog.inputOnly) {
+      ctx.strokeStyle = i === activeDialogField ? "#ccf6ff" : "#66aaff";
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.font = "10px Consolas, monospace";
+      ctx.textAlign = "left";
+      ctx.fillStyle = "rgba(255,255,255,0.62)";
+      ctx.fillText(field.label, rect.x, rect.y - 8);
+    }
     ctx.font = "13px Consolas, monospace";
+    ctx.textBaseline = "middle";
     const textX = rect.x + 10;
     const textY = rect.y + rect.h / 2;
     const displayText = field.value || field.placeholder || "";
@@ -2462,15 +2803,14 @@ function loop(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
 
-  if (!appWindowActive && appState === "playing" && !uiDialog) {
+  if (!appWindowActive) {
     stopAllLoopSounds();
-    updateBackgroundSound(audioUnlocked);
-    if (!inactiveOverlayDrawn) {
+    pauseBackgroundSound();
+    if (!inactiveOverlayDrawn && appState === "playing") {
       drawInactiveWindowOverlay();
-      drawGlobalVolumeControl();
       inactiveOverlayDrawn = true;
     }
-    requestAnimationFrame(loop);
+    gameLoopSuspended = true;
     return;
   }
 
@@ -2490,6 +2830,7 @@ function loop(now) {
   }
   const stepDt = gameplayActive ? dt : 0;
   if (gameplayActive) worldPlayTime += dt;
+  if (gameplayActive) updateTesterTelemetry();
   if (appState === "playing" && appWindowActive && !shouldBlockSimulationForOverlay()) updateTutorial(dt);
 
   ctx.setTransform(VIEW.dpr, 0, 0, VIEW.dpr, 0, 0);
@@ -2627,9 +2968,12 @@ function loop(now) {
     cleanupPlayerShipDamage();
     updateSmallShips(dt);
     autosaveIfNeeded();
+  }
+  if (simulationActive) {
     updateGameSounds();
   } else {
-    updateBackgroundSound(audioUnlocked);
+    if (appState === "playing") updateBackgroundSound(audioUnlocked);
+    else pauseBackgroundSound();
     updateLayeredSound("thruster", false, 7000);
     updateLoopSound("building", false);
     updateLoopSound("assembler", false);
@@ -2637,7 +2981,6 @@ function loop(now) {
     updateLayeredSound("smelter", false, 1000);
     updateLayeredSound("drill", false, 1000);
     updateLoopSound("turretTurn", false);
-    if (buildMode) updateLoopSound("tutorial", false);
   }
 
   drawModules();

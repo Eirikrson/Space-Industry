@@ -468,6 +468,8 @@ async function initializeGame(url) {
     window.__balanceBotGoals = [];
     window.__balanceBotInputLock = true;
     window.__balanceBotKeyPermission = null;
+    window.__balanceBotKeepRunningInBackground = true;
+    updateAppWindowActive();
   });
   await closeTutorial();
   lastSaveAt = Date.now();
@@ -2395,6 +2397,8 @@ async function cleanup() {
     await page.evaluate(() => {
       window.__balanceBotInputLock = false;
       window.__balanceBotKeyPermission = null;
+      window.__balanceBotKeepRunningInBackground = false;
+      updateAppWindowActive();
       localStorage.clear();
     }).catch(() => {});
   }
