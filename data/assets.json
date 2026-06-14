@@ -341,7 +341,7 @@
     "turretTurn": 1,
     "turretShot": 1,
     "explosion": 1,
-    "drill": 1,
+    "drill": 0.5,
     "labFinish": 1,
     "tutorial": 4
   },

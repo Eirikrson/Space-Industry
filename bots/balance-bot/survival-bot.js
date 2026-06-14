@@ -640,6 +640,13 @@ async function readState() {
           };
         }))
       .sort((a, b) => a.distance - b.distance)[0] || null;
+    if (nearestBelt) {
+      nearestBelt.estimatedFuel = Math.max(
+        12,
+        12 + Math.sqrt(Math.max(0, nearestBelt.distance)) / 7.5
+      );
+      nearestBelt.reachable = (res.fuel || 0) >= nearestBelt.estimatedFuel;
+    }
     const liveModules = placedModules.map(module => ({
       id: module.id,
       type: module.type,
@@ -763,6 +770,25 @@ function getFuelThreshold(state) {
 
 function estimateAsteroidFlightFuel(distance) {
   return Math.max(6, distance / 65 + 6);
+}
+
+function estimateBeltFlightFuel(distance) {
+  // Long flights mostly coast without consuming fuel. Distance therefore
+  // increases the reserve slowly instead of linearly.
+  return Math.max(12, 12 + Math.sqrt(Math.max(0, distance)) / 7.5);
+}
+
+function chooseMiningTravelTarget(state) {
+  if (state.position.inBelt) {
+    return state.nearestAsteroid?.reachable ? "asteroid" : null;
+  }
+
+  const beltFuel = state.nearestBelt
+    ? estimateBeltFlightFuel(state.nearestBelt.distance)
+    : Infinity;
+  if (state.nearestBelt && state.res.fuel >= beltFuel) return "belt";
+  if (state.nearestAsteroid?.reachable) return "asteroid";
+  return null;
 }
 
 function hasCoreMiningInfrastructure(state) {
@@ -1010,19 +1036,24 @@ function createGoalQueue(state) {
   const needsMaterials = goals.some(goal =>
     /^(Gather|Find|Craft|Smelt) /.test(goal.action)
   );
+  const miningTravelTarget = chooseMiningTravelTarget(state);
   if (hasDrill &&
       needsMaterials &&
       !goals.some(goal => goal.action === "Approach resource asteroid") &&
       !(state.commitPending || state.blueprints > 0)) {
-    if (state.nearestAsteroid?.reachable && state.nearestAsteroid.distance > 5 * 40) {
+    if (miningTravelTarget === "belt") {
+      goals.unshift({ action: "Fly to asteroid belt", reason: "Reach a dense source of raw materials" });
+    } else if (miningTravelTarget === "asteroid" &&
+        state.nearestAsteroid.distance > 5 * 40) {
       goals.unshift({ action: "Approach resource asteroid", reason: "Reach the required materials" });
-    } else if (state.nearestAsteroid && !state.nearestAsteroid.reachable) {
+    } else if (!miningTravelTarget &&
+        state.nearestBelt &&
+        !state.position.inBelt &&
+        !state.nearestBelt.reachable) {
       goals.unshift({
         action: "Preserve fuel",
-        reason: `Nearest asteroid needs about ${Math.ceil(state.nearestAsteroid.estimatedFuel)} Fuel`
+        reason: `Nearest belt needs about ${Math.ceil(state.nearestBelt.estimatedFuel)} Fuel`
       });
-    } else if (!state.nearestAsteroid && !state.position.inBelt && state.nearestBelt) {
-      goals.unshift({ action: "Fly to asteroid belt", reason: "Find the required materials" });
     } else if (!state.nearestAsteroid && state.position.inBelt) {
       goals.unshift({ action: "Search for asteroids", reason: "Find the required materials" });
     }
@@ -1131,7 +1162,13 @@ function progressSignature(state) {
   return JSON.stringify({
     modules: state.modules.map(module => module.type).sort(),
     research: state.research.slice().sort(),
-    resources: Object.fromEntries(importantResources.map(key => [key, Math.floor(state.res[key] || 0)])),
+    resources: {
+      ...Object.fromEntries(importantResources.map(key => [key, Math.floor(state.res[key] || 0)])),
+      // FIX 2: Track fuel and water in coarse steps so active fuel production is
+      // recognised as progress and doesn't trigger the softlock timer unnecessarily.
+      fuel: Math.floor((state.res.fuel || 0) / 5) * 5,
+      water: Math.floor((state.res.water || 0) / 5) * 5
+    },
     blackHoleCompleted: state.blackHoleCompleted,
     world: state.currentWorldIsEnd
   });
@@ -1300,10 +1337,18 @@ async function buildBuilding(state, type) {
   await page.mouse.up();
   await page.keyboard.press("b");
   countAction("build");
+  // FIX 4: Track whether the build actually completed rather than silently returning true
+  // on timeout. Previously .catch(()=>{}) swallowed the timeout and the bot thought
+  // the building was placed when the UI may have been stuck.
+  let buildConfirmed = false;
   await page.waitForFunction(targetType =>
     placedModules.some(module => module.type === targetType) || !commitPending
-  , type, { timeout: 30000 }).catch(() => {});
-  return true;
+  , type, { timeout: 30000 })
+    .then(() => { buildConfirmed = true; })
+    .catch(() => {
+      logEvent("action-failed", { action: "build", target: type, reason: "confirmation-timeout" });
+    });
+  return buildConfirmed;
 }
 
 async function researchTechnology(state, name) {
@@ -1322,7 +1367,18 @@ async function researchTechnology(state, name) {
   });
   if (!labPoint) return false;
   await clickPoint(labPoint);
-  await page.waitForFunction(() => researchWindowOpen === true);
+  // FIX 5: Add timeout and error handling so a missed click or stuck UI doesn't
+  // throw an unhandled error that crashes the whole bot process.
+  const researchWindowOpened = await page.waitForFunction(
+    () => researchWindowOpen === true,
+    {},
+    { timeout: 8000 }
+  ).then(() => true).catch(() => false);
+  if (!researchWindowOpened) {
+    logEvent("action-failed", { action: "research", target: name, reason: "research-window-did-not-open" });
+    await page.keyboard.press("Escape");
+    return false;
+  }
   const rowPoint = await page.evaluate(targetName => {
     const row = getResearchRows().find(candidate =>
       candidate.type === "item" && candidate.item.name === targetName
@@ -1784,7 +1840,7 @@ async function approachAsteroid(state) {
 
 async function approachResourceBelt(state) {
   if (!state.nearestBelt) return false;
-  const estimatedFuel = Math.max(5, state.nearestBelt.distance / 160 + 5);
+  const estimatedFuel = estimateBeltFlightFuel(state.nearestBelt.distance);
   if (state.res.fuel < estimatedFuel) {
     lastDecision = "Waiting for enough fuel to reach the asteroid belt";
     logEvent("flight-not-started", {
@@ -2196,7 +2252,11 @@ async function decide(state) {
     blockedProgressionGoal = { kind: "building", name: "Smelter" };
   }
 
-  const fuelRecovery = blockedProgressionGoal
+  // FIX 3: Even when a progression goal is blocked (e.g. waiting for Smelter materials),
+  // we must not skip fuel recovery entirely — if fuel runs out we'll be permanently stuck.
+  // Allow fuel recovery to run when fuel is critically low (<=2), regardless of blockedProgressionGoal.
+  const fuelCritical = (state.res.fuel || 0) <= 2;
+  const fuelRecovery = (blockedProgressionGoal && !fuelCritical)
     ? { active: false, acted: false, wait: false }
     : await handleFuelRecovery(state);
   if (fuelRecovery.acted || fuelRecovery.wait) return fuelRecovery.acted;
@@ -2228,14 +2288,21 @@ async function decide(state) {
   const minimumFlightFuel = blockedProgressionGoal || fuelRecovery.active
     ? 2
     : getFuelThreshold(state);
-  if (hasOperationalDrill &&
-      state.nearestAsteroid &&
-      !state.asteroidMining &&
-      state.res.fuel > minimumFlightFuel) {
-    return approachAsteroid(state);
-  }
-  if (hasOperationalDrill && !state.nearestAsteroid && !state.position.inBelt && state.nearestBelt) {
+  const miningTravelTarget = hasOperationalDrill && !state.asteroidMining
+    ? chooseMiningTravelTarget(state)
+    : null;
+  if (miningTravelTarget === "belt") {
     return approachResourceBelt(state);
+  }
+  if (miningTravelTarget === "asteroid") {
+    // FIX 1: Allow flying if we have enough fuel for THIS specific trip (with 30% margin),
+    // even if we haven't reached the general tank threshold yet.
+    // Previously the bot would sit idle waiting for e.g. 150 fuel when the asteroid only costs 9.
+    const tripFuel = estimateAsteroidFlightFuel(state.nearestAsteroid.distance) * 1.3;
+    const enoughForThisTrip = state.res.fuel >= tripFuel;
+    if (state.res.fuel > minimumFlightFuel || enoughForThisTrip) {
+      return approachAsteroid(state);
+    }
   }
 
   if (!fuelRecovery.active) lastDecision = "Observing resource production";

@@ -128,10 +128,14 @@ Each bot has its own directory below `bots/`. Bot-specific scripts, inputs, repo
 - Starts the performance bot on Windows.
 
 ### `bots/balance-bot/balance-bot.js`
-- Plays the game through mouse and keyboard input while reading game state for decisions.
-- Creates one timestamped archive directory per run with its save, report, metrics, and status.
-- Uses only temporary browser storage and disables the game's browser autosave for bot runs.
-- Currently implements the configurable `survival` mode and reserves `creative` for a later strategy.
+- Selects the `survival`, `creative`, or `meta` Balance Bot mode.
+
+### `bots/balance-bot/meta-bot.js`
+- Runs without a browser, canvas, graphics, mouse, or keyboard input.
+- Loads building, research, recipe, resource, storage, and production rules directly from game data.
+- Uses deterministic beam search to compare future action chains at each decision.
+- Evolves evaluation weights from the strongest previous simulations.
+- Writes action histories, resource development, bottlenecks, usage rates, and balancing recommendations to `report/meta/`.
 
 ### `bots/balance-bot/balance-bot-configuration.json`
 - Selects the bot mode, skill level, browser visibility, save interval, decision interval, and softlock timeout.

@@ -1333,7 +1333,7 @@ window.addEventListener("mousedown", e => {
 
 window.addEventListener("mouseup", e => {
   if (e.button === 0) {
-    volumeSliderDragging = false;
+    volumeSliderDragging = null;
     disposalSliderDragging = false;
     mouseDown = false;
     dragging = false;

@@ -2874,55 +2874,68 @@ function drawPlanetResourceTooltip() {
   drawResourceSurveyTooltip(cached.title, cached.entries);
 }
 
-function getGlobalVolumeSliderLayout() {
+function getGlobalVolumeSliderLayout(type = "sounds") {
+  const isMusic = type === "music";
   return {
+    type,
     x: 15,
-    y: VIEW.h - 92,
-    w: 132,
+    y: VIEW.h - (isMusic ? 92 : 124),
+    w: 164,
     h: 26,
-    trackX: 48,
-    trackY: VIEW.h - 79,
-    trackW: 86
+    trackX: 74,
+    trackY: VIEW.h - (isMusic ? 79 : 111),
+    trackW: 92
   };
 }
 
 function drawGlobalVolumeControl() {
-  const slider = getGlobalVolumeSliderLayout();
   ctx.save();
-  ctx.fillStyle = "rgba(4, 10, 30, 0.9)";
-  ctx.fillRect(slider.x, slider.y, slider.w, slider.h);
-  ctx.strokeStyle = "rgba(100,150,255,0.65)";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(slider.x, slider.y, slider.w, slider.h);
+  for (const [type, label, value] of [
+    ["sounds", "SOUNDS", userSoundVolume],
+    ["music", "MUSIC", userMusicVolume]
+  ]) {
+    const slider = getGlobalVolumeSliderLayout(type);
+    ctx.fillStyle = "rgba(4, 10, 30, 0.9)";
+    ctx.fillRect(slider.x, slider.y, slider.w, slider.h);
+    ctx.strokeStyle = "rgba(100,150,255,0.65)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(slider.x, slider.y, slider.w, slider.h);
 
-  ctx.fillStyle = "white";
-  ctx.font = "11px Consolas, monospace";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  ctx.fillText("VOL", slider.x + 8, slider.trackY);
+    ctx.fillStyle = "white";
+    ctx.font = "11px Consolas, monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, slider.x + 8, slider.trackY);
 
-  ctx.fillStyle = "rgba(255,255,255,0.18)";
-  ctx.fillRect(slider.trackX, slider.trackY - 3, slider.trackW, 6);
-  ctx.fillStyle = "#55bfff";
-  ctx.fillRect(slider.trackX, slider.trackY - 3, slider.trackW * userMasterVolume, 6);
+    ctx.fillStyle = "rgba(255,255,255,0.18)";
+    ctx.fillRect(slider.trackX, slider.trackY - 3, slider.trackW, 6);
+    ctx.fillStyle = type === "music" ? "#aa77ff" : "#55bfff";
+    ctx.fillRect(slider.trackX, slider.trackY - 3, slider.trackW * value, 6);
 
-  const knobX = slider.trackX + slider.trackW * userMasterVolume;
-  ctx.fillStyle = "#e8f7ff";
-  ctx.fillRect(knobX - 3, slider.trackY - 7, 6, 14);
+    const knobX = slider.trackX + slider.trackW * value;
+    ctx.fillStyle = "#e8f7ff";
+    ctx.fillRect(knobX - 3, slider.trackY - 7, 6, 14);
+  }
   ctx.restore();
 }
 
-function updateGlobalVolumeSlider(mx) {
-  const slider = getGlobalVolumeSliderLayout();
-  setUserMasterVolume((mx - slider.trackX) / slider.trackW);
+function updateGlobalVolumeSlider(mx, type = volumeSliderDragging) {
+  const slider = getGlobalVolumeSliderLayout(type);
+  const value = (mx - slider.trackX) / slider.trackW;
+  if (type === "music") setUserMusicVolume(value);
+  else setUserSoundVolume(value);
 }
 
 function handleGlobalVolumeSliderMouseDown(mx, my) {
-  const slider = getGlobalVolumeSliderLayout();
-  if (mx < slider.x || mx > slider.x + slider.w || my < slider.y || my > slider.y + slider.h) return false;
-  volumeSliderDragging = true;
-  updateGlobalVolumeSlider(mx);
-  return true;
+  for (const type of ["sounds", "music"]) {
+    const slider = getGlobalVolumeSliderLayout(type);
+    if (mx < slider.x || mx > slider.x + slider.w ||
+        my < slider.y || my > slider.y + slider.h) continue;
+    volumeSliderDragging = type;
+    updateGlobalVolumeSlider(mx, type);
+    return true;
+  }
+  return false;
 }
 
 function roundRect(x, y, w, h, r) {

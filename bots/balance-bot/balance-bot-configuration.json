@@ -5,6 +5,12 @@
   "softlockMinutes": 10,
   "creativeStrategies": 120,
   "creativeMaxHours": 72,
+  "metaStrategies": 12,
+  "metaGenerations": 3,
+  "metaSearchDepth": 3,
+  "metaBeamWidth": 6,
+  "metaMaxDecisions": 180,
+  "metaMaxHours": 72,
   "viewport": {
     "width": 1280,
     "height": 720

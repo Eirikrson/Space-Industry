@@ -108,14 +108,26 @@ const nextLayeredSoundAt = {};
 let backgroundMusic = null;
 let backgroundMusicIndex = -1;
 const backgroundMusicHistory = [];
-const USER_VOLUME_STORAGE_KEY = "spaceIndustry.masterVolume";
-const SOUND_OUTPUT_GAIN = 0.25;
-const storedUserMasterVolumeRaw = localStorage.getItem(USER_VOLUME_STORAGE_KEY);
-const storedUserMasterVolume = Number(storedUserMasterVolumeRaw);
-let userMasterVolume = storedUserMasterVolumeRaw !== null && Number.isFinite(storedUserMasterVolume)
-  ? Math.max(0, Math.min(1, storedUserMasterVolume))
+const LEGACY_VOLUME_STORAGE_KEY = "spaceIndustry.masterVolume";
+const USER_SOUND_VOLUME_STORAGE_KEY = "spaceIndustry.soundVolume";
+const USER_MUSIC_VOLUME_STORAGE_KEY = "spaceIndustry.musicVolume";
+const SOUND_OUTPUT_GAIN = 0.275;
+const MUSIC_OUTPUT_GAIN = 0.275;
+const legacyVolumeRaw = localStorage.getItem(LEGACY_VOLUME_STORAGE_KEY);
+const legacyVolume = Number(legacyVolumeRaw);
+const readStoredVolume = (key, fallback) => {
+  const raw = localStorage.getItem(key);
+  const value = Number(raw);
+  return raw !== null && Number.isFinite(value)
+    ? Math.max(0, Math.min(1, value))
+    : fallback;
+};
+const legacyVolumeFallback = legacyVolumeRaw !== null && Number.isFinite(legacyVolume)
+  ? Math.max(0, Math.min(1, legacyVolume))
   : 0.5;
-let volumeSliderDragging = false;
+let userSoundVolume = readStoredVolume(USER_SOUND_VOLUME_STORAGE_KEY, legacyVolumeFallback);
+let userMusicVolume = readStoredVolume(USER_MUSIC_VOLUME_STORAGE_KEY, legacyVolumeFallback);
+let volumeSliderDragging = null;
 let audioUnlocked = false;
 let menuThrusterSound = null;
 const logoImage = new Image();
@@ -123,25 +135,41 @@ logoImage.src = "Graphics/Logo.png";
 
 function getSoundVolume(name) {
   const individualFactor = Math.max(0, Number(SOUND_VOLUMES[name]) || 0);
-  return Math.max(0, Math.min(1, MASTER_SOUND_VOLUME * userMasterVolume * SOUND_OUTPUT_GAIN * individualFactor));
+  return Math.max(0, Math.min(
+    1,
+    MASTER_SOUND_VOLUME * userSoundVolume * SOUND_OUTPUT_GAIN * individualFactor
+  ));
 }
 
-function setUserMasterVolume(value) {
-  userMasterVolume = Math.max(0, Math.min(1, Number(value) || 0));
-  localStorage.setItem(USER_VOLUME_STORAGE_KEY, String(userMasterVolume));
+function getMusicVolume() {
+  const individualFactor = Math.max(0, Number(SOUND_VOLUMES.background) || 0);
+  return Math.max(0, Math.min(
+    1,
+    MASTER_SOUND_VOLUME * userMusicVolume * MUSIC_OUTPUT_GAIN * individualFactor
+  ));
+}
+
+function setUserSoundVolume(value) {
+  userSoundVolume = Math.max(0, Math.min(1, Number(value) || 0));
+  localStorage.setItem(USER_SOUND_VOLUME_STORAGE_KEY, String(userSoundVolume));
 
   for (const name in soundCache) {
     soundCache[name].volume = getSoundVolume(name);
   }
-  if (backgroundMusic) backgroundMusic.volume = getSoundVolume("background");
   for (const name in activeLayeredSounds) {
     for (const audio of activeLayeredSounds[name]) {
       audio.volume = Math.max(0, Math.min(1, getSoundVolume(name) * (audio._volumeVariation || 1)));
     }
   }
   if (menuThrusterSound) {
-    menuThrusterSound.volume = Math.max(0, Math.min(1, MASTER_SOUND_VOLUME * userMasterVolume * 0.045));
+    menuThrusterSound.volume = getSoundVolume("thruster") * 0.18;
   }
+}
+
+function setUserMusicVolume(value) {
+  userMusicVolume = Math.max(0, Math.min(1, Number(value) || 0));
+  localStorage.setItem(USER_MUSIC_VOLUME_STORAGE_KEY, String(userMusicVolume));
+  if (backgroundMusic) backgroundMusic.volume = getMusicVolume();
 }
 
 function getSound(name) {
@@ -250,7 +278,7 @@ function updateBackgroundSound(active) {
 
   backgroundMusic = new Audio(selected.file);
   backgroundMusic.loop = false;
-  backgroundMusic.volume = getSoundVolume("background");
+  backgroundMusic.volume = getMusicVolume();
   backgroundMusic.preload = "auto";
   backgroundMusic.addEventListener("ended", () => {
     backgroundMusic = null;
@@ -279,7 +307,7 @@ function updateMenuThrusterSound(active) {
     menuThrusterSound.preload = "auto";
   }
 
-  menuThrusterSound.volume = Math.max(0, Math.min(1, MASTER_SOUND_VOLUME * userMasterVolume * 0.045));
+  menuThrusterSound.volume = getSoundVolume("thruster") * 0.18;
 
   if (active) {
     if (menuThrusterSound.paused) {

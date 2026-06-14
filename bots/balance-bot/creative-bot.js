@@ -167,6 +167,7 @@ function createCreativeState(data, strategy) {
     drones: 0,
     maintenanceActive: false,
     storageExpansionActive: false,
+    dysonSphere: false,
     autoDisposeLimits: {},
     disposed: {},
     lifeSupportOutageSeconds: 0,
@@ -227,11 +228,16 @@ function creativePower(state, data) {
   const generation =
     count("Solar Panel") * (stats["Solar Panel"]?.energyProdBase || 0) +
     count("Turbine") * (stats.Turbine?.energyProd || 0) +
-    count("Condenser Turbine") * (stats["Condenser Turbine"]?.energyProd || 0);
+    count("Condenser Turbine") * (stats["Condenser Turbine"]?.energyProd || 0) +
+    (state.dysonSphere ? 1800 : 0);
   const baseUse =
     count("Life Support") * (stats["Life Support"]?.energyUse || 0) +
     count("Farm Module") * (stats["Farm Module"]?.energyUse || 0) +
-    count("Asteroid Collector") * (stats["Asteroid Collector"]?.energyUse || 0);
+    count("Asteroid Collector") * (stats["Asteroid Collector"]?.energyUse || 0) +
+    count("Event Horizon Shield") * (stats["Event Horizon Shield"]?.energyUse || 0) +
+    count("Gravitational Pull Stabilizer") *
+      (stats["Gravitational Pull Stabilizer"]?.energyUse || 0) +
+    count("Quantum Computer") * (stats["Quantum Computer"]?.energyUse || 0);
   return { generation, baseUse, net: generation - baseUse };
 }
 
@@ -293,10 +299,13 @@ function creativeAdvance(state, seconds, data, reason, activeEnergyUse = 0) {
   if (collectors > 0) {
     const cycles = seconds * collectors / 15;
     const pool = data.resources.COLLECTOR_SOLID_POOL;
-    for (const key of new Set(pool)) {
-      const share = pool.filter(item => item === key).length / pool.length;
-      const amount = cycles * share;
-      creativeStoreSolid(state, data, key, amount);
+    // Pre-compute weighted shares from the pool array (duplicate entries = higher weight)
+    const poolWeights = new Map();
+    for (const key of pool) {
+      poolWeights.set(key, (poolWeights.get(key) || 0) + 1 / pool.length);
+    }
+    for (const [key, share] of poolWeights) {
+      creativeStoreSolid(state, data, key, cycles * share);
     }
   }
 
@@ -477,9 +486,11 @@ function creativeProduceFuel(state, data, amount) {
     creativeRecord(state.consumed, "hydrogen", hydrogen);
     creativeRecord(state.consumed, "oxygen", oxygen);
     creativeRecord(state.produced, "fuel", availableFuel);
+    // Electrolyser and Fuel Processor run in parallel — use the longer of the two, not the sum.
+    const parallelSeconds = Math.max(electroSeconds, seconds);
     creativeAdvance(
       state,
-      electroSeconds + seconds,
+      parallelSeconds,
       data,
       "fuel production",
       electro.energyUse + fuelStats.energyUse
@@ -519,43 +530,65 @@ function creativeEnsureResource(state, data, key, amount, depth = 0) {
   if (smelterInputs[key]) {
     if (!(state.buildings.Smelter > 0)) return false;
     const input = smelterInputs[key];
-    if (!creativeEnsureResource(state, data, input, missing, depth + 1)) return false;
-    state.resources[input] -= missing;
-    creativeRecord(state.consumed, input, missing);
-    const produced = creativeStoreSolid(state, data, key, missing);
-    creativeAdvance(
-      state,
-      missing / Math.max(1, state.buildings.Smelter || 1),
-      data,
-      `smelt ${key}`,
-      data.buildings.BUILDING_STATS.Smelter.energyUse
-    );
-    return produced + 0.000001 >= missing;
+    // Read conversion ratio from BUILDING_STATS recipes if available, fallback to 1:1
+    const smelterRecipes = data.buildings.BUILDING_STATS.Smelter?.recipes;
+    const smelterRecipe = smelterRecipes?.[key];
+    const outputPerBatch = smelterRecipe?.outputs?.[key] || 1;
+    const inputPerBatch = smelterRecipe?.inputs?.[input] || 1;
+    const ratio = inputPerBatch / outputPerBatch; // ore needed per 1 plate
+    let remaining = missing;
+    let producedTotal = 0;
+    while (remaining > 0.001) {
+      const outputChunk = Math.min(100, remaining);
+      const oreNeeded = outputChunk * ratio;
+      if (!creativeEnsureResource(state, data, input, oreNeeded, depth + 1)) return false;
+      state.resources[input] -= oreNeeded;
+      creativeRecord(state.consumed, input, oreNeeded);
+      const produced = creativeStoreSolid(state, data, key, outputChunk);
+      creativeAdvance(
+        state,
+        outputChunk / Math.max(1, state.buildings.Smelter || 1),
+        data,
+        `smelt ${key}`,
+        data.buildings.BUILDING_STATS.Smelter?.energyUse || 0
+      );
+      producedTotal += produced;
+      remaining -= produced;
+      if (produced <= 0.001) return false;
+    }
+    return producedTotal + 0.000001 >= missing;
   }
 
   const recipe = data.buildings.BUILDING_STATS.Assembler?.recipes?.[key];
   if (recipe) {
     if (!(state.buildings.Assembler > 0)) return false;
     const output = Math.max(1, recipe.outputs?.[key] || 1);
-    const batches = Math.ceil(missing / output);
-    for (const [input, perBatch] of Object.entries(recipe.inputs || {})) {
-      if (!creativeEnsureResource(state, data, input, perBatch * batches, depth + 1)) return false;
+    let remaining = missing;
+    let producedTotal = 0;
+    while (remaining > 0.001) {
+      const batches = Math.min(50, Math.ceil(remaining / output));
+      for (const [input, perBatch] of Object.entries(recipe.inputs || {})) {
+        if (!creativeEnsureResource(state, data, input, perBatch * batches, depth + 1)) return false;
+      }
+      for (const [input, perBatch] of Object.entries(recipe.inputs || {})) {
+        const used = perBatch * batches;
+        state.resources[input] -= used;
+        creativeRecord(state.consumed, input, used);
+      }
+      const made = output * batches;
+      const produced = creativeStoreSolid(state, data, key, made);
+      creativeAdvance(
+        state,
+        batches / Math.max(1, state.buildings.Assembler || 1),
+        data,
+        `assemble ${key}`,
+        data.buildings.BUILDING_STATS.Assembler.energyUse
+      );
+      producedTotal += produced;
+      remaining -= produced;
+      if (produced <= 0.001) return false;
     }
-    for (const [input, perBatch] of Object.entries(recipe.inputs || {})) {
-      const used = perBatch * batches;
-      state.resources[input] -= used;
-      creativeRecord(state.consumed, input, used);
-    }
-    const made = output * batches;
-    const produced = creativeStoreSolid(state, data, key, made);
-    creativeAdvance(
-      state,
-      batches / Math.max(1, state.buildings.Assembler || 1),
-      data,
-      `assemble ${key}`,
-      data.buildings.BUILDING_STATS.Assembler.energyUse
-    );
-    return produced + 0.000001 >= missing;
+    return producedTotal + 0.000001 >= missing;
   }
   creativeRecord(state.shortages, key, missing);
   return false;
@@ -587,6 +620,7 @@ function creativeBuild(state, data, name, count = 1) {
     if (!creativeMaintainOperations(state, data)) return false;
     if (
       !state.storageExpansionActive &&
+      (state.buildings.Smelter || 0) > 0 &&
       name !== "Warehouse MK1" &&
       name !== "Warehouse MK2" &&
       creativeSolidUsed(state, data) > (state.resources.itemCap || 0) * 0.75
@@ -604,6 +638,8 @@ function creativeBuild(state, data, name, count = 1) {
     const gatheringStarted = state.time;
     if (!creativeEnsureCost(state, data, cost)) return false;
     const gatheringSeconds = state.time - gatheringStarted;
+    // NOTE: creativeEnsureCost already ensures resources exist but does NOT deduct them from state.resources.
+    // creativeConsumeCost handles the actual deduction and consumed-tracking.
     creativeConsumeCost(state, cost);
     const duration = Math.max(1.5, 8 / state.strategy.expansion);
     creativeAdvance(state, duration, data, `build ${name}`);
@@ -708,6 +744,39 @@ function creativeBuildMiningDrone(state, data) {
   return true;
 }
 
+function creativeBuildDysonSphere(state, data) {
+  if (state.dysonSphere) return true;
+  const cost = {
+    ironPlate: 1800,
+    copperPlate: 1400,
+    circuits: 700,
+    cables: 900,
+    silicon: 500,
+    nickel: 350
+  };
+  for (const [key, amount] of Object.entries(cost)) {
+    let remaining = amount;
+    while (remaining > 0.001) {
+      const contribution = Math.min(100, remaining);
+      if (!creativeEnsureResource(state, data, key, contribution)) {
+        creativeRecord(
+          state.shortages,
+          `dyson:${key}`,
+          Math.max(0, contribution - (state.resources[key] || 0))
+        );
+        return false;
+      }
+      creativeConsumeCost(state, { [key]: contribution });
+      creativeAdvance(state, 1, data, `supply Dyson sphere: ${key}`);
+      remaining -= contribution;
+    }
+  }
+  creativeAdvance(state, 180, data, "complete Dyson sphere");
+  state.dysonSphere = true;
+  state.milestones.dysonSphere = state.time;
+  return true;
+}
+
 function creativeResearch(state, data, item, tierIndex) {
   if (state.research.has(item.name)) return true;
   const computerLevel =
@@ -719,6 +788,7 @@ function creativeResearch(state, data, item, tierIndex) {
   const gatheringStarted = state.time;
   if (!creativeEnsureCost(state, data, item.cost)) return false;
   const gatheringSeconds = state.time - gatheringStarted;
+  // creativeEnsureCost ensures resources exist but does NOT deduct them — creativeConsumeCost handles that.
   creativeConsumeCost(state, item.cost);
   const materialTotal = Object.values(item.cost || {}).reduce((sum, value) => sum + value, 0);
   const duration = Math.max(2, materialTotal * 0.12 / state.strategy.research);
@@ -727,7 +797,7 @@ function creativeResearch(state, data, item, tierIndex) {
     duration,
     data,
     `research ${item.name}`,
-    data.buildings.BUILDING_STATS.Laboratory.energyUse
+    data.buildings.BUILDING_STATS.Laboratory?.energyUse || 0
   );
   state.researchTime += duration;
   state.research.add(item.name);
@@ -750,7 +820,7 @@ function creativeResearchScore(item, strategy) {
   if (name === "Fuel Processor" || name === "Electrolyser") score += 450;
   if (/Computer/.test(name)) score += strategy.research * 100;
   if (/Drill|Scooper|Collector/.test(name)) score += strategy.mining * 70;
-  if (/Battery|Reactor|Turbine|Fuel|Electrolyser/.test(name)) score += strategy.energy * 65;
+  if (/Battery|Reactor|Turbine|Fuel|Electrolyser/.test(name)) score += strategy.energy * 65; // "Fuel" intentionally matches "Fuel Processor" too
   if (/Warehouse|Tank|Hangar/.test(name)) score += strategy.expansion * 35;
   if (/Quantum|Stabilizer|Event Horizon/.test(name)) score += 120;
   const cost = Object.values(item.cost || {}).reduce((sum, value) => sum + value, 0);
@@ -787,6 +857,9 @@ function creativeRunStrategy(data, strategy, maximumSeconds) {
   }
 
   for (let tierIndex = 0; tierIndex < data.buildings.RESEARCH_TIERS.length; tierIndex++) {
+    if (tierIndex === 3 && !creativeBuildDysonSphere(state, data)) {
+      return fail("cannot complete Dyson sphere before endgame research");
+    }
     const tier = data.buildings.RESEARCH_TIERS[tierIndex];
     const pending = tier.items
       .filter(item => !state.research.has(item.name))
@@ -831,6 +904,9 @@ function creativeRunStrategy(data, strategy, maximumSeconds) {
     ["Gravitational Pull Stabilizer", 1],
     ["Event Horizon Shield", 4]
   ];
+  if (!creativeBuildDysonSphere(state, data)) {
+    return fail("cannot complete Dyson sphere for endgame charging");
+  }
   for (const [name, count] of endBuilds) {
     const missing = Math.max(0, count - (state.buildings[name] || 0));
     if (missing > 0 && !creativeBuild(state, data, name, missing)) {
@@ -906,7 +982,11 @@ function creativeSummarize(state, data) {
     totalConsumed: creativeTotal(state.consumed),
     storagePressureSeconds: state.overflow.solidStoragePressureSeconds || 0,
     finalSolidUsed: creativeSolidUsed(state, data),
-    finalSolidCapacity: state.resources.itemCap || 0
+    finalSolidCapacity: state.resources.itemCap || 0,
+    finalEnergy: state.resources.energy || 0,
+    finalEnergyCapacity: state.resources.energyCap || 0,
+    finalEnergyNet: creativePower(state, data).net,
+    dysonSphere: !!state.dysonSphere
   };
 }
 
@@ -1173,7 +1253,28 @@ async function runCreativeSimulation() {
 }
 
 
-runCreativeSimulation().catch(error => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  runCreativeSimulation().catch(error => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  loadConfig,
+  formatLocalTimestamp,
+  getCreativeGameData,
+  createCreativeState,
+  creativeConfigureAutoDispose,
+  creativeSolidUsed,
+  creativePower,
+  creativeAdvance,
+  creativeMineBatch,
+  creativeEnsureResource,
+  creativeConsumeCost,
+  creativeBuildDysonSphere,
+  creativeBuild,
+  creativeResearch,
+  creativeRecalculateCaps,
+  creativeSummarize
+};

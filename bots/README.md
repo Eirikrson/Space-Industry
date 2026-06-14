@@ -27,4 +27,8 @@ Directory: `bots/balance-bot`
 
 Windows launcher: `bots/balance-bot/Run-Balance-Bot.bat`
 
-The Balance Bot plays through normal mouse and keyboard input, records progression and resource bottlenecks, and stores each run in a timestamped archive directory. Its current `survival` mode stops on victory, destruction, fuel softlock, or prolonged lack of progress.
+The Balance Bot provides three modes:
+
+- `survival` plays through the visible game and records progression and resource bottlenecks.
+- `creative` runs deterministic headless rule simulations.
+- `meta` searches legal action chains directly against game data, learns from successful simulations, and creates balancing reports.

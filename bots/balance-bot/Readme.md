@@ -4,12 +4,14 @@ Start `Run-Balance-Bot.bat`. The terminal first asks for the mode:
 
 - `S` starts the Survival Bot. It then asks for a world number from `000` to `999`. Press Enter to create a new world.
 - `C` starts the Creative Bot immediately.
+- `M` starts the headless Meta Bot. It searches action chains directly against the game rules and creates a meta report.
 
 ## Files
 
 - `balance-bot.js`: small shared starter and mode selection
 - `survival-bot.js`: visible browser bot with human controls
 - `creative-bot.js`: headless rule simulation without browser, canvas, graphics, sound, camera, or UI
+- `meta-bot.js`: deterministic look-ahead strategy search and evolutionary meta analysis
 - `balance-bot-configuration.json`: settings for both bots
 - `Run-Balance-Bot.bat`: common start file
 - `world/`: read-only Survival world templates
@@ -18,6 +20,12 @@ Start `Run-Balance-Bot.bat`. The terminal first asks for the mode:
 
 - `report/survival/`: Survival saves, status, metrics, and reports
 - `report/creative/`: Creative simulation results and rankings
+- `report/meta/`: Meta search results, action histories, metrics, and balancing reports
+
+Each Meta run contains `meta-report.md`, `meta-analysis.json`,
+`best-strategy.json`, `metrics.json`, and `simulations.json`. The simulations
+file preserves every tested action sequence and its resource and energy
+development.
 
 The complete `report/` directory is ignored by Git.
 
@@ -29,6 +37,12 @@ The complete `report/` directory is ignored by Git.
 - `softlockMinutes`: Survival timeout without progress
 - `creativeStrategies`: number of Creative strategies; values below 100 are raised to 100
 - `creativeMaxHours`: maximum simulated game time for each strategy
+- `metaStrategies`: number of strategy genomes tested per generation
+- `metaGenerations`: number of learning generations
+- `metaSearchDepth`: number of future actions considered at each decision
+- `metaBeamWidth`: number of promising action chains retained at each depth
+- `metaMaxDecisions`: maximum decisions in one simulated game
+- `metaMaxHours`: maximum simulated game time in one Meta run
 - `viewport`: Survival browser size
 
 ## Creative Simulation Scope
